@@ -31,6 +31,8 @@ var hub *captureHub
 var hooks *hookStore
 var feed *feedStore
 
+var publicMode bool
+
 func runWeb(port int) {
 	panes, err := findClaudePanes()
 	if err != nil {
@@ -234,11 +236,15 @@ func runWeb(port int) {
 	if port == 0 {
 		port = 7685
 	}
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	host := "127.0.0.1"
+	if publicMode {
+		host = "0.0.0.0"
+	}
+	addr := fmt.Sprintf("%s:%d", host, port)
 
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		ln, err = net.Listen("tcp", "127.0.0.1:0")
+		ln, err = net.Listen("tcp", fmt.Sprintf("%s:0", host))
 		if err != nil {
 			fatal("cannot listen: %v", err)
 		}
@@ -246,9 +252,6 @@ func runWeb(port int) {
 	}
 
 	fmt.Printf("▸ Dashboard at http://%s\n", addr)
-
-	// Open browser
-	exec.Command("open", fmt.Sprintf("http://%s", addr)).Start()
 
 	// Graceful shutdown
 	srv := &http.Server{Handler: http.DefaultServeMux}

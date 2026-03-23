@@ -16,8 +16,33 @@ func main() {
 		arg = os.Args[1]
 	}
 
+	port, public := parseFlags()
+
 	switch arg {
-	case "--list":
+	case "start":
+		daemonStart(port, public)
+
+	case "stop":
+		daemonStop()
+
+	case "restart":
+		daemonRestart(port, public)
+
+	case "status":
+		daemonStatus()
+
+	case "init":
+		fmt.Println("▸ Installing Claude Wall hooks...")
+		runInit()
+		fmt.Println()
+		daemonStart(port, public)
+
+	case "uninstall":
+		fmt.Println("▸ Removing Claude Wall hooks...")
+		daemonStop()
+		runUninstall()
+
+	case "list":
 		panes, err := findClaudePanes()
 		if err != nil {
 			fatal("failed to detect panes: %v", err)
@@ -33,36 +58,63 @@ func main() {
 		}
 		fmt.Println()
 
-	case "--kill":
-		tmuxRun("kill-session", "-t", dashSession)
-		fmt.Println("▸ Dashboard destroyed")
+	case "open":
+		// Open the dashboard in browser
+		pid := readPid()
+		if pid <= 0 || !processAlive(pid) {
+			daemonStart(port, public)
+		}
+		host := "127.0.0.1"
+		if public {
+			host = "0.0.0.0"
+		}
+		exec.Command("open", fmt.Sprintf("http://%s:%d", host, port)).Start()
 
-	case "init":
-		fmt.Println("▸ Installing Claude Wall hooks...")
-		runInit()
-
-	case "uninstall":
-		fmt.Println("▸ Removing Claude Wall hooks...")
-		runUninstall()
-
-	case "":
-		// Default: launch web dashboard
-		port := 7685
+	case "--serve":
+		// Internal: run the server in foreground (used by daemon)
+		publicMode = public
 		runWeb(port)
 
+	case "":
+		// Default: start daemon + open browser
+		daemonStart(port, public)
+		exec.Command("open", fmt.Sprintf("http://127.0.0.1:%d", port)).Start()
+
 	default:
-		// Check if it's a port number
-		port := 0
-		if n, _ := fmt.Sscanf(arg, "%d", &port); n == 1 && port > 0 && port < 65536 {
-			runWeb(port)
-		} else {
-			fmt.Fprintln(os.Stderr, "usage: claude-wall [--list | --kill | init | uninstall | PORT]")
-			os.Exit(1)
-		}
+		fmt.Fprintln(os.Stderr, `usage: claude-wall <command> [flags]
+
+Commands:
+  init                Install hooks + start dashboard
+  start [--public]    Start dashboard in background
+  stop                Stop dashboard
+  restart [--public]  Restart dashboard
+  status              Show if dashboard is running
+  open                Open dashboard in browser
+  list                List detected Claude Code agents
+  uninstall           Remove hooks + stop dashboard
+
+Flags:
+  --public            Bind to 0.0.0.0 (for Tailscale/remote access)
+  --port PORT         Use custom port (default: 7685)`)
+		os.Exit(1)
 	}
 }
 
 const dashSession = "claude-wall"
+
+func parseFlags() (int, bool) {
+	port := 7685
+	public := false
+	for i, a := range os.Args {
+		if a == "--public" {
+			public = true
+		}
+		if a == "--port" && i+1 < len(os.Args) {
+			fmt.Sscanf(os.Args[i+1], "%d", &port)
+		}
+	}
+	return port, public
+}
 
 type claudePane struct {
 	Target  string `json:"target"`  // e.g. Agent:1.2
