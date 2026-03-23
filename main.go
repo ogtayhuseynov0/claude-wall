@@ -37,13 +37,6 @@ func main() {
 		tmuxRun("kill-session", "-t", dashSession)
 		fmt.Println("▸ Dashboard destroyed")
 
-	case "--web":
-		port := 7685
-		if len(os.Args) >= 3 {
-			fmt.Sscanf(os.Args[2], "%d", &port)
-		}
-		runWeb(port)
-
 	case "init":
 		fmt.Println("▸ Installing Claude Wall hooks...")
 		runInit()
@@ -53,10 +46,19 @@ func main() {
 		runUninstall()
 
 	case "":
-		runDashboard()
+		// Default: launch web dashboard
+		port := 7685
+		runWeb(port)
+
 	default:
-		fmt.Fprintln(os.Stderr, "usage: claude-wall [--list | --kill | --web [port] | init | uninstall]")
-		os.Exit(1)
+		// Check if it's a port number
+		port := 0
+		if n, _ := fmt.Sscanf(arg, "%d", &port); n == 1 && port > 0 && port < 65536 {
+			runWeb(port)
+		} else {
+			fmt.Fprintln(os.Stderr, "usage: claude-wall [--list | --kill | init | uninstall | PORT]")
+			os.Exit(1)
+		}
 	}
 }
 
@@ -132,86 +134,6 @@ func findClaudePanes() ([]claudePane, error) {
 		})
 	}
 	return panes, nil
-}
-
-func runDashboard() {
-	panes, err := findClaudePanes()
-	if err != nil {
-		fatal("detection failed: %v", err)
-	}
-	if len(panes) == 0 {
-		fatal("no Claude Code panes found")
-	}
-
-	fmt.Printf("▸ Found %d Claude Code instance(s)\n", len(panes))
-
-	// Clean slate
-	tmuxRun("kill-session", "-t", dashSession)
-
-	// Get client size
-	cw := tmuxDisplay("#{client_width}", "200")
-	ch := tmuxDisplay("#{client_height}", "50")
-
-	// Get helper path (same directory as this binary)
-	helperPath := helperBinaryPath()
-
-	// Build dashboard
-	var dashWin string
-
-	for i, p := range panes {
-		label := fmt.Sprintf("🖥 %s  📂 %s  🌿 %s", p.Session, p.DirName, p.Branch)
-		paneCmd := fmt.Sprintf("exec %s %s", helperPath, p.Target)
-
-		if i == 0 {
-			tmuxRun("new-session", "-d", "-s", dashSession, "-x", cw, "-y", ch, paneCmd)
-			dashWin = tmuxDisplayTarget(dashSession, "#{window_index}", "1")
-			firstPane := tmuxDisplayTarget(dashSession, "#{pane_id}", "")
-			if firstPane != "" {
-				tmuxRun("select-pane", "-t", firstPane, "-T", label)
-				tmuxRun("set", "-p", "-t", firstPane, "allow-set-title", "off")
-			}
-		} else {
-			newPane, err := tmuxOutput(
-				"split-window", "-t", dashSession+":"+dashWin,
-				"-P", "-F", "#{pane_id}", paneCmd,
-			)
-			if err != nil {
-				fmt.Printf("▸ Terminal too small for all %d tiles.\n", len(panes))
-				break
-			}
-			newPane = strings.TrimSpace(newPane)
-			tmuxRun("select-pane", "-t", newPane, "-T", label)
-			tmuxRun("set", "-p", "-t", newPane, "allow-set-title", "off")
-			tmuxRun("select-layout", "-t", dashSession+":"+dashWin, "tiled")
-		}
-	}
-
-	// Style
-	tmuxRun("select-layout", "-t", dashSession+":"+dashWin, "tiled")
-	tmuxRun("rename-window", "-t", dashSession+":"+dashWin, fmt.Sprintf("%d instances", len(panes)))
-
-	tmuxRun("set-option", "-t", dashSession, "pane-border-status", "top")
-	tmuxRun("set-option", "-t", dashSession, "pane-border-format", " #[fg=colour39,bold]#{pane_title}#[default] ")
-	tmuxRun("set-option", "-t", dashSession, "pane-border-lines", "heavy")
-	tmuxRun("set-option", "-t", dashSession, "pane-border-style", "fg=colour240")
-	tmuxRun("set-option", "-t", dashSession, "pane-active-border-style", "fg=colour39")
-	tmuxRun("set-option", "-t", dashSession, "mouse", "on")
-
-	// Attach
-	if err := tmuxExec("switch-client", "-t", dashSession); err != nil {
-		tmuxExec("attach-session", "-t", dashSession)
-	}
-}
-
-// helperBinaryPath returns the path to claude-wall-pane binary
-// (expected in the same directory as the main binary)
-func helperBinaryPath() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "claude-wall-pane"
-	}
-	dir := exe[:strings.LastIndex(exe, "/")+1]
-	return dir + "claude-wall-pane"
 }
 
 // ─── tmux helpers ────────────────────────────────────────────
