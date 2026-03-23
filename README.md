@@ -16,17 +16,39 @@
 - **Hooks Integration** — Claude Code hooks push real-time status (no polling needed)
 - **Keyboard Shortcuts** — `Ctrl+1-9` to focus tiles, `/` to search, `?` for help
 
+## Install
+
+**Homebrew (macOS & Linux):**
+```bash
+brew tap ogtayhuseynov0/tap
+brew install claude-wall
+```
+
+**Binary download:**
+```bash
+# macOS (Apple Silicon)
+curl -L https://github.com/ogtayhuseynov0/claude-wall/releases/latest/download/claude-wall-macos-arm64 -o ~/.local/bin/claude-wall
+chmod +x ~/.local/bin/claude-wall
+
+# macOS (Intel)
+curl -L https://github.com/ogtayhuseynov0/claude-wall/releases/latest/download/claude-wall-macos-amd64 -o ~/.local/bin/claude-wall
+chmod +x ~/.local/bin/claude-wall
+
+# Linux (amd64)
+curl -L https://github.com/ogtayhuseynov0/claude-wall/releases/latest/download/claude-wall-linux-amd64 -o ~/.local/bin/claude-wall
+chmod +x ~/.local/bin/claude-wall
+```
+
+**From source:**
+```bash
+go install github.com/ogtayhuseynov0/claude-wall@latest
+```
+
 ## Quick Start
 
 ```bash
-# Install
-go install github.com/ogtayhuseynov0/claude-wall@latest
-
-# Set up Claude Code hooks (one-time)
-claude-wall init
-
-# Launch the web dashboard
-claude-wall --web
+claude-wall init    # install Claude Code hooks (one-time)
+claude-wall         # launch dashboard
 ```
 
 The dashboard opens at `http://127.0.0.1:7685` and auto-detects all Claude Code instances running in tmux.
@@ -35,9 +57,8 @@ The dashboard opens at `http://127.0.0.1:7685` and auto-detects all Claude Code 
 
 | Command | Description |
 |---|---|
-| `claude-wall` | Launch tmux tile dashboard (terminal UI) |
-| `claude-wall --web` | Launch web dashboard (default port 7685) |
-| `claude-wall --web 8080` | Launch web dashboard on custom port |
+| `claude-wall` | Launch web dashboard (default port 7685) |
+| `claude-wall 8080` | Launch on custom port |
 | `claude-wall --list` | List detected Claude Code panes |
 | `claude-wall --kill` | Destroy the tmux dashboard session |
 | `claude-wall init` | Install Claude Code hooks for real-time status |
