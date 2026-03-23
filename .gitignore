@@ -1,0 +1,19 @@
+# Binaries
+claude-wall
+claude-wall-pane
+*.exe
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Debug
+*.log
+/tmp/

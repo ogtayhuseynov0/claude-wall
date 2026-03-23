@@ -1,0 +1,1780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Wall</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #1a1c23;
+    --bg-surface: #21242d;
+    --bg-raised: #282b36;
+    --bg-hover: #2f3340;
+    --border: #363a4a;
+    --border-subtle: #2e3242;
+    --accent: #6ea1f7;
+    --accent-glow: rgba(110, 161, 247, 0.15);
+    --accent-muted: #5b8fe8;
+    --green: #4ade80;
+    --green-glow: rgba(74, 222, 128, 0.12);
+    --amber: #fbbf24;
+    --amber-glow: rgba(251, 191, 36, 0.12);
+    --red: #f87171;
+    --text: #e8eaef;
+    --text-secondary: #9ca3b0;
+    --text-muted: #6b7280;
+    --font-ui: 'DM Sans', -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', Menlo, Monaco, monospace;
+    --radius: 8px;
+    --radius-sm: 5px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    font-family: var(--font-ui);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Header ── */
+  header {
+    padding: 10px 20px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+    backdrop-filter: blur(12px);
+    position: relative;
+    z-index: 10;
+  }
+  header::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
+  }
+  header h1 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  header .count {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 500;
+    padding: 2px 8px;
+    background: var(--bg-raised);
+    border-radius: 10px;
+    border: 1px solid var(--border-subtle);
+  }
+
+  .status-summary {
+    font-size: 11px; font-family: var(--font-mono); color: var(--text-muted);
+    padding: 3px 10px; background: var(--bg-raised); border: 1px solid var(--border-subtle);
+    border-radius: 10px; white-space: nowrap;
+  }
+  .status-summary .s-working { color: var(--green); }
+  .status-summary .s-perm { color: var(--amber); }
+  .status-summary .s-idle { color: var(--text-muted); }
+
+  header #search {
+    margin-left: auto;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-family: var(--font-ui);
+    color: var(--text);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    width: 180px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  header #search::placeholder { color: var(--text-muted); }
+  header #search:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+
+  header .refresh-btn {
+    padding: 5px 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: var(--font-ui);
+    line-height: 1;
+  }
+  header .refresh-btn:hover {
+    color: var(--text);
+    background: var(--bg-hover);
+    border-color: var(--text-muted);
+  }
+
+  /* ── Main Layout ── */
+  #main-container {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+  #main-container > #grid { flex: 1; }
+
+  /* ── Side Panel (Activity Feed + Approvals) ── */
+  #side-panel {
+    width: 320px;
+    flex-shrink: 0;
+    background: var(--bg-surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: width 0.2s;
+  }
+  #side-panel.collapsed { width: 0; border: none; }
+
+  .panel-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+  }
+  .panel-tab {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    font-family: var(--font-ui);
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+  }
+  .panel-tab:hover { color: var(--text-secondary); }
+  .panel-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .panel-tab .badge {
+    display: inline-block;
+    background: var(--amber);
+    color: #000;
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 8px;
+    margin-left: 4px;
+    font-weight: 700;
+  }
+
+  .panel-content {
+    flex: 1;
+    overflow-y: auto;
+    display: none;
+  }
+  .panel-content.active { display: block; }
+  .panel-content::-webkit-scrollbar { width: 4px; }
+  .panel-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* Feed entries */
+  .feed-entry {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 11px;
+    line-height: 1.4;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .feed-entry { cursor: pointer; }
+  .feed-entry:hover { background: var(--bg-raised); }
+  .feed-time { color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; flex-shrink: 0; white-space: nowrap; }
+  .feed-session { color: var(--accent); font-weight: 600; flex-shrink: 0; width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .feed-activity { color: var(--text-secondary); font-family: var(--font-mono); font-size: 10px; word-break: break-all; }
+  .feed-icon { flex-shrink: 0; font-size: 12px; }
+  .feed-entry[data-status="permission"] { background: rgba(251, 191, 36, 0.05); }
+  .feed-entry[data-status="idle"] .feed-icon { opacity: 0.4; }
+
+  /* Approval items */
+  .approval-item {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .approval-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .approval-session { color: var(--accent); font-weight: 600; font-size: 12px; }
+  .approval-activity {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    padding: 6px 8px;
+    background: var(--bg-deep);
+    border-radius: 4px;
+    margin-bottom: 8px;
+    word-break: break-all;
+  }
+  .approval-actions { display: flex; gap: 6px; }
+  .approval-btn {
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-family: var(--font-ui);
+    cursor: pointer;
+    border: 1px solid var(--border);
+    transition: all 0.15s;
+  }
+  .approval-btn.approve, .approval-btn.approve-always { background: rgba(74, 222, 128, 0.1); color: var(--green); border-color: rgba(74, 222, 128, 0.3); }
+  .approval-btn.approve:hover, .approval-btn.approve-always:hover { background: rgba(74, 222, 128, 0.2); }
+  .approval-btn.deny { background: rgba(248, 113, 113, 0.1); color: var(--red); border-color: rgba(248, 113, 113, 0.3); }
+  .approval-btn.deny:hover { background: rgba(248, 113, 113, 0.2); }
+  .approval-btn.focus-btn { margin-left: auto; color: var(--accent); border-color: rgba(110, 161, 247, 0.3); background: rgba(110, 161, 247, 0.06); }
+  .approval-btn.focus-btn:hover { background: rgba(110, 161, 247, 0.12); }
+
+  /* ── Summary Card (hover tooltip) ── */
+  .summary-card {
+    display: none;
+    position: fixed;
+    z-index: 150;
+    width: 280px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+    padding: 12px;
+    pointer-events: none;
+  }
+  .summary-card.visible { display: block; }
+  .summary-card h4 { font-size: 12px; color: var(--accent); margin-bottom: 8px; font-weight: 600; }
+  .summary-row { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; }
+  .summary-row .label { color: var(--text-muted); }
+  .summary-row .value { color: var(--text); font-family: var(--font-mono); }
+  .summary-actions {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-subtle);
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+  .summary-actions div { padding: 1px 0; }
+
+  /* ── Toggle button ── */
+  .panel-toggle {
+    position: fixed;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 50;
+    padding: 8px 4px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-right: none;
+    border-radius: 6px 0 0 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s;
+  }
+  .panel-toggle:hover { color: var(--text); background: var(--bg-hover); }
+  #side-panel:not(.collapsed) ~ .panel-toggle { right: 320px; }
+
+  /* ── Minimized Bar ── */
+  #minimized-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 12px;
+    flex-shrink: 0;
+    background: var(--bg-surface);
+  }
+  #minimized-bar:empty { display: none; }
+  #minimized-bar .tile {
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 0;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-raised);
+  }
+  #minimized-bar .tile .tile-body { display: none; }
+  #minimized-bar .tile .tile-header {
+    border-bottom: none;
+    border-radius: var(--radius-sm);
+    padding: 3px 10px;
+    background: transparent;
+  }
+
+  /* ── Grid ── */
+  #grid {
+    flex: 1;
+    display: grid;
+    gap: 3px;
+    padding: 6px;
+    overflow: hidden;
+    background: var(--bg-deep);
+  }
+
+  /* ── Tile ── */
+  .tile {
+    background: var(--bg-surface);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    border-radius: var(--radius);
+    border: 1px solid var(--border-subtle);
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .tile:hover { border-color: var(--border); }
+
+  /* Active tile */
+  .tile.active {
+    border-color: var(--green);
+    box-shadow: 0 0 0 1px var(--green), 0 0 20px -4px var(--green-glow), inset 0 0 20px -12px var(--green-glow);
+  }
+  .tile.active .tile-header { background: rgba(34, 197, 94, 0.04); }
+  .tile.active .tile-header .session,
+  .tile.active .tile-header .dir,
+  .tile.active .tile-header .branch { color: var(--text); }
+
+  .tile.zoomed {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 100;
+    border-radius: 0;
+    border: none;
+  }
+  .tile.removing { opacity: 0; transition: opacity 0.3s; }
+  .tile-ghost { opacity: 0.2; }
+
+  /* Permission status */
+  .tile[data-status="permission"] {
+    border-color: var(--amber);
+    box-shadow: 0 0 0 1px var(--amber), 0 0 24px -4px var(--amber-glow);
+    animation: pulse-permission 2s ease-in-out infinite;
+  }
+  .tile[data-status="permission"] .tile-header {
+    background: rgba(245, 158, 11, 0.06);
+  }
+
+  @keyframes pulse-permission {
+    0%, 100% { box-shadow: 0 0 0 1px var(--amber), 0 0 24px -4px var(--amber-glow); }
+    50% { box-shadow: 0 0 0 1px var(--amber), 0 0 40px -4px rgba(245, 158, 11, 0.2); }
+  }
+
+  /* Working status */
+  .tile[data-status="working"] {
+    border-color: rgba(34, 197, 94, 0.3);
+  }
+
+  /* ── Tile Header ── */
+  .tile-header {
+    padding: 6px 10px;
+    background: var(--bg-raised);
+    font-size: 11px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-shrink: 0;
+    cursor: grab;
+    user-select: none;
+    border-bottom: 1px solid var(--border-subtle);
+    font-weight: 500;
+  }
+  .tile-header:active { cursor: grabbing; }
+
+  .tile-header .tile-num {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--border);
+    width: 16px; height: 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+  }
+  .tile-header .session {
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 11.5px;
+  }
+  .tile-header .sep { color: var(--text-muted); font-size: 8px; }
+  .tile-header .dir { color: var(--text-secondary); }
+  .tile-header .branch {
+    color: #a78bfa;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 1px 5px;
+    background: rgba(167, 139, 250, 0.08);
+    border-radius: 3px;
+  }
+
+  /* Status Dot */
+  .tile-header .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    transition: all 0.3s;
+  }
+  .tile-header .status-dot.idle { background: var(--text-muted); }
+  .tile-header .status-dot.working {
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+  }
+  .tile-header .status-dot.permission {
+    background: var(--amber);
+    box-shadow: 0 0 6px var(--amber);
+    animation: pulse-dot 1.2s ease-in-out infinite;
+  }
+  .tile-header .status-dot.connecting { background: var(--text-muted); opacity: 0.5; }
+  .tile-header .status-dot.disconnected { background: var(--red); }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; box-shadow: 0 0 6px var(--amber); }
+    50% { opacity: 0.5; box-shadow: 0 0 2px var(--amber); }
+  }
+
+  /* Status Label */
+  .tile-header .status-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    font-weight: 600;
+  }
+  .tile-header .status-label.idle { color: transparent; }
+  .tile-header .status-label.working { color: var(--green); }
+  .tile-header .status-label.permission { color: var(--amber); }
+
+  .tile-header .pane-id {
+    font-size: 9px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    opacity: 0.6;
+  }
+  .tile-header .pane-size {
+    font-size: 9px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: var(--bg-raised);
+  }
+  .tile-header .pane-size.narrow {
+    color: var(--amber);
+    background: rgba(251, 191, 36, 0.08);
+    cursor: pointer;
+  }
+  .tile-header .pane-size.narrow::after { content: ' ⚠'; }
+  .tile-header .spacer { flex: 1; }
+  .tile-header .activity-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tile-header .activity-label:empty { display: none; }
+
+  /* Header Buttons */
+  .tile-header .goto-btn,
+  .tile-header .min-btn,
+  .tile-header .zoom-btn {
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.15s;
+  }
+  .tile-header .goto-btn:hover,
+  .tile-header .min-btn:hover,
+  .tile-header .zoom-btn:hover {
+    color: var(--text);
+    background: rgba(255,255,255,0.06);
+  }
+
+  /* ── Tile Body (Terminal) ── */
+  .tile-body {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    background: var(--bg-deep);
+  }
+  .tile-body:focus { outline: none; }
+
+  /* Scrollbar */
+  .tile-body::-webkit-scrollbar { width: 6px; height: 6px; }
+  .tile-body::-webkit-scrollbar-track { background: transparent; }
+  .tile-body::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+  }
+  .tile-body::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  .tile-body::-webkit-scrollbar-corner { background: transparent; }
+
+  .tile-body pre {
+    margin: 0;
+    padding: 0 8px;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    color: var(--text);
+    background: transparent;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+  }
+  .tile-body pre.history { padding-top: 6px; }
+  .tile-body .hrule {
+    display: block;
+    height: 1px;
+    background: var(--border);
+    margin: 2px -8px;
+    width: calc(100% + 16px);
+  }
+  .tile-body pre.live { padding-bottom: 6px; }
+
+  /* Floating action buttons */
+  .tile-fab {
+    position: absolute;
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s;
+    z-index: 5;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    background: var(--bg-raised);
+  }
+  .tile:hover .tile-fab { opacity: 0.7; }
+  #minimized-bar .tile .tile-fab { display: none; }
+  .tile-fab:hover { opacity: 1 !important; background: var(--bg-hover); color: var(--text); }
+  .scroll-fab { right: 10px; bottom: 10px; }
+  .scroll-fab.hidden { opacity: 0 !important; pointer-events: none; }
+  .close-fab { right: 10px; bottom: 44px; background: rgba(248, 113, 113, 0.1); border-color: rgba(248, 113, 113, 0.2); color: var(--red); }
+  .close-fab:hover { background: rgba(248, 113, 113, 0.2) !important; color: var(--red) !important; }
+
+  /* Command Palette */
+  .cmd-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(4px);
+    z-index: 200;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 15vh;
+  }
+  .cmd-overlay.open { display: flex; }
+  .cmd-modal {
+    width: 520px;
+    max-height: 420px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .cmd-input {
+    padding: 14px 18px;
+    font-size: 14px;
+    font-family: var(--font-ui);
+    color: var(--text);
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border-subtle);
+    outline: none;
+  }
+  .cmd-input::placeholder { color: var(--text-muted); }
+  .cmd-results {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 0;
+  }
+  .cmd-results::-webkit-scrollbar { width: 4px; }
+  .cmd-results::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .cmd-item {
+    padding: 8px 18px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-secondary);
+    transition: background 0.1s;
+  }
+  .cmd-item:hover, .cmd-item.active { background: var(--bg-raised); color: var(--text); }
+  .cmd-item .cmd-icon { font-size: 14px; width: 20px; text-align: center; flex-shrink: 0; }
+  .cmd-item .cmd-label { flex: 1; }
+  .cmd-item .cmd-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+  .cmd-item .cmd-kbd {
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-deep);
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--border-subtle);
+    font-family: var(--font-mono);
+  }
+  .cmd-section {
+    padding: 6px 18px 4px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .cmd-footer {
+    padding: 8px 18px;
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  /* Mastermind Chat Drawer */
+  .mm-drawer {
+    position: fixed; top: 0; right: -400px; bottom: 0; width: 400px;
+    background: var(--bg-surface); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; z-index: 200;
+    transition: right 0.25s ease;
+    box-shadow: -8px 0 30px rgba(0,0,0,0.3);
+  }
+  .mm-drawer.open { right: 0; }
+  .mm-header {
+    padding: 12px 16px; display: flex; align-items: center;
+    border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .mm-title { font-size: 13px; font-weight: 600; color: var(--text); }
+  .mm-model-select {
+    margin-left: auto; padding: 3px 6px; font-size: 11px;
+    font-family: var(--font-ui); color: var(--text-secondary);
+    background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: 4px; outline: none; cursor: pointer;
+  }
+  .mm-model-select:hover { border-color: var(--accent); }
+  .mm-close { margin-left: 8px; cursor: pointer; color: var(--text-muted); font-size: 14px; }
+  .mm-close:hover { color: var(--text); }
+  .mm-messages {
+    flex: 1; overflow-y: auto; padding: 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .mm-messages::-webkit-scrollbar { width: 4px; }
+  .mm-messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .mm-msg {
+    padding: 8px 12px; border-radius: 8px; font-size: 12px;
+    line-height: 1.5; max-width: 90%; word-wrap: break-word;
+  }
+  .mm-msg.user {
+    align-self: flex-end; background: rgba(110, 161, 247, 0.15);
+    color: var(--text); border-bottom-right-radius: 2px;
+  }
+  .mm-msg.assistant {
+    align-self: flex-start; background: var(--bg-raised);
+    color: var(--text-secondary); border-bottom-left-radius: 2px;
+  }
+  .mm-msg.assistant p { margin: 4px 0; }
+  .mm-msg.assistant code { background: var(--bg-deep); padding: 1px 4px; border-radius: 3px; font-family: var(--font-mono); font-size: 11px; }
+  .mm-msg.assistant pre { background: var(--bg-deep); padding: 8px; border-radius: 4px; margin: 6px 0; overflow-x: auto; }
+  .mm-msg.assistant pre code { background: none; padding: 0; }
+  .mm-msg.assistant ul, .mm-msg.assistant ol { padding-left: 18px; margin: 4px 0; }
+  .mm-msg.assistant strong { color: var(--text); }
+  .mm-msg.assistant h1, .mm-msg.assistant h2, .mm-msg.assistant h3 { color: var(--text); font-size: 13px; margin: 8px 0 4px; }
+  .mm-msg.tool {
+    align-self: flex-start; background: rgba(74, 222, 128, 0.08);
+    color: var(--green); font-size: 11px; font-family: var(--font-mono);
+  }
+  .mm-msg.error {
+    align-self: flex-start; background: rgba(248, 113, 113, 0.1);
+    color: var(--red); font-size: 11px;
+  }
+  .mm-msg.status {
+    align-self: center; color: var(--text-muted); font-size: 11px;
+    font-style: italic;
+  }
+  .mm-input-row {
+    padding: 10px 12px; border-top: 1px solid var(--border);
+    display: flex; gap: 8px; flex-shrink: 0;
+  }
+  .mm-input {
+    flex: 1; padding: 8px 12px; font-size: 12px; font-family: var(--font-ui);
+    color: var(--text); background: var(--bg-raised);
+    border: 1px solid var(--border); border-radius: 6px; outline: none;
+  }
+  .mm-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+  .mm-send {
+    padding: 8px 14px; font-size: 14px; cursor: pointer;
+    background: var(--accent); color: #fff; border: none;
+    border-radius: 6px; font-weight: 600;
+    transition: opacity 0.15s;
+  }
+  .mm-send:hover { opacity: 0.85; }
+  .mm-send:disabled { opacity: 0.4; cursor: not-allowed; }
+  .mm-trigger {
+    position: fixed; bottom: 20px; right: 20px; z-index: 150;
+    width: 48px; height: 48px; border-radius: 50%;
+    background: var(--bg-raised); border: 1px solid var(--border);
+    font-size: 22px; cursor: pointer; display: flex;
+    align-items: center; justify-content: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    transition: all 0.15s;
+  }
+  .mm-trigger:hover { background: var(--bg-hover); transform: scale(1.05); }
+
+  /* ANSI color overrides for dark theme */
+  .ansi-bright-black-fg { color: #6b7280 !important; }
+  .ansi-bright-red-fg { color: #f87171 !important; }
+  .ansi-bright-green-fg { color: #4ade80 !important; }
+  .ansi-bright-yellow-fg { color: #fbbf24 !important; }
+  .ansi-bright-blue-fg { color: #60a5fa !important; }
+  .ansi-bright-magenta-fg { color: #c084fc !important; }
+  .ansi-bright-cyan-fg { color: #22d3ee !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Claude Wall</h1>
+  <span class="count" id="count"></span>
+  <span class="status-summary" id="status-summary"></span>
+  <input type="text" id="search" placeholder="Filter…">
+  <button class="refresh-btn" id="notif-btn" onclick="toggleNotifs()">🔔</button>
+  <button class="refresh-btn" onclick="location.reload()">↻</button>
+</header>
+<div id="minimized-bar"></div>
+<div id="main-container">
+  <div id="grid"></div>
+  <div id="side-panel">
+    <div class="panel-tabs">
+      <button class="panel-tab active" data-tab="feed">Activity</button>
+      <button class="panel-tab" data-tab="approvals">Approvals <span class="badge" id="approval-count" style="display:none">0</span></button>
+    </div>
+    <div id="feed-panel" class="panel-content active"></div>
+    <div id="approvals-panel" class="panel-content"></div>
+  </div>
+</div>
+<div class="panel-toggle" id="panel-toggle" title="Toggle panel">◀</div>
+
+<!-- Mastermind Chat Drawer -->
+<div id="mm-drawer" class="mm-drawer">
+  <div class="mm-header">
+    <span class="mm-title">🧠 Mastermind</span>
+    <select id="mm-model" class="mm-model-select">
+      <option value="haiku">Haiku</option>
+      <option value="sonnet">Sonnet</option>
+      <option value="opus">Opus</option>
+    </select>
+    <span class="mm-close" id="mm-close">✕</span>
+  </div>
+  <div class="mm-messages" id="mm-messages"></div>
+  <div class="mm-input-row">
+    <input type="text" id="mm-input" class="mm-input" placeholder="Ask the mastermind..." autocomplete="off">
+    <button class="mm-send" id="mm-send">→</button>
+  </div>
+</div>
+<button class="mm-trigger" id="mm-trigger" title="Mastermind (⌘M)">🧠</button>
+<div class="summary-card" id="summary-card"></div>
+
+<!-- Command Palette -->
+<div id="cmd-overlay" class="cmd-overlay">
+  <div class="cmd-modal">
+    <input type="text" id="cmd-input" class="cmd-input" placeholder="Type a command or search tiles..." autocomplete="off" spellcheck="false">
+    <div id="cmd-results" class="cmd-results"></div>
+    <div class="cmd-footer">
+      <span>↑↓ navigate</span>
+      <span>↵ select</span>
+      <span>esc close</span>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ansi_up@5.2.1/ansi_up.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@15.0.4/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
+<script>
+const grid = document.getElementById('grid');
+const countEl = document.getElementById('count');
+const tiles = new Map();
+
+let notifsEnabled = localStorage.getItem('cw-notifs') !== 'off';
+const notifBtn = document.getElementById('notif-btn');
+
+function updateNotifBtn() {
+  notifBtn.textContent = notifsEnabled ? '🔔' : '🔕';
+  notifBtn.title = notifsEnabled ? 'Notifications on' : 'Notifications off';
+}
+function toggleNotifs() {
+  notifsEnabled = !notifsEnabled;
+  localStorage.setItem('cw-notifs', notifsEnabled ? 'on' : 'off');
+  updateNotifBtn();
+}
+updateNotifBtn();
+
+if (notifsEnabled && 'Notification' in window && Notification.permission === 'default') {
+  Notification.requestPermission();
+}
+
+function notify(title, body) {
+  if (!notifsEnabled) return;
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, { body });
+  }
+  playSound();
+}
+
+function playSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = 660; o.type = 'sine';
+    g.gain.value = 0.05;
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+    o.start(); o.stop(ctx.currentTime + 0.2);
+  } catch(e) {}
+}
+
+function updateStatusSummary() {
+  let working = 0, perm = 0, idle = 0;
+  for (const [, state] of tiles) {
+    const s = state.tile.dataset.status;
+    if (s === 'working') working++;
+    else if (s === 'permission') perm++;
+    else idle++;
+  }
+  const parts = [];
+  if (working) parts.push(`<span class="s-working">${working} working</span>`);
+  if (perm) parts.push(`<span class="s-perm">${perm} perm</span>`);
+  if (idle) parts.push(`<span class="s-idle">${idle} idle</span>`);
+  document.getElementById('status-summary').innerHTML = parts.join(' <span style="color:var(--text-muted)">│</span> ') || '<span class="s-idle">no agents</span>';
+}
+setInterval(updateStatusSummary, 1000);
+
+function updateGrid() {
+  countEl.textContent = `${tiles.size} instances`;
+  updateStatusSummary();
+  const visible = grid.querySelectorAll('.tile').length;
+  if (visible === 0) return;
+  const cols = Math.ceil(Math.sqrt(visible));
+  const rows = Math.ceil(visible / cols);
+  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+}
+
+let tileCounter = 0;
+function createTile(pane) {
+  const index = tileCounter++;
+  const tile = document.createElement('div');
+  tile.className = 'tile';
+  tile.id = `tile-${pane.target}`;
+  tile.dataset.status = 'idle';
+
+  tile.innerHTML = `
+    <div class="tile-header">
+      <span class="status-dot connecting"></span>
+      <span class="tile-num">${index + 1}</span>
+      <span class="session">🖥 ${pane.session || '?'}</span>
+      <span class="sep">·</span>
+      <span class="dir">📂 ${pane.dirName || '?'}</span>
+      <span class="sep">·</span>
+      <span class="branch">🌿 ${pane.branch || '-'}</span>
+      <span class="pane-id">${pane.target.split('.')[1] ? ':' + pane.target.split(':')[1] : ''}</span>
+      <span class="pane-size ${parseInt(pane.cols) < 80 ? 'narrow' : ''}" title="Pane width in tmux">${pane.cols || '?'}col</span>
+      <span class="spacer"></span>
+      <span class="activity-label"></span>
+      <span class="status-label idle"></span>
+      <span class="goto-btn" title="Open in terminal">↗</span>
+      <span class="min-btn" title="Minimize">▁</span>
+      <span class="zoom-btn" title="Zoom">⤢</span>
+    </div>
+    <div class="tile-body" tabindex="0">
+      <pre class="history"></pre>
+      <pre class="live"></pre>
+    </div>
+    <div class="tile-fab scroll-fab" title="Scroll to bottom">↓</div>
+    <div class="tile-fab close-fab" title="Close session (Ctrl+C×2)">✕</div>
+  `;
+  grid.appendChild(tile);
+
+  const body = tile.querySelector('.tile-body');
+  const historyPre = tile.querySelector('.history');
+  const livePre = tile.querySelector('.live');
+  const statusDot = tile.querySelector('.status-dot');
+  const statusLabel = tile.querySelector('.status-label');
+  const activityLabel = tile.querySelector('.activity-label');
+  const zoomBtn = tile.querySelector('.zoom-btn');
+  const ansi = new AnsiUp();
+  ansi.use_classes = true;
+  const renderAnsi = (text) => ansi.ansi_to_html(text).replace(/@@HRULE@@/g, '<span class="hrule"></span>');
+
+  // Scroll-to-bottom FAB
+  const scrollFab = tile.querySelector('.scroll-fab');
+  const closeFab = tile.querySelector('.close-fab');
+
+  scrollFab.addEventListener('click', (e) => {
+    e.stopPropagation();
+    body.scrollTop = body.scrollHeight;
+  });
+
+  // Show/hide scroll FAB based on scroll position
+  body.addEventListener('scroll', () => {
+    const atBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 30;
+    scrollFab.classList.toggle('hidden', atBottom);
+  });
+
+  // Close session: send Ctrl+C twice, then remove tile after delay
+  closeFab.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!confirm(`Close Claude session in ${pane.session}/${pane.dirName}?`)) return;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'input', data: '\x03' }));
+      setTimeout(() => {
+        ws.send(JSON.stringify({ type: 'input', data: '\x03' }));
+      }, 200);
+    }
+    // Remove tile after giving Claude time to exit
+    setTimeout(() => removeTile(pane.target), 2000);
+  });
+
+  const gotoBtn = tile.querySelector('.goto-btn');
+  gotoBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    fetch(`/api/goto/${pane.target}`);
+  });
+
+  // Click narrow pane-size badge to zoom the tmux pane
+  const paneSizeBadge = tile.querySelector('.pane-size');
+  if (paneSizeBadge.classList.contains('narrow')) {
+    paneSizeBadge.title = 'Pane is narrow — click to zoom in tmux';
+    paneSizeBadge.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fetch(`/api/zoom/${pane.target}`);
+      paneSizeBadge.classList.remove('narrow');
+      paneSizeBadge.textContent = 'zooming...';
+    });
+  }
+
+  const minBtn = tile.querySelector('.min-btn');
+  const minBar = document.getElementById('minimized-bar');
+  function setMinimized(isMin) {
+    tile.classList.toggle('minimized', isMin);
+    minBtn.textContent = isMin ? '▔' : '▁';
+    if (isMin) {
+      minBar.appendChild(tile);
+    } else {
+      grid.appendChild(tile);
+      setTimeout(() => { body.scrollTop = body.scrollHeight; }, 100);
+    }
+    updateGrid();
+    localStorage.setItem('cw-tile-' + pane.target, JSON.stringify({ minimized: isMin }));
+  }
+  minBtn.addEventListener('click', (e) => { e.stopPropagation(); setMinimized(!tile.classList.contains('minimized')); });
+  zoomBtn.addEventListener('click', (e) => { e.stopPropagation(); tile.classList.toggle('zoomed'); });
+  tile.querySelector('.tile-header').addEventListener('dblclick', () => tile.classList.toggle('zoomed'));
+
+  tile.addEventListener('click', () => {
+    body.focus();
+    document.querySelectorAll('.tile').forEach(t => t.classList.remove('active'));
+    tile.classList.add('active');
+  });
+
+  // Summary card on header hover
+  const header = tile.querySelector('.tile-header');
+  header.addEventListener('mouseenter', () => {
+    summaryTimeout = setTimeout(() => showSummary(tile, pane), 600);
+  });
+  header.addEventListener('mouseleave', () => {
+    clearTimeout(summaryTimeout);
+    hideSummary();
+  });
+
+  let ws = null;
+  let reconnectDelay = 500;
+  let wasAtBottom = true;
+  let prevStatus = '';
+  let workingStartedAt = 0;
+
+  function setStatus(status, activity) {
+    tile.dataset.status = status;
+    statusDot.className = `status-dot ${status}`;
+    statusLabel.className = `status-label ${status}`;
+    statusLabel.textContent = status === 'idle' ? '' : status;
+    if (activity !== undefined) {
+      activityLabel.textContent = activity || '';
+    }
+    if (status === prevStatus) return;
+    if (status === 'working') workingStartedAt = Date.now();
+    if (status === 'permission' && prevStatus !== 'permission') {
+      notify(`${pane.session} needs attention`, `${pane.dirName} — permission required`);
+    }
+    if (status === 'idle' && prevStatus === 'working' && (Date.now() - workingStartedAt) > 5000) {
+      notify(`${pane.session} finished`, `${pane.dirName} — task complete`);
+    }
+    prevStatus = status;
+  }
+
+  function connect() {
+    statusDot.className = 'status-dot connecting';
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}/ws/${pane.target}`);
+    ws.onopen = () => { setStatus('idle'); reconnectDelay = 500; };
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'history') {
+        historyPre.innerHTML = renderAnsi(msg.data);
+        body.scrollTop = body.scrollHeight;
+        if (msg.status) setStatus(msg.status, msg.activity);
+      } else if (msg.type === 'content') {
+        wasAtBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 30;
+        livePre.innerHTML = renderAnsi(msg.data);
+        if (wasAtBottom) body.scrollTop = body.scrollHeight;
+        if (msg.status) setStatus(msg.status, msg.activity);
+      } else if (msg.type === 'status-update') {
+        if (msg.status) setStatus(msg.status, msg.activity);
+      } else if (msg.type === 'status' && msg.data === 'disconnected') {
+        statusDot.className = 'status-dot disconnected';
+        statusLabel.textContent = 'offline';
+      }
+    };
+    ws.onclose = () => {
+      statusDot.className = 'status-dot disconnected';
+      setTimeout(() => { reconnectDelay = Math.min(reconnectDelay * 1.5, 10000); connect(); }, reconnectDelay);
+    };
+    ws.onerror = () => ws.close();
+  }
+
+  body.addEventListener('keydown', (e) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    let data = '';
+    if (e.ctrlKey && !e.metaKey && e.key.length === 1) {
+      const code = e.key.toLowerCase().charCodeAt(0) - 96;
+      if (code > 0 && code < 27) { data = String.fromCharCode(code); e.preventDefault(); }
+    } else if (e.key.length === 1 && !e.metaKey) {
+      data = e.key; e.preventDefault();
+    } else {
+      switch (e.key) {
+        case 'Enter': data = '\r'; break;
+        case 'Backspace': data = '\x7f'; break;
+        case 'Tab': data = '\t'; e.preventDefault(); break;
+        case 'Escape':
+          if (tile.classList.contains('zoomed')) { tile.classList.remove('zoomed'); return; }
+          data = '\x1b'; break;
+        case 'ArrowUp': data = '\x1b[A'; break;
+        case 'ArrowDown': data = '\x1b[B'; break;
+        case 'ArrowRight': data = '\x1b[C'; break;
+        case 'ArrowLeft': data = '\x1b[D'; break;
+        case 'PageUp': data = '\x1b[5~'; break;
+        case 'PageDown': data = '\x1b[6~'; break;
+        case 'Home': data = '\x1b[H'; break;
+        case 'End': data = '\x1b[F'; break;
+        case 'Delete': data = '\x1b[3~'; break;
+      }
+      if (data) e.preventDefault();
+    }
+    if (data) {
+      ws.send(JSON.stringify({ type: 'input', data }));
+      document.querySelectorAll('.tile').forEach(t => t.classList.remove('active'));
+      tile.classList.add('active');
+    }
+  });
+
+  body.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData('text');
+    if (text && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'input', data: text }));
+    }
+  });
+
+  const saved = JSON.parse(localStorage.getItem('cw-tile-' + pane.target) || '{}');
+  if (saved.minimized) requestAnimationFrame(() => setMinimized(true));
+
+  function sendInput(data) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'input', data }));
+      return true;
+    }
+    return false;
+  }
+
+  const state = { tile, connect, pane, sendInput, destroy: () => {
+    if (ws) ws.close();
+    tile.classList.add('removing');
+    setTimeout(() => tile.remove(), 300);
+  }};
+
+  connect();
+  return state;
+}
+
+function removeTile(target) {
+  const state = tiles.get(target);
+  if (state) { state.destroy(); tiles.delete(target); updateGrid(); }
+}
+
+async function refreshPaneList() {
+  try {
+    const res = await fetch('/api/panes');
+    const panes = await res.json();
+    const currentTargets = new Set(panes.map(p => p.target));
+    for (const pane of panes) {
+      if (!tiles.has(pane.target)) { tiles.set(pane.target, createTile(pane)); updateGrid(); }
+    }
+    for (const [target] of tiles) {
+      if (!currentTargets.has(target)) removeTile(target);
+    }
+  } catch (e) {}
+}
+
+async function init() {
+  const res = await fetch('/api/panes');
+  const panes = await res.json();
+  for (const pane of panes) tiles.set(pane.target, createTile(pane));
+  updateGrid();
+
+  const savedOrder = JSON.parse(localStorage.getItem('cw-tile-order') || '[]');
+  if (savedOrder.length) {
+    const ordered = savedOrder.filter(t => tiles.has(t));
+    const remaining = Array.from(tiles.keys()).filter(t => !ordered.includes(t));
+    for (const target of [...ordered, ...remaining]) {
+      const s = tiles.get(target);
+      if (s) grid.appendChild(s.tile);
+    }
+  }
+
+  Sortable.create(grid, {
+    animation: 200,
+    handle: '.tile-header',
+    ghostClass: 'tile-ghost',
+    onEnd: () => {
+      localStorage.setItem('cw-tile-order', JSON.stringify(
+        Array.from(grid.children).map(t => t.id.replace('tile-', ''))
+      ));
+    }
+  });
+
+  setInterval(refreshPaneList, 5000);
+}
+
+const searchInput = document.getElementById('search');
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.toLowerCase();
+  for (const [, state] of tiles) {
+    const text = state.tile.querySelector('.tile-header').textContent.toLowerCase();
+    state.tile.style.display = (!q || text.includes(q)) ? '' : 'none';
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 'f') { e.preventDefault(); searchInput.focus(); searchInput.select(); }
+});
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { searchInput.value = ''; searchInput.dispatchEvent(new Event('input')); searchInput.blur(); }
+});
+
+let cycleIndex = -1;
+function focusTileByIndex(idx) {
+  const arr = Array.from(tiles.values());
+  if (idx >= 0 && idx < arr.length) {
+    arr[idx].tile.querySelector('.tile-body').focus();
+    document.querySelectorAll('.tile').forEach(t => t.classList.remove('active'));
+    arr[idx].tile.classList.add('active');
+    cycleIndex = idx;
+  }
+}
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && !e.metaKey && e.key >= '1' && e.key <= '9') {
+    e.preventDefault(); focusTileByIndex(parseInt(e.key) - 1); return;
+  }
+  if (e.ctrlKey && e.key === 'Tab') {
+    e.preventDefault();
+    const count = tiles.size;
+    if (!count) return;
+    cycleIndex = e.shiftKey ? (cycleIndex - 1 + count) % count : (cycleIndex + 1) % count;
+    focusTileByIndex(cycleIndex);
+  }
+});
+
+// ── Focus tile by target ──
+function focusTileByTarget(target) {
+  if (!target) return;
+  const state = tiles.get(target);
+  if (!state) return;
+  // If minimized, restore it
+  const minBtn = state.tile.querySelector('.min-btn');
+  if (state.tile.classList.contains('minimized')) {
+    minBtn.click();
+  }
+  // Focus + highlight
+  const body = state.tile.querySelector('.tile-body');
+  body.focus();
+  document.querySelectorAll('.tile').forEach(t => t.classList.remove('active'));
+  state.tile.classList.add('active');
+  // Scroll tile into view
+  state.tile.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// ── Side Panel: Tabs ──
+document.querySelectorAll('.panel-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel-content').forEach(c => c.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.tab + '-panel').classList.add('active');
+  });
+});
+
+// Toggle panel
+const sidePanel = document.getElementById('side-panel');
+const panelToggle = document.getElementById('panel-toggle');
+panelToggle.addEventListener('click', () => {
+  sidePanel.classList.toggle('collapsed');
+  panelToggle.textContent = sidePanel.classList.contains('collapsed') ? '▶' : '◀';
+});
+
+// ── Activity Feed ──
+const feedPanel = document.getElementById('feed-panel');
+const approvalsPanel = document.getElementById('approvals-panel');
+const approvalCountBadge = document.getElementById('approval-count');
+
+function feedIcon(event, status) {
+  if (status === 'permission') return '⚠';
+  if (status === 'idle') return '✓';
+  const icons = { Bash: '$', Edit: '✎', Write: '✎', Read: '📖', Grep: '🔍', Glob: '📁', Agent: '🤖', WebSearch: '🌐' };
+  return icons[event] || '⚡';
+}
+
+function formatTime(t) {
+  const d = new Date(t);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+async function refreshFeed() {
+  try {
+    const res = await fetch('/api/feed');
+    const entries = await res.json();
+    if (!entries || !entries.length) return;
+
+    feedPanel.innerHTML = '';
+    // Show newest first
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const e = entries[i];
+      // Skip PostToolUse (noise)
+      if (e.event === 'PostToolUse') continue;
+      const el = document.createElement('div');
+      el.className = 'feed-entry';
+      el.dataset.status = e.status;
+      el.innerHTML = `
+        <span class="feed-icon">${feedIcon(e.toolName, e.status)}</span>
+        <span class="feed-time">${formatTime(e.time)}</span>
+        <span class="feed-session">${e.session || '?'}</span>
+        <span class="feed-activity">${e.activity || e.event}</span>
+      `;
+      if (e.target) {
+        el.addEventListener('click', () => focusTileByTarget(e.target));
+      }
+      feedPanel.appendChild(el);
+    }
+  } catch(e) {}
+}
+
+async function refreshApprovals() {
+  try {
+    const res = await fetch('/api/approvals');
+    const pending = await res.json();
+    if (!pending || !pending.length) {
+      approvalsPanel.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No pending approvals</div>';
+      approvalCountBadge.style.display = 'none';
+      return;
+    }
+
+    approvalCountBadge.style.display = 'inline-block';
+    approvalCountBadge.textContent = pending.length;
+    approvalsPanel.innerHTML = '';
+
+    for (const p of pending) {
+      // Look up full pane info from tiles
+      const tileState = tiles.get(p.target);
+      const paneInfo = tileState ? tileState.pane : null;
+      const session = paneInfo ? paneInfo.session : (p.session || '?');
+      const dirName = paneInfo ? paneInfo.dirName : (p.dirName || '?');
+      const branch = paneInfo ? paneInfo.branch : (p.branch || '');
+
+      const el = document.createElement('div');
+      el.className = 'approval-item';
+      el.innerHTML = `
+        <div class="approval-header">
+          <span class="approval-session">${session}</span>
+          <span style="color:var(--text-secondary);font-size:10px">📂 ${dirName}</span>
+          ${branch ? `<span style="color:#a78bfa;font-size:10px;font-family:var(--font-mono)">🌿 ${branch}</span>` : ''}
+        </div>
+        <div class="approval-activity">${p.activity || p.toolName || 'Permission needed'}</div>
+        <div class="approval-actions">
+          <button class="approval-btn approve">✓ Yes</button>
+          <button class="approval-btn approve-always">✓ Always</button>
+          <button class="approval-btn deny">✕ No</button>
+          <button class="approval-btn focus-btn">⎘ Focus</button>
+        </div>
+      `;
+      function resolveApproval(input) {
+        const state = tiles.get(p.target);
+        if (state) state.sendInput(input);
+        fetch(`/api/approvals/clear/${p.target}`);
+        el.remove();
+        setTimeout(refreshApprovals, 500);
+      }
+      el.querySelector('.approve').addEventListener('click', () => resolveApproval('1'));
+      el.querySelector('.approve-always').addEventListener('click', () => resolveApproval('2'));
+      el.querySelector('.deny').addEventListener('click', () => resolveApproval('\x1b'));
+      // Focus tile
+      el.querySelector('.focus-btn').addEventListener('click', () => {
+        focusTileByTarget(p.target);
+      });
+      approvalsPanel.appendChild(el);
+    }
+  } catch(e) {}
+}
+
+// Poll feed + approvals every 2 seconds
+setInterval(refreshFeed, 2000);
+setInterval(refreshApprovals, 2000);
+
+// ── Session Summary Card ──
+const summaryCard = document.getElementById('summary-card');
+let summaryTimeout = null;
+
+// Track per-tile stats from feed entries
+const tileStats = new Map(); // target → { actions: [], firstSeen, lastSeen }
+
+function updateTileStats(entry) {
+  if (!entry.target) return;
+  let stats = tileStats.get(entry.target);
+  if (!stats) {
+    stats = { actions: [], firstSeen: entry.time };
+    tileStats.set(entry.target, stats);
+  }
+  stats.lastSeen = entry.time;
+  if (entry.event !== 'PostToolUse') {
+    stats.actions.push({ time: entry.time, activity: entry.activity || entry.event, tool: entry.toolName });
+    if (stats.actions.length > 20) stats.actions = stats.actions.slice(-20);
+  }
+}
+
+function showSummary(tile, pane) {
+  const stats = tileStats.get(pane.target);
+  const recent = stats ? stats.actions.slice(-5).reverse() : [];
+
+  let duration = '';
+  if (stats && stats.firstSeen) {
+    const ms = Date.now() - new Date(stats.firstSeen).getTime();
+    const mins = Math.floor(ms / 60000);
+    duration = mins > 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins}m`;
+  }
+
+  summaryCard.innerHTML = `
+    <h4>${pane.session} · ${pane.dirName}</h4>
+    <div class="summary-row"><span class="label">Branch</span><span class="value">${pane.branch || '-'}</span></div>
+    <div class="summary-row"><span class="label">Pane</span><span class="value">${pane.target}</span></div>
+    <div class="summary-row"><span class="label">Width</span><span class="value">${pane.cols || '?'} cols</span></div>
+    <div class="summary-row"><span class="label">Status</span><span class="value">${tile.dataset.status}</span></div>
+    ${duration ? `<div class="summary-row"><span class="label">Tracked</span><span class="value">${duration}</span></div>` : ''}
+    ${recent.length ? `<div class="summary-actions"><div style="color:var(--text-secondary);margin-bottom:4px">Recent:</div>${recent.map(a =>
+      `<div>${a.activity || a.tool}</div>`
+    ).join('')}</div>` : ''}
+  `;
+
+  const rect = tile.getBoundingClientRect();
+  summaryCard.style.left = Math.min(rect.right + 8, window.innerWidth - 300) + 'px';
+  summaryCard.style.top = rect.top + 'px';
+  summaryCard.classList.add('visible');
+}
+
+function hideSummary() {
+  summaryCard.classList.remove('visible');
+}
+
+// Intercept feed data to build stats
+const origRefreshFeed = refreshFeed;
+
+// ── Command Palette ──
+const cmdOverlay = document.getElementById('cmd-overlay');
+const cmdInput = document.getElementById('cmd-input');
+const cmdResults = document.getElementById('cmd-results');
+let cmdIndex = 0;
+
+function getCommands(query) {
+  const q = query.toLowerCase().trim();
+  const items = [];
+
+  // Tile actions
+  const arr = Array.from(tiles.values());
+  items.push({ section: 'Jump to tile' });
+  arr.forEach((s, i) => {
+    const label = `${s.pane.session} · ${s.pane.dirName} · ${s.pane.branch}`;
+    if (!q || label.toLowerCase().includes(q)) {
+      items.push({
+        icon: '🖥', label, hint: s.pane.target, kbd: `⌃${i+1}`,
+        action: () => focusTileByIndex(i)
+      });
+    }
+  });
+
+  if (!q || 'zoom'.includes(q)) {
+    items.push({ section: 'Actions' });
+    items.push({
+      icon: '⤢', label: 'Zoom focused tile', kbd: 'dblclick',
+      action: () => {
+        const active = document.querySelector('.tile.active');
+        if (active) active.classList.toggle('zoomed');
+      }
+    });
+  }
+
+  if (!q || 'scroll'.includes(q)) {
+    items.push({
+      icon: '↓', label: 'Scroll all to bottom',
+      action: () => {
+        document.querySelectorAll('.tile-body').forEach(b => b.scrollTop = b.scrollHeight);
+      }
+    });
+  }
+
+  if (!q || 'goto terminal'.includes(q)) {
+    items.push({
+      icon: '↗', label: 'Open focused tile in terminal',
+      action: () => {
+        const active = document.querySelector('.tile.active');
+        if (active) {
+          const target = active.id.replace('tile-', '');
+          fetch(`/api/goto/${target}`);
+        }
+      }
+    });
+  }
+
+  if (!q || 'notification'.includes(q)) {
+    items.push({
+      icon: notifsEnabled ? '🔔' : '🔕', label: `Notifications: ${notifsEnabled ? 'ON' : 'OFF'} — toggle`,
+      action: () => toggleNotifs()
+    });
+  }
+
+  if (!q || 'refresh'.includes(q)) {
+    items.push({
+      icon: '↻', label: 'Refresh page',
+      action: () => location.reload()
+    });
+  }
+
+  if (!q || 'send broadcast'.includes(q)) {
+    items.push({ section: 'Send to tiles' });
+    items.push({
+      icon: '📡', label: 'Send text to focused tile...',
+      action: () => {
+        const text = prompt('Text to send:');
+        if (!text) return;
+        const active = document.querySelector('.tile.active');
+        if (active) {
+          const target = active.id.replace('tile-', '');
+          const state = tiles.get(target);
+          if (state) state.sendInput(text + '\r');
+        }
+      }
+    });
+    items.push({
+      icon: '📢', label: 'Broadcast text to ALL tiles...',
+      action: () => {
+        const text = prompt('Text to broadcast to all Claude instances:');
+        if (!text) return;
+        for (const [, state] of tiles) {
+          state.sendInput(text + '\r');
+        }
+      }
+    });
+  }
+
+  return items;
+}
+
+function renderCommands(query) {
+  const items = getCommands(query);
+  cmdResults.innerHTML = '';
+  cmdIndex = 0;
+  let actionIdx = 0;
+  items.forEach(item => {
+    if (item.section) {
+      const sec = document.createElement('div');
+      sec.className = 'cmd-section';
+      sec.textContent = item.section;
+      cmdResults.appendChild(sec);
+      return;
+    }
+    const el = document.createElement('div');
+    el.className = 'cmd-item' + (actionIdx === 0 ? ' active' : '');
+    el.dataset.idx = actionIdx;
+    el.innerHTML = `
+      <span class="cmd-icon">${item.icon || ''}</span>
+      <span class="cmd-label">${item.label}</span>
+      ${item.hint ? `<span class="cmd-hint">${item.hint}</span>` : ''}
+      ${item.kbd ? `<span class="cmd-kbd">${item.kbd}</span>` : ''}
+    `;
+    el.addEventListener('click', () => { execCmd(item); });
+    el.addEventListener('mouseenter', () => {
+      cmdResults.querySelectorAll('.cmd-item').forEach(e => e.classList.remove('active'));
+      el.classList.add('active');
+      cmdIndex = parseInt(el.dataset.idx);
+    });
+    cmdResults.appendChild(el);
+    actionIdx++;
+  });
+}
+
+function execCmd(item) {
+  closeCmd();
+  if (item.action) item.action();
+}
+
+function openCmd() {
+  cmdOverlay.classList.add('open');
+  cmdInput.value = '';
+  renderCommands('');
+  cmdInput.focus();
+}
+
+function closeCmd() {
+  cmdOverlay.classList.remove('open');
+  cmdInput.blur();
+}
+
+cmdInput.addEventListener('input', () => renderCommands(cmdInput.value));
+cmdInput.addEventListener('keydown', (e) => {
+  const items = cmdResults.querySelectorAll('.cmd-item');
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    cmdIndex = Math.min(cmdIndex + 1, items.length - 1);
+    items.forEach((el, i) => el.classList.toggle('active', i === cmdIndex));
+    items[cmdIndex]?.scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    cmdIndex = Math.max(cmdIndex - 1, 0);
+    items.forEach((el, i) => el.classList.toggle('active', i === cmdIndex));
+    items[cmdIndex]?.scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const active = items[cmdIndex];
+    if (active) active.click();
+  } else if (e.key === 'Escape') {
+    closeCmd();
+  }
+});
+
+cmdOverlay.addEventListener('click', (e) => {
+  if (e.target === cmdOverlay) closeCmd();
+});
+
+// Cmd+K / Ctrl+K to open
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+    e.preventDefault();
+    if (cmdOverlay.classList.contains('open')) closeCmd();
+    else openCmd();
+  }
+});
+
+// ── UI Commands (SSE from backend) ──
+const uiEvents = new EventSource('/api/ui/events');
+uiEvents.onmessage = (e) => {
+  try {
+    const cmd = JSON.parse(e.data);
+    if (cmd.action === 'ping') return;
+
+    const target = cmd.target;
+    switch (cmd.action) {
+      case 'focus':
+        focusTileByTarget(target);
+        break;
+      case 'zoom':
+        const zState = tiles.get(target);
+        if (zState) zState.tile.classList.toggle('zoomed');
+        break;
+      case 'minimize': {
+        const mState = tiles.get(target);
+        if (mState && !mState.tile.classList.contains('minimized')) {
+          mState.tile.querySelector('.min-btn').click();
+        }
+        break;
+      }
+      case 'restore': {
+        const rState = tiles.get(target);
+        if (rState && rState.tile.classList.contains('minimized')) {
+          rState.tile.querySelector('.min-btn').click();
+        }
+        break;
+      }
+      case 'scroll-bottom': {
+        const sState = tiles.get(target);
+        if (sState) sState.tile.querySelector('.tile-body').scrollTop = 999999;
+        break;
+      }
+    }
+  } catch(e) {}
+};
+
+// ── Mastermind Chat ──
+const mmDrawer = document.getElementById('mm-drawer');
+const mmMessages = document.getElementById('mm-messages');
+const mmInput = document.getElementById('mm-input');
+const mmSend = document.getElementById('mm-send');
+const mmTrigger = document.getElementById('mm-trigger');
+const mmClose = document.getElementById('mm-close');
+
+let mmWs = null;
+let mmCurrentMsg = null;
+let mmCurrentText = '';
+
+function mmToggle() {
+  mmDrawer.classList.toggle('open');
+  if (mmDrawer.classList.contains('open')) {
+    mmInput.focus();
+    if (!mmWs) mmConnect();
+  }
+}
+
+mmTrigger.addEventListener('click', mmToggle);
+mmClose.addEventListener('click', () => mmDrawer.classList.remove('open'));
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'm') {
+    e.preventDefault();
+    mmToggle();
+  }
+});
+
+function mmAddMsg(type, text) {
+  const el = document.createElement('div');
+  el.className = `mm-msg ${type}`;
+  el.textContent = text;
+  mmMessages.appendChild(el);
+  mmMessages.scrollTop = mmMessages.scrollHeight;
+  return el;
+}
+
+function mmConnect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  mmWs = new WebSocket(`${proto}//${location.host}/ws/mastermind`);
+
+  mmWs.onopen = () => mmAddMsg('status', 'Connected to Mastermind');
+  mmWs.onclose = () => {
+    mmWs = null;
+    mmAddMsg('status', 'Disconnected');
+  };
+  mmWs.onerror = () => mmWs.close();
+
+  mmWs.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    switch (msg.type) {
+      case 'status':
+        mmAddMsg('status', msg.data === 'thinking' ? '🤔 Thinking...' : msg.data);
+        mmSend.disabled = true;
+        break;
+      case 'stream':
+        if (!mmCurrentMsg) {
+          mmCurrentMsg = mmAddMsg('assistant', '');
+          mmCurrentText = '';
+        }
+        mmCurrentText += msg.data;
+        mmCurrentMsg.innerHTML = marked.parse(mmCurrentText);
+        mmMessages.scrollTop = mmMessages.scrollHeight;
+        break;
+      case 'tool':
+        mmAddMsg('tool', msg.data);
+        break;
+      case 'done':
+        // Final markdown render
+        if (mmCurrentMsg && mmCurrentText) {
+          mmCurrentMsg.innerHTML = marked.parse(mmCurrentText);
+        }
+        mmCurrentMsg = null;
+        mmCurrentText = '';
+        mmSend.disabled = false;
+        if (msg.data && msg.data !== '0.0000') {
+          mmAddMsg('status', `Cost: $${msg.data}`);
+        }
+        break;
+      case 'error':
+        mmAddMsg('error', msg.data);
+        mmSend.disabled = false;
+        mmCurrentMsg = null;
+        break;
+    }
+  };
+}
+
+function mmSendMessage() {
+  const text = mmInput.value.trim();
+  if (!text || !mmWs || mmWs.readyState !== WebSocket.OPEN) return;
+
+  const model = document.getElementById('mm-model').value;
+  mmAddMsg('user', text);
+  mmWs.send(JSON.stringify({ text, model }));
+  mmInput.value = '';
+  mmSend.disabled = true;
+  mmCurrentMsg = null;
+}
+
+mmSend.addEventListener('click', mmSendMessage);
+mmInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    mmSendMessage();
+  }
+});
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Claude Wall — Send to Agent",
+  "version": "1.0.0",
+  "description": "Send selected text from any webpage to a Claude Code agent",
+  "permissions": ["contextMenus", "storage", "scripting", "activeTab"],
+  "host_permissions": ["http://127.0.0.1:7685/*", "http://localhost:7685/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}
