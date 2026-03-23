@@ -36,6 +36,7 @@ func main() {
 		runInit()
 		fmt.Println()
 		daemonStart(port, public)
+		exec.Command("open", fmt.Sprintf("http://127.0.0.1:%d", port)).Start()
 
 	case "uninstall":
 		fmt.Println("▸ Removing Claude Wall hooks...")
