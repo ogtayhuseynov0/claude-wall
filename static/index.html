@@ -778,6 +778,75 @@
   }
   .mm-trigger:hover { background: var(--bg-hover); transform: scale(1.05); }
 
+  /* ── Mobile responsive ── */
+  @media (max-width: 768px) {
+    header { padding: 6px 10px; gap: 8px; flex-wrap: wrap; }
+    header h1 { font-size: 11px; }
+    header #search { width: 100%; order: 10; margin-left: 0; }
+    .status-summary { font-size: 10px; padding: 2px 6px; }
+
+    #main-container { flex-direction: column; }
+
+    /* Stack tiles vertically on mobile */
+    #grid {
+      grid-template-columns: 1fr !important;
+      grid-template-rows: none !important;
+      grid-auto-rows: minmax(200px, 1fr);
+      overflow-y: auto;
+      padding: 4px;
+      gap: 4px;
+    }
+
+    /* Side panel becomes bottom sheet */
+    #side-panel {
+      width: 100% !important;
+      max-height: 40vh;
+      border-left: none;
+      border-top: 1px solid var(--border);
+    }
+    #side-panel.collapsed { max-height: 0; }
+    .panel-toggle { display: none; }
+
+    /* Tile adjustments */
+    .tile-header { font-size: 10px; padding: 4px 8px; gap: 4px; flex-wrap: wrap; }
+    .tile-header .pane-id,
+    .tile-header .pane-size { display: none; }
+    .tile-header .sep { display: none; }
+    .tile-header .session,
+    .tile-header .dir,
+    .tile-header .branch { font-size: 10px; }
+    .tile-body { font-size: 10px; line-height: 1.3; }
+
+    /* Minimized bar scrollable */
+    #minimized-bar { overflow-x: auto; flex-wrap: nowrap; }
+
+    /* Mastermind full-width on mobile */
+    .mm-drawer { width: 100%; right: -100%; }
+    .mm-trigger { bottom: 12px; right: 12px; width: 40px; height: 40px; font-size: 18px; }
+
+    /* Command palette full-width */
+    .cmd-modal { width: 95%; max-height: 70vh; }
+
+    /* Zoom = truly fullscreen */
+    .tile.zoomed { border-radius: 0; }
+
+    /* Larger touch targets for buttons */
+    .tile-header .goto-btn,
+    .tile-header .blur-btn,
+    .tile-header .min-btn,
+    .tile-header .zoom-btn { width: 28px; height: 28px; font-size: 14px; }
+    .tile-fab { width: 36px; height: 36px; font-size: 16px; }
+    .scroll-fab { right: 8px; bottom: 8px; }
+    .close-fab { right: 8px; bottom: 50px; }
+  }
+
+  /* Small phones */
+  @media (max-width: 400px) {
+    #grid { grid-auto-rows: minmax(150px, 1fr); }
+    .tile-body { font-size: 9px; }
+    .tile-header .activity-label { display: none; }
+  }
+
   /* ANSI color overrides for dark theme */
   .ansi-bright-black-fg { color: #6b7280 !important; }
   .ansi-bright-red-fg { color: #f87171 !important; }
