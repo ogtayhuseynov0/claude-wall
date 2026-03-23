@@ -505,7 +505,12 @@
 
   /* Header Buttons */
   .tile.blurred .tile-body { filter: blur(6px); pointer-events: none; }
-  .tile.blurred .tile-header { opacity: 0.5; }
+  .tile.blurred .tile-header .session,
+  .tile.blurred .tile-header .dir,
+  .tile.blurred .tile-header .branch,
+  .tile.blurred .tile-header .pane-id,
+  .tile.blurred .tile-header .pane-size,
+  .tile.blurred .tile-header .activity-label { filter: blur(5px); }
 
   .tile-header .goto-btn,
   .tile-header .blur-btn,
