@@ -1,20 +1,27 @@
 # Claude Wall
 
-**Mission control for Claude Code — monitor all your AI coding agents from one dashboard.**
+**Mission control for Claude Code — monitor and orchestrate all your AI coding agents from one dashboard.**
 
-![Claude Wall Dashboard](https://github.com/user-attachments/assets/placeholder-screenshot.png)
+![Claude Wall Dashboard](screenshot.png)
 
 ## Features
 
 - **Web Dashboard** — Real-time grid of all Claude Code instances in tmux
-- **Live Terminal Capture** — See exactly what each agent is doing, streamed via WebSocket
-- **Status Indicators** — Idle, working, or waiting-for-permission per tile
-- **Activity Feed** — Chronological log of tool calls across all agents
-- **Approval Queue** — See and act on pending permission requests
-- **Mastermind AI** — Orchestrator that can read, instruct, and coordinate all agents
-- **Chrome Extension** — Capture browser context and send it to any agent
-- **Hooks Integration** — Claude Code hooks push real-time status (no polling needed)
-- **Keyboard Shortcuts** — `Ctrl+1-9` to focus tiles, `/` to search, `?` for help
+- **Live Terminal Capture** — See what each agent is doing, streamed via WebSocket
+- **Status Indicators** — Idle (gray), working (green), permission needed (pulsing amber)
+- **Activity Feed** — Chronological timeline of tool calls across all agents
+- **Approval Queue** — One-click approve/deny pending permissions (Yes / Always / No)
+- **Mastermind AI** — Orchestrator chat that reads, instructs, and coordinates all agents
+- **Chrome Extension** — Send selected text or full page content to any agent
+- **Hooks Integration** — Native HTTP hooks (Claude Code 2.1+) with command fallback
+- **Keyboard Shortcuts** — `Ctrl+1-9` focus tiles, `Cmd+K` command palette, `Ctrl+Tab` cycle
+- **Daemon Mode** — Runs in background, `start`/`stop`/`restart`/`status`
+- **Remote Access** — `--public` flag binds to `0.0.0.0` for Tailscale/remote
+- **Blur Mode** — Hide sensitive content on any tile with one click
+- **Session Summary** — Hover tile header for status, recent actions, duration
+- **Drag to Reorder** — Rearrange tiles, order persists across reloads
+- **Auto-detect** — New/removed Claude instances appear automatically
+- **Sound Notifications** — Distinct alerts for permission and task completion
 
 ## Install
 
@@ -47,94 +54,89 @@ go install github.com/ogtayhuseynov0/claude-wall@latest
 ## Quick Start
 
 ```bash
-claude-wall init    # install Claude Code hooks (one-time)
-claude-wall         # launch dashboard
+claude-wall init    # install hooks + start dashboard + open browser
 ```
 
-The dashboard opens at `http://127.0.0.1:7685` and auto-detects all Claude Code instances running in tmux.
-
-## CLI Usage
+## CLI
 
 | Command | Description |
 |---|---|
-| `claude-wall` | Launch web dashboard (default port 7685) |
-| `claude-wall 8080` | Launch on custom port |
-| `claude-wall --list` | List detected Claude Code panes |
-| `claude-wall --kill` | Destroy the tmux dashboard session |
-| `claude-wall init` | Install Claude Code hooks for real-time status |
-| `claude-wall uninstall` | Remove Claude Wall hooks from settings |
+| `claude-wall init` | Install hooks + start + open browser |
+| `claude-wall start` | Start dashboard in background |
+| `claude-wall stop` | Stop dashboard |
+| `claude-wall restart` | Restart dashboard |
+| `claude-wall status` | Check if running |
+| `claude-wall open` | Open dashboard in browser |
+| `claude-wall list` | List detected agents |
+| `claude-wall uninstall` | Remove hooks + stop |
+| `claude-wall start --public` | Bind to 0.0.0.0 (Tailscale/remote) |
+| `claude-wall start --port 8080` | Custom port |
+
+## Dashboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Cmd+K` | Command palette |
+| `Ctrl+1-9` | Focus tile by number |
+| `Ctrl+Tab` | Cycle between tiles |
+| `Ctrl+F` | Filter/search tiles |
+| `Cmd+M` | Toggle Mastermind chat |
+| Double-click header | Zoom tile fullscreen |
+| `Escape` | Exit zoom |
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Browser (Web UI)                  │
-│  Grid of terminal tiles, activity feed, mastermind  │
-└──────────────────────┬──────────────────────────────┘
-                       │ WebSocket + HTTP
-┌──────────────────────▼──────────────────────────────┐
-│                  Go Server (claude-wall)             │
-│                                                     │
-│  Capture Hub ──► tmux capture-pane (100ms polling)  │
-│  Hook Server ──► receives POST from hook scripts    │
-│  Mastermind  ──► claude CLI with agent context      │
-│  UI Commands ──► SSE stream for dashboard control   │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────┐
-│                 tmux sessions                        │
-│  Each pane runs a Claude Code instance              │
-│  capture-pane reads terminal content                │
-│  send-keys forwards input                           │
-└─────────────────────────────────────────────────────┘
+Browser ◄──WebSocket──► Go Server ◄──tmux──► Claude Code instances
+                          │
+                     Hook Server ◄── Claude Code HTTP hooks
+                          │
+                     Mastermind ──► claude CLI (orchestrator)
 ```
 
-**Data flow:**
-1. The Go server polls `tmux capture-pane` for each detected Claude Code pane (100ms interval)
-2. Content is diffed and streamed to connected browsers via WebSocket
-3. Claude Code hooks (`PreToolUse`, `PostToolUse`, `Stop`, etc.) POST events to the server for precise status tracking
-4. The Mastermind AI gets full context (terminal snapshots + activity feed) and can send commands back to agents
+1. Go server polls `tmux capture-pane` for each Claude pane (100ms)
+2. Content streamed to browsers via WebSocket (only sends changes)
+3. Claude Code hooks push structured events (PreToolUse, Stop, PermissionRequest, etc.)
+4. Mastermind AI gets full context and can control agents + dashboard UI
 
 ## Chrome Extension
 
-The Chrome extension lets you capture the current page and send context to any Claude Code agent.
+Send text from any webpage to any Claude Code agent.
 
-### Install
-
-1. Open `chrome://extensions/`
-2. Enable **Developer mode**
-3. Click **Load unpacked** and select the `extension/` directory
-4. Click the extension icon, configure the Claude Wall server URL (`http://127.0.0.1:7685`)
+1. Download `extension.zip` from [releases](https://github.com/ogtayhuseynov0/claude-wall/releases)
+2. Unzip, open `chrome://extensions`, enable Developer mode
+3. Click "Load unpacked", select the `extension/` folder
+4. Select text → right-click → **Send to Agent**
+5. Or right-click anywhere → **Send page text to Agent** (works on Notion, etc.)
 
 ## Mastermind
 
-The Mastermind is an orchestrator AI that has full visibility into all your agents. Open it from the dashboard sidebar.
+The 🧠 button (or `Cmd+M`) opens an AI orchestrator chat that can:
 
-**What it can do:**
-- Summarize what all agents are working on
+- Summarize what all agents are doing
 - Send instructions to any agent
-- Approve pending permissions across agents
-- Detect conflicts (two agents editing the same file)
-- Control the dashboard UI (focus, zoom, minimize tiles)
+- Approve/deny permissions
+- Control dashboard UI (focus, zoom, minimize tiles)
+- Coordinate multi-agent workflows
 
-It uses the `claude` CLI under the hood with a system prompt containing live terminal snapshots and activity context.
+Model selector: Haiku (fast/cheap), Sonnet, or Opus per message.
 
-## Hooks Setup
+## Hooks
 
-`claude-wall init` installs a hook script that sends real-time events to the dashboard server. This gives you instant status updates (working/idle/permission) without relying on terminal parsing alone.
+`claude-wall init` installs hooks that send real-time events to the dashboard:
 
-The init command:
-1. Creates `~/.claude/hooks/claude-wall-hook.sh`
-2. Adds hook entries to `~/.claude/settings.json` for `PreToolUse`, `PostToolUse`, `Stop`, and `Notification` events
-
-To remove: `claude-wall uninstall`
+- **HTTP hooks** (Claude Code 2.1+) — native, fast, no shell script
+- **Command hooks** (fallback) — for older Claude Code versions
+- **12 events tracked**: PreToolUse, PostToolUse, PostToolUseFailure, Stop, StopFailure, PermissionRequest, Notification, SessionStart, SessionEnd, SubagentStart, SubagentStop, TaskCompleted
+- Safe merge — never overrides existing hooks
+- `claude-wall uninstall` removes only claude-wall hooks
 
 ## Requirements
 
-- **Go 1.21+**
 - **tmux 3.3+**
-- **Claude Code** — running in tmux sessions
+- **Claude Code** running in tmux sessions
+- **Go 1.21+** (only for building from source)
 
 ## License
 
-[MIT](LICENSE) — Ogtay Huseynov
+[MIT](LICENSE)
