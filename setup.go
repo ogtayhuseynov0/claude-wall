@@ -39,7 +39,7 @@ curl -s -X POST "$WALL_URL" \
 `
 
 // hookEvents are the Claude Code hook events we register for
-var hookEvents = []string{"PreToolUse", "PostToolUse", "Stop", "Notification"}
+var hookEvents = []string{"PreToolUse", "PostToolUse", "Stop", "PermissionRequest", "Notification", "SessionStart", "SessionEnd"}
 
 func runInit() {
 	homeDir, err := os.UserHomeDir()
@@ -59,13 +59,12 @@ func runInit() {
 	}
 	fmt.Printf("  Created %s\n", hookPath)
 
-	// 2. Update settings.json
+	// 2. Update settings.json (MERGE with existing hooks, never replace)
 	settingsPath := filepath.Join(homeDir, ".claude", "settings.json")
 	settings := map[string]interface{}{}
 
 	data, err := os.ReadFile(settingsPath)
 	if err == nil {
-		// Backup existing settings
 		backupPath := settingsPath + ".backup." + time.Now().Format("20060102-150405")
 		if err := os.WriteFile(backupPath, data, 0644); err != nil {
 			fatal("cannot create backup: %v", err)
@@ -77,35 +76,56 @@ func runInit() {
 		}
 	}
 
-	// Get or create hooks section
 	hooksSection, _ := settings["hooks"].(map[string]interface{})
 	if hooksSection == nil {
 		hooksSection = map[string]interface{}{}
 	}
 
-	hookCommand := hookPath
+	// Claude Code hook format:
+	// "EventName": [ { "hooks": [ {"type":"command","command":"..."} ] } ]
+	// We add our hook to existing groups or create a new group
 
 	for _, event := range hookEvents {
-		existing, _ := hooksSection[event].([]interface{})
+		groups, _ := hooksSection[event].([]interface{})
 
-		// Check if claude-wall hook already exists
+		// Check if claude-wall hook already exists in any group
 		alreadyExists := false
-		for _, h := range existing {
-			if hm, ok := h.(map[string]interface{}); ok {
-				if cmd, ok := hm["command"].(string); ok && strings.Contains(cmd, hookScriptName) {
+		for _, g := range groups {
+			group, ok := g.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			hooks, _ := group["hooks"].([]interface{})
+			for _, h := range hooks {
+				hook, ok := h.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				if cmd, _ := hook["command"].(string); strings.Contains(cmd, hookScriptName) {
 					alreadyExists = true
 					break
 				}
 			}
+			if alreadyExists {
+				break
+			}
 		}
 
 		if !alreadyExists {
-			hookEntry := map[string]interface{}{
-				"type":    "command",
-				"command": hookCommand,
+			// Add a new hook group with our hook
+			newGroup := map[string]interface{}{
+				"hooks": []interface{}{
+					map[string]interface{}{
+						"type":    "command",
+						"command": hookPath,
+					},
+				},
 			}
-			existing = append(existing, hookEntry)
-			hooksSection[event] = existing
+			groups = append(groups, newGroup)
+			hooksSection[event] = groups
+			fmt.Printf("  Added hook for %s\n", event)
+		} else {
+			fmt.Printf("  Hook for %s already exists, skipping\n", event)
 		}
 	}
 
@@ -168,26 +188,45 @@ func runUninstall() {
 
 	modified := false
 	for _, event := range hookEvents {
-		existing, ok := hooksSection[event].([]interface{})
+		groups, ok := hooksSection[event].([]interface{})
 		if !ok {
 			continue
 		}
 
-		var filtered []interface{}
-		for _, h := range existing {
-			if hm, ok := h.(map[string]interface{}); ok {
-				if cmd, ok := hm["command"].(string); ok && strings.Contains(cmd, hookScriptName) {
-					modified = true
-					continue // skip claude-wall entries
-				}
+		var filteredGroups []interface{}
+		for _, g := range groups {
+			group, ok := g.(map[string]interface{})
+			if !ok {
+				filteredGroups = append(filteredGroups, g)
+				continue
 			}
-			filtered = append(filtered, h)
+
+			hooks, _ := group["hooks"].([]interface{})
+			var filteredHooks []interface{}
+			for _, h := range hooks {
+				hook, ok := h.(map[string]interface{})
+				if !ok {
+					filteredHooks = append(filteredHooks, h)
+					continue
+				}
+				if cmd, _ := hook["command"].(string); strings.Contains(cmd, hookScriptName) {
+					modified = true
+					continue // remove claude-wall hook
+				}
+				filteredHooks = append(filteredHooks, h)
+			}
+
+			if len(filteredHooks) > 0 {
+				group["hooks"] = filteredHooks
+				filteredGroups = append(filteredGroups, group)
+			}
+			// If group has no hooks left, drop the whole group
 		}
 
-		if len(filtered) == 0 {
+		if len(filteredGroups) == 0 {
 			delete(hooksSection, event)
 		} else {
-			hooksSection[event] = filtered
+			hooksSection[event] = filteredGroups
 		}
 	}
 
