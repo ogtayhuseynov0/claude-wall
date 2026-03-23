@@ -504,7 +504,11 @@
   .tile-header .activity-label:empty { display: none; }
 
   /* Header Buttons */
+  .tile.blurred .tile-body { filter: blur(6px); pointer-events: none; }
+  .tile.blurred .tile-header { opacity: 0.5; }
+
   .tile-header .goto-btn,
+  .tile-header .blur-btn,
   .tile-header .min-btn,
   .tile-header .zoom-btn {
     color: var(--text-muted);
@@ -519,6 +523,7 @@
     transition: all 0.15s;
   }
   .tile-header .goto-btn:hover,
+  .tile-header .blur-btn:hover,
   .tile-header .min-btn:hover,
   .tile-header .zoom-btn:hover {
     color: var(--text);
@@ -930,6 +935,7 @@ function createTile(pane) {
       <span class="activity-label"></span>
       <span class="status-label idle"></span>
       <span class="goto-btn" title="Open in terminal">↗</span>
+      <span class="blur-btn" title="Blur content">◉</span>
       <span class="min-btn" title="Minimize">▁</span>
       <span class="zoom-btn" title="Zoom">⤢</span>
     </div>
@@ -986,6 +992,14 @@ function createTile(pane) {
   gotoBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     fetch(`/api/goto/${pane.target}`);
+  });
+
+  // Blur toggle
+  const blurBtn = tile.querySelector('.blur-btn');
+  blurBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    tile.classList.toggle('blurred');
+    blurBtn.textContent = tile.classList.contains('blurred') ? '◎' : '◉';
   });
 
   // Click narrow pane-size badge to zoom the tmux pane
