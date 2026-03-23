@@ -11,25 +11,23 @@ import (
 
 const hookScriptName = "claude-wall-hook.sh"
 
-// hookScriptContent is the shell script that Claude Code hooks will execute.
-// It POSTs hook event JSON to the claude-wall server.
+// hookScriptContent is the shell script fallback for older Claude Code versions
+// that don't support "type": "http" hooks.
 var hookScriptContent = `#!/usr/bin/env bash
-# Claude Wall hook — sends Claude Code events to the dashboard server
-# Installed by: claude-wall init
+# Claude Wall hook (fallback for older Claude Code versions)
+# Newer versions use native HTTP hooks — this is only needed for Claude Code < 2.1
 
 WALL_PORT="${CLAUDE_WALL_PORT:-7685}"
 WALL_URL="http://127.0.0.1:${WALL_PORT}/api/hooks/event"
 
-# Read event JSON from stdin
 EVENT_JSON=$(cat)
 
-# Append tmux pane ID as query param for pane resolution
 TMUX_PANE_ID="${TMUX_PANE}"
 if [ -n "$TMUX_PANE_ID" ]; then
-  WALL_URL="${WALL_URL}?tmux_pane=${TMUX_PANE_ID}"
+  PANE_ENCODED="${TMUX_PANE_ID//%/%25}"
+  WALL_URL="${WALL_URL}?tmux_pane=${PANE_ENCODED}"
 fi
 
-# Fire-and-forget POST (don't block Claude Code)
 curl -s -X POST "$WALL_URL" \
   -H "Content-Type: application/json" \
   -d "$EVENT_JSON" \
@@ -38,8 +36,15 @@ curl -s -X POST "$WALL_URL" \
   >/dev/null 2>&1 &
 `
 
-// hookEvents are the Claude Code hook events we register for
-var hookEvents = []string{"PreToolUse", "PostToolUse", "Stop", "PermissionRequest", "Notification", "SessionStart", "SessionEnd"}
+// hookEvents — all events we want to track
+var hookEvents = []string{
+	"PreToolUse", "PostToolUse", "PostToolUseFailure",
+	"Stop", "StopFailure",
+	"PermissionRequest", "Notification",
+	"SessionStart", "SessionEnd",
+	"SubagentStart", "SubagentStop",
+	"TaskCompleted",
+}
 
 func runInit() {
 	homeDir, err := os.UserHomeDir()
@@ -112,18 +117,32 @@ func runInit() {
 		}
 
 		if !alreadyExists {
-			// Add a new hook group with our hook
-			newGroup := map[string]interface{}{
-				"hooks": []interface{}{
-					map[string]interface{}{
-						"type":    "command",
-						"command": hookPath,
-					},
+			// Use native HTTP hook (Claude Code 2.1+) with command fallback
+			port := "7685"
+			if p := os.Getenv("CLAUDE_WALL_PORT"); p != "" {
+				port = p
+			}
+			httpHook := map[string]interface{}{
+				"type":           "http",
+				"url":            fmt.Sprintf("http://127.0.0.1:%s/api/hooks/event", port),
+				"timeout":        5,
+				"allowedEnvVars": []string{"TMUX_PANE"},
+				"headers": map[string]string{
+					"X-Tmux-Pane": "$TMUX_PANE",
 				},
+			}
+			// Also add command hook as fallback for older Claude Code
+			cmdHook := map[string]interface{}{
+				"type":    "command",
+				"command": hookPath,
+				"async":   true,
+			}
+			newGroup := map[string]interface{}{
+				"hooks": []interface{}{httpHook, cmdHook},
 			}
 			groups = append(groups, newGroup)
 			hooksSection[event] = groups
-			fmt.Printf("  Added hook for %s\n", event)
+			fmt.Printf("  Added hook for %s (http + command fallback)\n", event)
 		} else {
 			fmt.Printf("  Hook for %s already exists, skipping\n", event)
 		}

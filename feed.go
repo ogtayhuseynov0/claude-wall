@@ -166,6 +166,16 @@ func buildFeedEntry(event hookEvent) feedEntry {
 		status = "working"
 	case "PostToolUse":
 		status = "working"
+	case "PostToolUseFailure":
+		status = "working"
+	case "SubagentStart":
+		status = "working"
+	case "SubagentStop":
+		status = "working"
+	case "TaskCompleted":
+		status = "idle"
+	case "StopFailure":
+		status = "idle"
 	case "Stop":
 		status = "idle"
 	case "PermissionRequest":

@@ -92,6 +92,25 @@ func (s *hookStore) processEvent(event hookEvent) {
 		}
 		state.Status = "permission"
 
+	case "PostToolUseFailure":
+		state.Status = "working"
+		state.Activity = "⚠ " + formatActivity(event.ToolName, event.ToolInput) + " (failed)"
+
+	case "StopFailure":
+		state.Status = "idle"
+		state.Activity = "⚠ API error"
+
+	case "SubagentStart":
+		state.Status = "working"
+		state.Activity = "Subagent started"
+
+	case "SubagentStop":
+		state.Status = "working"
+
+	case "TaskCompleted":
+		state.Status = "idle"
+		state.Activity = "Task completed"
+
 	case "SessionStart":
 		state.Status = "idle"
 		state.Activity = ""

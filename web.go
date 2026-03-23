@@ -124,8 +124,11 @@ func runWeb(port int) {
 		}
 		event.ReceivedAt = time.Now()
 
-		// Map TMUX_PANE (e.g. %114) to pane target (e.g. LinkTrack:2.1)
-		tmuxPane := r.URL.Query().Get("tmux_pane")
+		// Map TMUX_PANE to pane target — check header (HTTP hooks) then query param (command hooks)
+		tmuxPane := r.Header.Get("X-Tmux-Pane")
+		if tmuxPane == "" {
+			tmuxPane = r.URL.Query().Get("tmux_pane")
+		}
 		if tmuxPane != "" {
 			target := resolveTmuxPane(tmuxPane)
 			if target != "" {
