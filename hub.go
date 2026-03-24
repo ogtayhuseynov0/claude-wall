@@ -163,32 +163,23 @@ func (h *captureHub) run() {
 // resolveStatus returns (status, activity) — uses hooks if available, falls back to terminal parsing
 func (h *captureHub) resolveStatus(target, content string) (string, string) {
 	if hooks == nil {
-		return detectStatus(content), ""
+		return "idle", ""
 	}
 
 	dir := getPaneDir(target)
 	if dir == "" {
-		return detectStatus(content), ""
+		return "idle", ""
 	}
 
 	hs := hooks.getStateForPane(target, dir)
-	if hs == nil || hooks.isStaleForPane(target, 90*time.Second) {
-		return detectStatus(content), ""
+	if hs == nil {
+		// No hooks ever received for this pane — show idle (don't guess from terminal)
+		return "idle", ""
 	}
 
-	// Cross-check: if hooks say "permission" but terminal no longer shows it,
-	// the user already responded. BUT give a 10s grace period to avoid flicker
-	// from partial terminal captures.
-	if hs.Status == "permission" {
-		if time.Since(hs.UpdatedAt) > 10*time.Second {
-			termStatus := detectStatus(content)
-			if termStatus != "permission" {
-				return termStatus, ""
-			}
-		}
-		// Within 10s of hook event: trust the hook, don't cross-check
-	}
-
+	// Hooks are authoritative. Trust the last hook state.
+	// Only exception: if permission hook is old (>30s) and a Stop/PostToolUse came after,
+	// the hook store already updated the state. So just return what hooks say.
 	return hs.Status, hs.Activity
 }
 
