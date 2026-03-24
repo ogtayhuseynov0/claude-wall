@@ -177,12 +177,16 @@ func (h *captureHub) resolveStatus(target, content string) (string, string) {
 	}
 
 	// Cross-check: if hooks say "permission" but terminal no longer shows it,
-	// the user already responded
+	// the user already responded. BUT give a 10s grace period to avoid flicker
+	// from partial terminal captures.
 	if hs.Status == "permission" {
-		termStatus := detectStatus(content)
-		if termStatus != "permission" {
-			return termStatus, ""
+		if time.Since(hs.UpdatedAt) > 10*time.Second {
+			termStatus := detectStatus(content)
+			if termStatus != "permission" {
+				return termStatus, ""
+			}
 		}
+		// Within 10s of hook event: trust the hook, don't cross-check
 	}
 
 	return hs.Status, hs.Activity
