@@ -59,6 +59,14 @@ func main() {
 		}
 		fmt.Println()
 
+	case "logs":
+		logPath := logFile()
+		cmd := exec.Command("tail", "-f", logPath)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		fmt.Printf("▸ Tailing %s (Ctrl+C to stop)\n\n", logPath)
+		cmd.Run()
+
 	case "open":
 		// Open the dashboard in browser
 		pid := readPid()

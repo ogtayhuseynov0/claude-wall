@@ -388,6 +388,15 @@
     border-color: rgba(34, 197, 94, 0.3);
   }
 
+  /* Error status */
+  .tile[data-status="error"] {
+    border-color: var(--red);
+    box-shadow: 0 0 0 1px var(--red), 0 0 20px -4px rgba(248, 113, 113, 0.15);
+  }
+  .tile[data-status="error"] .tile-header {
+    background: rgba(248, 113, 113, 0.06);
+  }
+
   /* ── Tile Header ── */
   .tile-header {
     padding: 6px 10px;
@@ -453,6 +462,7 @@
     animation: pulse-dot 1.2s ease-in-out infinite;
   }
   .tile-header .status-dot.connecting { background: var(--text-muted); opacity: 0.5; }
+  .tile-header .status-dot.error { background: var(--red); box-shadow: 0 0 6px var(--red); }
   .tile-header .status-dot.disconnected { background: var(--red); }
 
   @keyframes pulse-dot {
@@ -470,6 +480,7 @@
   .tile-header .status-label.idle { color: transparent; }
   .tile-header .status-label.working { color: var(--green); }
   .tile-header .status-label.permission { color: var(--amber); }
+  .tile-header .status-label.error { color: var(--red); }
 
   .tile-header .pane-id {
     font-size: 9px;

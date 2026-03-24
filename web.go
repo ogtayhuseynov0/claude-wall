@@ -53,6 +53,7 @@ func runWeb(port int) {
 	hub = newCaptureHub()
 	hooks = newHookStore()
 	feed = newFeedStore(500)
+	initFinance()
 	go hub.run()
 
 	// API: list panes (re-detects each time, includes dimensions)
@@ -437,6 +438,28 @@ func detectStatus(content string) string {
 			strings.Contains(tail, "✳ "+v) || strings.Contains(tail, "✶ "+v) ||
 			strings.Contains(tail, "✽ "+v) {
 			return "working"
+		}
+	}
+
+	// Error detection — check last 15 lines for error patterns
+	errorTail := tail
+	if len(lines) > 15 {
+		errorTail = strings.Join(lines[len(lines)-15:], "\n")
+	}
+	// Strip ANSI codes for pattern matching
+	plainTail := ansiRegex.ReplaceAllString(errorTail, "")
+	errorPatterns := []string{
+		"FAIL", "FAILED", "Error:", "ERROR", "error:", "panic:",
+		"TypeError:", "ReferenceError:", "SyntaxError:",
+		"command not found", "Permission denied",
+		"fatal:", "FATAL", "segmentation fault",
+		"npm ERR!", "Build failed", "Compilation failed",
+		"exit code 1", "exit status 1",
+		"AssertionError", "TestError",
+	}
+	for _, pat := range errorPatterns {
+		if strings.Contains(plainTail, pat) {
+			return "error"
 		}
 	}
 

@@ -32,8 +32,18 @@ type financeStore struct {
 	mastermindCalls int
 }
 
-var finance = &financeStore{
-	sessions: make(map[string]*sessionCost),
+var finance *financeStore
+
+func initFinance() {
+	finance = &financeStore{
+		sessions: make(map[string]*sessionCost),
+	}
+	finance.load()
+}
+
+func financeFile() string {
+	home, _ := os.UserHomeDir()
+	return home + "/.claude/claude-wall-finance.json"
 }
 
 // processTranscript reads a Claude Code transcript JSONL to extract cost data
@@ -106,6 +116,7 @@ func (f *financeStore) processTranscript(event hookEvent) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	defer f.save()
 	f.sessions[event.SessionID] = &sessionCost{
 		SessionID:   event.SessionID,
 		Target:      target,
@@ -125,9 +136,10 @@ func (f *financeStore) processTranscript(event hookEvent) {
 
 func (f *financeStore) addMastermindCost(cost float64) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.mastermindCost += cost
 	f.mastermindCalls++
+	f.mu.Unlock()
+	f.save()
 }
 
 func (f *financeStore) getSummary() map[string]interface{} {
@@ -170,6 +182,46 @@ func indexOf(s, substr string) int {
 		}
 	}
 	return -1
+}
+
+type financeData struct {
+	Sessions       map[string]*sessionCost `json:"sessions"`
+	MastermindCost float64                 `json:"mastermindCost"`
+	MastermindCalls int                    `json:"mastermindCalls"`
+}
+
+func (f *financeStore) save() {
+	f.mu.RLock()
+	data := financeData{
+		Sessions:        f.sessions,
+		MastermindCost:  f.mastermindCost,
+		MastermindCalls: f.mastermindCalls,
+	}
+	f.mu.RUnlock()
+
+	out, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return
+	}
+	os.WriteFile(financeFile(), out, 0644)
+}
+
+func (f *financeStore) load() {
+	data, err := os.ReadFile(financeFile())
+	if err != nil {
+		return
+	}
+	var fd financeData
+	if json.Unmarshal(data, &fd) != nil {
+		return
+	}
+	f.mu.Lock()
+	if fd.Sessions != nil {
+		f.sessions = fd.Sessions
+	}
+	f.mastermindCost = fd.MastermindCost
+	f.mastermindCalls = fd.MastermindCalls
+	f.mu.Unlock()
 }
 
 func handleFinanceAPI(w http.ResponseWriter, r *http.Request) {
