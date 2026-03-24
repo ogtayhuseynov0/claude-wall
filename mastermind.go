@@ -310,6 +310,9 @@ func handleMastermind(w http.ResponseWriter, r *http.Request) {
 					sendWS(&mu, conn, "stream", result)
 				}
 				cost, _ := event["total_cost_usd"].(float64)
+				if cost > 0 {
+					finance.addMastermindCost(cost)
+				}
 				sendWS(&mu, conn, "done", fmt.Sprintf("%.4f", cost))
 			}
 		}

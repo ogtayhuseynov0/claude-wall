@@ -10,14 +10,15 @@ import (
 
 // hookEvent represents a Claude Code hook event received via HTTP
 type hookEvent struct {
-	SessionID    string          `json:"session_id"`
-	CWD          string          `json:"cwd"`
-	EventName    string          `json:"hook_event_name"`
-	ToolName     string          `json:"tool_name"`
-	ToolInput    json.RawMessage `json:"tool_input"`
-	Notification json.RawMessage `json:"notification"`
-	ReceivedAt   time.Time       `json:"-"`
-	PaneTarget   string          `json:"-"` // resolved from TMUX_PANE query param
+	SessionID      string          `json:"session_id"`
+	CWD            string          `json:"cwd"`
+	EventName      string          `json:"hook_event_name"`
+	ToolName       string          `json:"tool_name"`
+	ToolInput      json.RawMessage `json:"tool_input"`
+	Notification   json.RawMessage `json:"notification"`
+	TranscriptPath string          `json:"transcript_path"`
+	ReceivedAt     time.Time       `json:"-"`
+	PaneTarget     string          `json:"-"`
 }
 
 // hookState tracks the derived state for a Claude Code session

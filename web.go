@@ -141,6 +141,11 @@ func runWeb(port int) {
 		hooks.processEvent(event)
 		feed.add(buildFeedEntry(event))
 
+		// Track costs on Stop events
+		if event.EventName == "Stop" || event.EventName == "StopFailure" {
+			go finance.processTranscript(event)
+		}
+
 		// Notify the hub to push a status update to matching panes
 		hub.pushHookStatus(hooks)
 
@@ -208,6 +213,9 @@ func runWeb(port int) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"sent"}`))
 	})
+
+	// Finance / cost tracking
+	http.HandleFunc("/api/finance", handleFinanceAPI)
 
 	// Health check
 	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {

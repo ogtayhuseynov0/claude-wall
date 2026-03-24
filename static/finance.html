@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Wall — Finance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #1a1c23; --bg-surface: #21242d; --bg-raised: #282b36; --bg-hover: #2f3340;
+    --border: #363a4a; --border-subtle: #2e3242;
+    --accent: #6ea1f7; --green: #4ade80; --amber: #fbbf24; --red: #f87171;
+    --text: #e8eaef; --text-secondary: #9ca3b0; --text-muted: #6b7280;
+    --font-ui: 'DM Sans', -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', Menlo, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg-deep); font-family: var(--font-ui); color: var(--text); min-height: 100vh; }
+
+  .container { max-width: 1000px; margin: 0 auto; padding: 24px 20px; }
+
+  .header { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; }
+  .header h1 { font-size: 20px; font-weight: 700; color: var(--text); }
+  .header .back { color: var(--accent); text-decoration: none; font-size: 14px; }
+  .header .back:hover { text-decoration: underline; }
+  .header .refresh { margin-left: auto; color: var(--text-muted); font-size: 12px; font-family: var(--font-mono); }
+
+  /* Summary cards */
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 32px; }
+  .card {
+    background: var(--bg-surface); border: 1px solid var(--border-subtle);
+    border-radius: 10px; padding: 16px 20px;
+  }
+  .card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); margin-bottom: 6px; font-weight: 600; }
+  .card .value { font-size: 28px; font-weight: 700; font-family: var(--font-mono); }
+  .card .value.cost { color: var(--accent); }
+  .card .value.tokens { color: var(--green); }
+  .card .value.turns { color: var(--amber); }
+  .card .sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-family: var(--font-mono); }
+
+  /* Breakdown */
+  .section-title { font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .table-wrap { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 10px; overflow: hidden; margin-bottom: 24px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  thead th {
+    text-align: left; padding: 10px 16px; font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.8px; color: var(--text-muted); font-weight: 600;
+    border-bottom: 1px solid var(--border-subtle); background: var(--bg-raised);
+  }
+  tbody td { padding: 10px 16px; border-bottom: 1px solid var(--border-subtle); }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--bg-raised); }
+
+  .session-name { color: var(--accent); font-weight: 600; }
+  .dir-name { color: var(--text-secondary); }
+  .branch { color: #a78bfa; font-family: var(--font-mono); font-size: 11px; }
+  .mono { font-family: var(--font-mono); }
+  .cost-val { color: var(--accent); font-weight: 600; font-family: var(--font-mono); }
+  .token-val { color: var(--text-secondary); font-family: var(--font-mono); font-size: 11px; }
+  .empty { text-align: center; padding: 40px; color: var(--text-muted); font-size: 13px; }
+
+  /* Mastermind section */
+  .mm-section { display: flex; gap: 12px; margin-bottom: 24px; }
+  .mm-card { flex: 1; }
+
+  @media (max-width: 768px) {
+    .summary { grid-template-columns: repeat(2, 1fr); }
+    .card .value { font-size: 20px; }
+    table { font-size: 11px; }
+    thead th, tbody td { padding: 8px 10px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <a href="/" class="back">← Dashboard</a>
+    <h1>💰 Finance</h1>
+    <span class="refresh" id="refresh">Loading...</span>
+  </div>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="section-title">Mastermind</div>
+  <div class="mm-section" id="mm-summary"></div>
+
+  <div class="section-title">Agent Sessions</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Agent</th>
+          <th>Directory</th>
+          <th>Branch</th>
+          <th>Cost</th>
+          <th>Input</th>
+          <th>Output</th>
+          <th>Cache</th>
+          <th>Turns</th>
+        </tr>
+      </thead>
+      <tbody id="sessions"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function fmt(n) {
+  if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n/1000).toFixed(1) + 'K';
+  return n.toString();
+}
+
+function fmtCost(n) {
+  if (n >= 1) return '$' + n.toFixed(2);
+  if (n >= 0.01) return '$' + n.toFixed(3);
+  return '$' + n.toFixed(4);
+}
+
+async function refresh() {
+  try {
+    const res = await fetch('/api/finance');
+    const data = await res.json();
+
+    document.getElementById('refresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+    // Summary cards
+    document.getElementById('summary').innerHTML = `
+      <div class="card">
+        <div class="label">Total Cost</div>
+        <div class="value cost">${fmtCost(data.totalCostUsd || 0)}</div>
+        <div class="sub">agents + mastermind</div>
+      </div>
+      <div class="card">
+        <div class="label">Input Tokens</div>
+        <div class="value tokens">${fmt(data.totalInputTokens || 0)}</div>
+        <div class="sub">across all sessions</div>
+      </div>
+      <div class="card">
+        <div class="label">Output Tokens</div>
+        <div class="value tokens">${fmt(data.totalOutputTokens || 0)}</div>
+      </div>
+      <div class="card">
+        <div class="label">Cache Tokens</div>
+        <div class="value turns">${fmt((data.totalCacheRead || 0) + (data.totalCacheCreate || 0))}</div>
+        <div class="sub">read: ${fmt(data.totalCacheRead || 0)} / create: ${fmt(data.totalCacheCreate || 0)}</div>
+      </div>
+    `;
+
+    // Mastermind
+    document.getElementById('mm-summary').innerHTML = `
+      <div class="card mm-card">
+        <div class="label">Mastermind Cost</div>
+        <div class="value cost">${fmtCost(data.mastermindCostUsd || 0)}</div>
+        <div class="sub">${data.mastermindCalls || 0} calls</div>
+      </div>
+      <div class="card mm-card">
+        <div class="label">Agent Cost</div>
+        <div class="value cost">${fmtCost(data.agentCostUsd || 0)}</div>
+        <div class="sub">${(data.sessions || []).length} sessions tracked</div>
+      </div>
+    `;
+
+    // Sessions table
+    const sessions = data.sessions || [];
+    const tbody = document.getElementById('sessions');
+
+    if (sessions.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="empty">No cost data yet. Costs are tracked when Claude Code sessions complete (Stop hook).</td></tr>';
+      return;
+    }
+
+    // Sort by cost descending
+    sessions.sort((a, b) => (b.costUsd || 0) - (a.costUsd || 0));
+
+    tbody.innerHTML = sessions.map(s => `
+      <tr>
+        <td><span class="session-name">${s.session || s.sessionId?.slice(0,8) || '?'}</span></td>
+        <td><span class="dir-name">${s.dirName || '-'}</span></td>
+        <td><span class="branch">${s.branch || '-'}</span></td>
+        <td><span class="cost-val">${fmtCost(s.costUsd || 0)}</span></td>
+        <td><span class="token-val">${fmt(s.inputTokens || 0)}</span></td>
+        <td><span class="token-val">${fmt(s.outputTokens || 0)}</span></td>
+        <td><span class="token-val">${fmt((s.cacheReadTokens || 0) + (s.cacheCreateTokens || 0))}</span></td>
+        <td><span class="mono">${s.turns || 0}</span></td>
+      </tr>
+    `).join('');
+
+  } catch (e) {
+    document.getElementById('refresh').textContent = 'Error loading data';
+  }
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
