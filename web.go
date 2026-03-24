@@ -142,8 +142,8 @@ func runWeb(port int) {
 		hooks.processEvent(event)
 		feed.add(buildFeedEntry(event))
 
-		// Track costs on Stop events
-		if event.EventName == "Stop" || event.EventName == "StopFailure" {
+		// Track costs — update on Stop and periodically on PostToolUse
+		if event.EventName == "Stop" || event.EventName == "StopFailure" || event.EventName == "PostToolUse" {
 			go finance.processTranscript(event)
 		}
 

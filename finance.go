@@ -58,8 +58,9 @@ func (f *financeStore) processTranscript(event hookEvent) {
 	}
 	defer file.Close()
 
-	// Read last result entry from JSONL
-	var lastResult map[string]interface{}
+	// Sum usage across all assistant messages in the transcript
+	var inputTok, outputTok, cacheRead, cacheCreate int64
+	var turns int
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for scanner.Scan() {
@@ -67,36 +68,31 @@ func (f *financeStore) processTranscript(event hookEvent) {
 		if json.Unmarshal(scanner.Bytes(), &entry) != nil {
 			continue
 		}
-		if entry["type"] == "result" {
-			lastResult = entry
+		if entry["type"] == "assistant" {
+			turns++
+			msg, _ := entry["message"].(map[string]interface{})
+			if msg == nil {
+				continue
+			}
+			usage, _ := msg["usage"].(map[string]interface{})
+			if usage == nil {
+				continue
+			}
+			if v, ok := usage["input_tokens"].(float64); ok { inputTok += int64(v) }
+			if v, ok := usage["output_tokens"].(float64); ok { outputTok += int64(v) }
+			if v, ok := usage["cache_read_input_tokens"].(float64); ok { cacheRead += int64(v) }
+			if v, ok := usage["cache_creation_input_tokens"].(float64); ok { cacheCreate += int64(v) }
 		}
 	}
 
-	if lastResult == nil {
+	if turns == 0 {
 		return
 	}
 
-	// Extract cost data
-	costUSD, _ := lastResult["costUSD"].(float64)
-	if costUSD == 0 {
-		costUSD, _ = lastResult["total_cost_usd"].(float64)
-	}
-	durationMs, _ := lastResult["durationMs"].(float64)
-	if durationMs == 0 {
-		durationMs, _ = lastResult["duration_ms"].(float64)
-	}
-	numTurns, _ := lastResult["numTurns"].(float64)
-	if numTurns == 0 {
-		numTurns, _ = lastResult["num_turns"].(float64)
-	}
-
-	var inputTok, outputTok, cacheRead, cacheCreate int64
-	if usage, ok := lastResult["usage"].(map[string]interface{}); ok {
-		if v, ok := usage["input_tokens"].(float64); ok { inputTok = int64(v) }
-		if v, ok := usage["output_tokens"].(float64); ok { outputTok = int64(v) }
-		if v, ok := usage["cache_read_input_tokens"].(float64); ok { cacheRead = int64(v) }
-		if v, ok := usage["cache_creation_input_tokens"].(float64); ok { cacheCreate = int64(v) }
-	}
+	// Estimate cost (Claude pricing approximation)
+	// Input: $3/MTok, Output: $15/MTok, Cache read: $0.30/MTok, Cache create: $3.75/MTok
+	costUSD := float64(inputTok)*3.0/1e6 + float64(outputTok)*15.0/1e6 +
+		float64(cacheRead)*0.30/1e6 + float64(cacheCreate)*3.75/1e6
 
 	// Resolve pane info
 	target := event.PaneTarget
@@ -128,8 +124,7 @@ func (f *financeStore) processTranscript(event hookEvent) {
 		OutputTok:   outputTok,
 		CacheRead:   cacheRead,
 		CacheCreate: cacheCreate,
-		Turns:       int(numTurns),
-		Duration:    int64(durationMs),
+		Turns:       turns,
 		UpdatedAt:   time.Now(),
 	}
 }
