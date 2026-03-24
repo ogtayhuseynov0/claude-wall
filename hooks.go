@@ -91,8 +91,12 @@ func (s *hookStore) processEvent(event hookEvent) {
 				case "permission_prompt":
 					state.Status = "permission"
 				case "idle_prompt":
-					state.Status = "idle"
-					state.Activity = ""
+					// Only go idle if we haven't been working recently (>3s)
+					// This prevents flicker from idle_prompt between rapid tool calls
+					if state.Status != "working" || time.Since(state.UpdatedAt) > 3*time.Second {
+						state.Status = "idle"
+						state.Activity = ""
+					}
 				}
 			}
 		}
