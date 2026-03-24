@@ -86,12 +86,16 @@ func (s *hookStore) processEvent(event hookEvent) {
 	case "Notification":
 		var notif map[string]interface{}
 		if json.Unmarshal(event.Notification, &notif) == nil {
-			if t, ok := notif["type"].(string); ok && t == "permission_prompt" {
-				state.Status = "permission"
-				return
+			if t, ok := notif["type"].(string); ok {
+				switch t {
+				case "permission_prompt":
+					state.Status = "permission"
+				case "idle_prompt":
+					state.Status = "idle"
+					state.Activity = ""
+				}
 			}
 		}
-		state.Status = "permission"
 
 	case "PostToolUseFailure":
 		state.Status = "error"
