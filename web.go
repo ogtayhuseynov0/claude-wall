@@ -144,7 +144,11 @@ func runWeb(port int) {
 
 		// Track costs — update on Stop and periodically on PostToolUse
 		if event.EventName == "Stop" || event.EventName == "StopFailure" || event.EventName == "PostToolUse" {
-			go finance.processTranscript(event)
+			if event.TranscriptPath != "" {
+				go finance.processTranscript(event)
+			} else {
+				fmt.Printf("  [finance] %s event has no transcript_path\n", event.EventName)
+			}
 		}
 
 		// Notify the hub to push a status update to matching panes

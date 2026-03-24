@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"sync"
@@ -48,12 +49,14 @@ func financeFile() string {
 
 // processTranscript reads a Claude Code transcript JSONL to extract cost data
 func (f *financeStore) processTranscript(event hookEvent) {
-	if event.TranscriptPath == "" {
+	if f == nil || event.TranscriptPath == "" {
+		fmt.Printf("  [finance] skip: f=%v path=%q\n", f != nil, event.TranscriptPath)
 		return
 	}
 
 	file, err := os.Open(event.TranscriptPath)
 	if err != nil {
+		fmt.Printf("  [finance] cannot open %s: %v\n", event.TranscriptPath, err)
 		return
 	}
 	defer file.Close()
@@ -86,8 +89,11 @@ func (f *financeStore) processTranscript(event hookEvent) {
 	}
 
 	if turns == 0 {
+		fmt.Printf("  [finance] no turns in %s\n", event.TranscriptPath)
 		return
 	}
+	fmt.Printf("  [finance] parsed %s: turns=%d input=%d output=%d cost=$%.4f\n",
+		event.SessionID, turns, inputTok, outputTok, 0.0)
 
 	// Estimate cost (Claude pricing approximation)
 	// Input: $3/MTok, Output: $15/MTok, Cache read: $0.30/MTok, Cache create: $3.75/MTok
@@ -110,9 +116,6 @@ func (f *financeStore) processTranscript(event hookEvent) {
 	}
 
 	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	defer f.save()
 	f.sessions[event.SessionID] = &sessionCost{
 		SessionID:   event.SessionID,
 		Target:      target,
@@ -127,6 +130,8 @@ func (f *financeStore) processTranscript(event hookEvent) {
 		Turns:       turns,
 		UpdatedAt:   time.Now(),
 	}
+	f.mu.Unlock()
+	f.save()
 }
 
 func (f *financeStore) addMastermindCost(cost float64) {
