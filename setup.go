@@ -46,6 +46,8 @@ var hookEvents = []string{
 	"TaskCompleted",
 }
 
+var dryRun bool
+
 func runInit() {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -54,15 +56,19 @@ func runInit() {
 
 	// 1. Create hook script
 	hooksDir := filepath.Join(homeDir, ".claude", "hooks")
-	if err := os.MkdirAll(hooksDir, 0755); err != nil {
-		fatal("cannot create hooks directory: %v", err)
-	}
-
 	hookPath := filepath.Join(hooksDir, hookScriptName)
-	if err := os.WriteFile(hookPath, []byte(hookScriptContent), 0755); err != nil {
-		fatal("cannot write hook script: %v", err)
+
+	if dryRun {
+		fmt.Printf("  [dry-run] Would create %s\n", hookPath)
+	} else {
+		if err := os.MkdirAll(hooksDir, 0755); err != nil {
+			fatal("cannot create hooks directory: %v", err)
+		}
+		if err := os.WriteFile(hookPath, []byte(hookScriptContent), 0755); err != nil {
+			fatal("cannot write hook script: %v", err)
+		}
+		fmt.Printf("  Created %s\n", hookPath)
 	}
-	fmt.Printf("  Created %s\n", hookPath)
 
 	// 2. Update settings.json (MERGE with existing hooks, never replace)
 	settingsPath := filepath.Join(homeDir, ".claude", "settings.json")
@@ -70,12 +76,13 @@ func runInit() {
 
 	data, err := os.ReadFile(settingsPath)
 	if err == nil {
-		backupPath := settingsPath + ".backup." + time.Now().Format("20060102-150405")
-		if err := os.WriteFile(backupPath, data, 0644); err != nil {
-			fatal("cannot create backup: %v", err)
+		if !dryRun {
+			backupPath := settingsPath + ".backup." + time.Now().Format("20060102-150405")
+			if err := os.WriteFile(backupPath, data, 0644); err != nil {
+				fatal("cannot create backup: %v", err)
+			}
+			fmt.Printf("  Backed up settings to %s\n", filepath.Base(backupPath))
 		}
-		fmt.Printf("  Backed up settings to %s\n", filepath.Base(backupPath))
-
 		if err := json.Unmarshal(data, &settings); err != nil {
 			fatal("cannot parse settings.json: %v", err)
 		}
@@ -142,7 +149,11 @@ func runInit() {
 			}
 			groups = append(groups, newGroup)
 			hooksSection[event] = groups
-			fmt.Printf("  Added hook for %s (http + command fallback)\n", event)
+			if dryRun {
+				fmt.Printf("  [dry-run] Would add hook for %s\n", event)
+			} else {
+				fmt.Printf("  Added hook for %s (http + command fallback)\n", event)
+			}
 		} else {
 			fmt.Printf("  Hook for %s already exists, skipping\n", event)
 		}
@@ -150,19 +161,23 @@ func runInit() {
 
 	settings["hooks"] = hooksSection
 
-	out, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		fatal("cannot serialize settings: %v", err)
+	if dryRun {
+		fmt.Printf("  [dry-run] Would update %s\n", settingsPath)
+		fmt.Println()
+		fmt.Println("  No changes made. Remove --dry-run to apply.")
+	} else {
+		out, err := json.MarshalIndent(settings, "", "  ")
+		if err != nil {
+			fatal("cannot serialize settings: %v", err)
+		}
+		if err := os.WriteFile(settingsPath, out, 0644); err != nil {
+			fatal("cannot write settings.json: %v", err)
+		}
+		fmt.Printf("  Updated %s\n", settingsPath)
+		fmt.Println()
+		fmt.Println("  Claude Wall hooks installed. Restart Claude Code sessions to activate.")
+		fmt.Println("  To remove: claude-wall uninstall")
 	}
-
-	if err := os.WriteFile(settingsPath, out, 0644); err != nil {
-		fatal("cannot write settings.json: %v", err)
-	}
-
-	fmt.Printf("  Updated %s\n", settingsPath)
-	fmt.Println()
-	fmt.Println("  Claude Wall hooks installed. Restart Claude Code sessions to activate.")
-	fmt.Println("  To remove: claude-wall uninstall")
 }
 
 func runUninstall() {

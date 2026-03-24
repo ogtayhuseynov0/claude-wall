@@ -332,6 +332,34 @@
     overflow: hidden;
     background: var(--bg-deep);
   }
+  .group-header {
+    grid-column: 1 / -1;
+    padding: 4px 10px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .group-header::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border-subtle);
+  }
+  .group-header:hover { color: var(--text-secondary); }
+  .group-header .group-count {
+    font-size: 9px;
+    color: var(--text-muted);
+    background: var(--bg-raised);
+    padding: 1px 6px;
+    border-radius: 8px;
+  }
 
   /* ── Tile ── */
   .tile {
@@ -988,15 +1016,50 @@ function updateStatusSummary() {
 }
 setInterval(updateStatusSummary, 1000);
 
+function getProjectGroup(dir) {
+  const parts = (dir || '').split('/').filter(Boolean);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i].toUpperCase();
+    if (['PROJECTS', 'WORK', 'PERSONAL', 'DESKTOP'].includes(p) && i + 1 < parts.length) {
+      return parts[i + 1];
+    }
+  }
+  return parts.length >= 2 ? parts[parts.length - 2] : 'Other';
+}
+
 function updateGrid() {
   countEl.textContent = `${tiles.size} instances`;
   updateStatusSummary();
-  const visible = grid.querySelectorAll('.tile').length;
-  if (visible === 0) return;
-  const cols = Math.ceil(Math.sqrt(visible));
-  const rows = Math.ceil(visible / cols);
+
+  // Remove old group headers
+  grid.querySelectorAll('.group-header').forEach(h => h.remove());
+
+  const gridTiles = Array.from(grid.querySelectorAll('.tile'));
+  if (gridTiles.length === 0) return;
+
+  const cols = Math.ceil(Math.sqrt(gridTiles.length));
   grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+  grid.style.gridTemplateRows = '';
+  grid.style.gridAutoRows = '1fr';
+
+  // Group tiles by project
+  const groups = new Map();
+  for (const [target, state] of tiles) {
+    if (state.tile.parentElement !== grid) continue;
+    const group = getProjectGroup(state.pane.dir || '');
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(state);
+  }
+
+  // Show headers only when multiple groups exist
+  if (groups.size > 1) {
+    for (const [group, states] of groups) {
+      const header = document.createElement('div');
+      header.className = 'group-header';
+      header.innerHTML = `${group} <span class="group-count">${states.length}</span>`;
+      grid.insertBefore(header, states[0].tile);
+    }
+  }
 }
 
 let tileCounter = 0;

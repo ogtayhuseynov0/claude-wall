@@ -32,11 +32,22 @@ func main() {
 		daemonStatus()
 
 	case "init":
-		fmt.Println("▸ Installing Claude Wall hooks...")
+		for _, a := range os.Args {
+			if a == "--dry-run" {
+				dryRun = true
+			}
+		}
+		if dryRun {
+			fmt.Println("▸ Dry run — showing what would change...")
+		} else {
+			fmt.Println("▸ Installing Claude Wall hooks...")
+		}
 		runInit()
-		fmt.Println()
-		daemonStart(port, public)
-		exec.Command("open", fmt.Sprintf("http://127.0.0.1:%d", port)).Start()
+		if !dryRun {
+			fmt.Println()
+			daemonStart(port, public)
+			exec.Command("open", fmt.Sprintf("http://127.0.0.1:%d", port)).Start()
+		}
 
 	case "uninstall":
 		fmt.Println("▸ Removing Claude Wall hooks...")
