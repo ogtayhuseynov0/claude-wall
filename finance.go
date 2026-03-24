@@ -3,9 +3,9 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -50,13 +50,11 @@ func financeFile() string {
 // processTranscript reads a Claude Code transcript JSONL to extract cost data
 func (f *financeStore) processTranscript(event hookEvent) {
 	if f == nil || event.TranscriptPath == "" {
-		fmt.Printf("  [finance] skip: f=%v path=%q\n", f != nil, event.TranscriptPath)
 		return
 	}
 
 	file, err := os.Open(event.TranscriptPath)
 	if err != nil {
-		fmt.Printf("  [finance] cannot open %s: %v\n", event.TranscriptPath, err)
 		return
 	}
 	defer file.Close()
@@ -89,11 +87,8 @@ func (f *financeStore) processTranscript(event hookEvent) {
 	}
 
 	if turns == 0 {
-		fmt.Printf("  [finance] no turns in %s\n", event.TranscriptPath)
 		return
 	}
-	fmt.Printf("  [finance] parsed %s: turns=%d input=%d output=%d cost=$%.4f\n",
-		event.SessionID, turns, inputTok, outputTok, 0.0)
 
 	// Estimate cost (Claude pricing approximation)
 	// Input: $3/MTok, Output: $15/MTok, Cache read: $0.30/MTok, Cache create: $3.75/MTok
@@ -106,7 +101,7 @@ func (f *financeStore) processTranscript(event hookEvent) {
 	dirName := ""
 	branch := ""
 	if target != "" {
-		if idx := indexOf(target, ":"); idx >= 0 {
+		if idx := strings.Index(target, ":"); idx >= 0 {
 			session = target[:idx]
 		}
 		if d := getPaneDir(target); d != "" {
@@ -175,15 +170,6 @@ func (f *financeStore) getSummary() map[string]interface{} {
 	}
 }
 
-func indexOf(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
-}
-
 type financeData struct {
 	Sessions       map[string]*sessionCost `json:"sessions"`
 	MastermindCost float64                 `json:"mastermindCost"`
@@ -226,5 +212,9 @@ func (f *financeStore) load() {
 
 func handleFinanceAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if finance == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{})
+		return
+	}
 	json.NewEncoder(w).Encode(finance.getSummary())
 }

@@ -4,10 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strings"
-	"syscall"
-	"time"
 )
 
 func main() {
@@ -109,13 +106,15 @@ Commands:
   stop                Stop dashboard
   restart [--public]  Restart dashboard
   status              Show if dashboard is running
+  logs                Tail the dashboard log file
   open                Open dashboard in browser
   list                List detected Claude Code agents
   uninstall           Remove hooks + stop dashboard
 
 Flags:
   --public            Bind to 0.0.0.0 (for Tailscale/remote access)
-  --port PORT         Use custom port (default: 7685)`)
+  --port PORT         Use custom port (default: 7685)
+  --token TOKEN       Require auth token (used with --public)`)
 		os.Exit(1)
 	}
 }
@@ -287,7 +286,3 @@ func fatal(format string, args ...any) {
 	os.Exit(1)
 }
 
-// Prevent unused import
-var _ = signal.Notify
-var _ = syscall.SIGTERM
-var _ = time.Second

@@ -156,7 +156,9 @@ func (h *captureHub) run() {
 					default:
 					}
 				}
-			} else if status != prev.Status || activity != prev.Activity {
+			} else if status != prev.Status {
+				// Only broadcast when STATUS changes (not activity-only changes)
+				// Activity updates piggyback on content updates above
 				msg, _ := json.Marshal(map[string]interface{}{
 					"type":     "status-update",
 					"status":   status,
@@ -215,7 +217,7 @@ func (h *captureHub) pushHookStatus(hs *hookStore) {
 		}
 
 		prev := h.latest[target]
-		if hookState.Status != prev.Status || hookState.Activity != prev.Activity {
+		if hookState.Status != prev.Status {
 			msg, _ := json.Marshal(map[string]interface{}{
 				"type":     "status-update",
 				"status":   hookState.Status,

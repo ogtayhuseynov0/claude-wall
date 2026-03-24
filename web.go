@@ -117,6 +117,18 @@ func runWeb(port int) {
 	// Dedup recent hook events (HTTP + command hooks both fire)
 	var recentHooks sync.Map // key: "sessionId:eventName:toolName" → timestamp
 
+	// Periodically clean stale dedup entries to prevent unbounded growth
+	go func() {
+		for range time.NewTicker(5 * time.Minute).C {
+			recentHooks.Range(func(key, value any) bool {
+				if time.Since(value.(time.Time)) > 30*time.Second {
+					recentHooks.Delete(key)
+				}
+				return true
+			})
+		}
+	}()
+
 	// Hook events from Claude Code instances
 	http.HandleFunc("/api/hooks/event", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
@@ -157,12 +169,8 @@ func runWeb(port int) {
 		feed.add(buildFeedEntry(event))
 
 		// Track costs — only on Stop events (reading full transcript is expensive)
-		if event.EventName == "Stop" || event.EventName == "StopFailure" {
-			if event.TranscriptPath != "" {
-				go finance.processTranscript(event)
-			} else {
-				fmt.Printf("  [finance] %s event has no transcript_path\n", event.EventName)
-			}
+		if (event.EventName == "Stop" || event.EventName == "StopFailure") && event.TranscriptPath != "" {
+			go finance.processTranscript(event)
 		}
 
 		// Notify the hub to push a status update to matching panes
@@ -322,10 +330,7 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 	done := make(chan struct{})
 
 	// Reader: browser input → tmux send-keys
-	var wg sync.WaitGroup
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		defer close(done)
 		for {
 			_, msg, err := conn.ReadMessage()
@@ -475,58 +480,3 @@ func resolveTmuxPane(paneID string) string {
 	return ""
 }
 
-// detectStatus parses capture-pane output to determine Claude Code state.
-// Returns: "working", "permission", or "idle"
-func detectStatus(content string) string {
-	// Only check the last ~10 lines (status area) to avoid false positives
-	lines := strings.Split(content, "\n")
-	tail := content
-	if len(lines) > 10 {
-		tail = strings.Join(lines[len(lines)-10:], "\n")
-	}
-
-	// Permission prompt — highest priority
-	if strings.Contains(content, "Do you want to proceed") {
-		return "permission"
-	}
-
-	// Working — the most reliable indicator: "ctrl+c to interrupt" in status area
-	if strings.Contains(tail, "ctrl+c") && strings.Contains(tail, "to interrupt") {
-		return "working"
-	}
-
-	// Working — active cooking/thinking verbs followed by "for" in status area
-	// e.g. "Cooked for 1m 6s" is DONE, but "✻ Cooking..." is working
-	workingVerbs := []string{"Thinking", "Cooking", "Churning", "Baking", "Simmering", "Brewing", "Clauding", "Working", "Processing"}
-	for _, v := range workingVerbs {
-		if strings.Contains(tail, "✻ "+v) || strings.Contains(tail, "✢ "+v) ||
-			strings.Contains(tail, "✳ "+v) || strings.Contains(tail, "✶ "+v) ||
-			strings.Contains(tail, "✽ "+v) {
-			return "working"
-		}
-	}
-
-	// Error detection — check last 15 lines for error patterns
-	errorTail := tail
-	if len(lines) > 15 {
-		errorTail = strings.Join(lines[len(lines)-15:], "\n")
-	}
-	// Strip ANSI codes for pattern matching
-	plainTail := ansiRegex.ReplaceAllString(errorTail, "")
-	errorPatterns := []string{
-		"FAIL", "FAILED", "Error:", "ERROR", "error:", "panic:",
-		"TypeError:", "ReferenceError:", "SyntaxError:",
-		"command not found", "Permission denied",
-		"fatal:", "FATAL", "segmentation fault",
-		"npm ERR!", "Build failed", "Compilation failed",
-		"exit code 1", "exit status 1",
-		"AssertionError", "TestError",
-	}
-	for _, pat := range errorPatterns {
-		if strings.Contains(plainTail, pat) {
-			return "error"
-		}
-	}
-
-	return "idle"
-}

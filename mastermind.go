@@ -4,13 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os/exec"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/gorilla/websocket"
-	"net/http"
 )
 
 // buildMastermindPrompt creates a system prompt with full agent context
@@ -204,6 +203,11 @@ func handleMastermind(w http.ResponseWriter, r *http.Request) {
 	}
 	var history []chatMsg
 	var activeCmd *exec.Cmd
+	defer func() {
+		if activeCmd != nil && activeCmd.Process != nil {
+			activeCmd.Process.Kill()
+		}
+	}()
 
 	for {
 		_, msg, err := conn.ReadMessage()
@@ -233,7 +237,11 @@ func handleMastermind(w http.ResponseWriter, r *http.Request) {
 				start = len(history) - 20
 			}
 			for _, m := range history[start : len(history)-1] {
-				prompt.WriteString(fmt.Sprintf("%s: %s\n\n", strings.Title(m.Role), m.Text))
+				role := m.Role
+				if len(role) > 0 {
+					role = strings.ToUpper(role[:1]) + role[1:]
+				}
+				prompt.WriteString(fmt.Sprintf("%s: %s\n\n", role, m.Text))
 			}
 			prompt.WriteString("Current message:\n")
 		}
@@ -380,12 +388,3 @@ func sendWS(mu *sync.Mutex, conn *websocket.Conn, msgType, data string) {
 	conn.WriteMessage(websocket.TextMessage, msg)
 }
 
-// chatHistory stores conversation for context (in-memory, per server run)
-var chatHistory struct {
-	sync.Mutex
-	messages []struct {
-		Role string
-		Text string
-		Time time.Time
-	}
-}

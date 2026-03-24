@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"strings"
 	"sync"
 	"time"
@@ -201,7 +200,3 @@ func buildFeedEntry(event hookEvent) feedEntry {
 	}
 }
 
-// Need strings import
-func init() {
-	_ = json.Marshal
-}
