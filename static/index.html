@@ -250,32 +250,6 @@
   .approval-btn.focus-btn:hover { background: rgba(110, 161, 247, 0.12); }
 
   /* ── Summary Card (hover tooltip) ── */
-  .summary-card {
-    display: none;
-    position: fixed;
-    z-index: 150;
-    width: 280px;
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 12px 40px rgba(0,0,0,0.4);
-    padding: 12px;
-    pointer-events: none;
-  }
-  .summary-card.visible { display: block; }
-  .summary-card h4 { font-size: 12px; color: var(--accent); margin-bottom: 8px; font-weight: 600; }
-  .summary-row { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; }
-  .summary-row .label { color: var(--text-muted); }
-  .summary-row .value { color: var(--text); font-family: var(--font-mono); }
-  .summary-actions {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border-subtle);
-    font-size: 10px;
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-  }
-  .summary-actions div { padding: 1px 0; }
 
   /* ── Toggle button ── */
   .panel-toggle {
@@ -924,7 +898,6 @@
   </div>
 </div>
 <button class="mm-trigger" id="mm-trigger" title="Mastermind (⌘M)">🧠</button>
-<div class="summary-card" id="summary-card"></div>
 
 <!-- Command Palette -->
 <div id="cmd-overlay" class="cmd-overlay">
@@ -1192,15 +1165,6 @@ function createTile(pane) {
     tile.classList.add('active');
   });
 
-  // Summary card on header hover
-  const header = tile.querySelector('.tile-header');
-  header.addEventListener('mouseenter', () => {
-    summaryTimeout = setTimeout(() => showSummary(tile, pane), 600);
-  });
-  header.addEventListener('mouseleave', () => {
-    clearTimeout(summaryTimeout);
-    hideSummary();
-  });
 
   let ws = null;
   let reconnectDelay = 500;
@@ -1552,62 +1516,6 @@ async function refreshApprovals() {
 setInterval(refreshFeed, 2000);
 setInterval(refreshApprovals, 2000);
 
-// ── Session Summary Card ──
-const summaryCard = document.getElementById('summary-card');
-let summaryTimeout = null;
-
-// Track per-tile stats from feed entries
-const tileStats = new Map(); // target → { actions: [], firstSeen, lastSeen }
-
-function updateTileStats(entry) {
-  if (!entry.target) return;
-  let stats = tileStats.get(entry.target);
-  if (!stats) {
-    stats = { actions: [], firstSeen: entry.time };
-    tileStats.set(entry.target, stats);
-  }
-  stats.lastSeen = entry.time;
-  if (entry.event !== 'PostToolUse') {
-    stats.actions.push({ time: entry.time, activity: entry.activity || entry.event, tool: entry.toolName });
-    if (stats.actions.length > 20) stats.actions = stats.actions.slice(-20);
-  }
-}
-
-function showSummary(tile, pane) {
-  const stats = tileStats.get(pane.target);
-  const recent = stats ? stats.actions.slice(-5).reverse() : [];
-
-  let duration = '';
-  if (stats && stats.firstSeen) {
-    const ms = Date.now() - new Date(stats.firstSeen).getTime();
-    const mins = Math.floor(ms / 60000);
-    duration = mins > 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins}m`;
-  }
-
-  summaryCard.innerHTML = `
-    <h4>${pane.session} · ${pane.dirName}</h4>
-    <div class="summary-row"><span class="label">Branch</span><span class="value">${pane.branch || '-'}</span></div>
-    <div class="summary-row"><span class="label">Pane</span><span class="value">${pane.target}</span></div>
-    <div class="summary-row"><span class="label">Width</span><span class="value">${pane.cols || '?'} cols</span></div>
-    <div class="summary-row"><span class="label">Status</span><span class="value">${tile.dataset.status}</span></div>
-    ${duration ? `<div class="summary-row"><span class="label">Tracked</span><span class="value">${duration}</span></div>` : ''}
-    ${recent.length ? `<div class="summary-actions"><div style="color:var(--text-secondary);margin-bottom:4px">Recent:</div>${recent.map(a =>
-      `<div>${a.activity || a.tool}</div>`
-    ).join('')}</div>` : ''}
-  `;
-
-  const rect = tile.getBoundingClientRect();
-  summaryCard.style.left = Math.min(rect.right + 8, window.innerWidth - 300) + 'px';
-  summaryCard.style.top = rect.top + 'px';
-  summaryCard.classList.add('visible');
-}
-
-function hideSummary() {
-  summaryCard.classList.remove('visible');
-}
-
-// Intercept feed data to build stats
-const origRefreshFeed = refreshFeed;
 
 // ── Command Palette ──
 const cmdOverlay = document.getElementById('cmd-overlay');
