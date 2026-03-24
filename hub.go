@@ -86,6 +86,8 @@ func (h *captureHub) run() {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
+	failCounts := map[string]int{} // track consecutive capture failures
+
 	for range ticker.C {
 		h.mu.RLock()
 		targets := make([]string, 0, len(h.subscribers))
@@ -101,8 +103,22 @@ func (h *captureHub) run() {
 		for _, target := range targets {
 			out, err := exec.Command("tmux", "capture-pane", "-t", target, "-e", "-p").Output()
 			if err != nil {
+				failCounts[target]++
+				if failCounts[target] > 50 { // 5 seconds of failures → send disconnect
+					h.mu.Lock()
+					msg, _ := json.Marshal(map[string]string{"type": "status", "data": "disconnected"})
+					update := paneUpdate{Status: "disconnected", Full: false, Msg: msg}
+					for _, ch := range h.subscribers[target] {
+						select {
+						case ch <- update:
+						default:
+						}
+					}
+					h.mu.Unlock()
+				}
 				continue
 			}
+			delete(failCounts, target)
 
 			// Strip trailing whitespace + truncate decorative lines
 			rawLines := strings.Split(string(out), "\n")

@@ -114,6 +114,9 @@ func runWeb(port int) {
 		w.Write([]byte("ok"))
 	})
 
+	// Dedup recent hook events (HTTP + command hooks both fire)
+	var recentHooks sync.Map // key: "sessionId:eventName:toolName" → timestamp
+
 	// Hook events from Claude Code instances
 	http.HandleFunc("/api/hooks/event", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
@@ -126,6 +129,17 @@ func runWeb(port int) {
 			return
 		}
 		event.ReceivedAt = time.Now()
+
+		// Deduplicate: skip if same event received within 2 seconds
+		dedupKey := event.SessionID + ":" + event.EventName + ":" + event.ToolName
+		if last, ok := recentHooks.Load(dedupKey); ok {
+			if time.Since(last.(time.Time)) < 2*time.Second {
+				w.WriteHeader(200)
+				w.Write([]byte(`{"status":"deduped"}`))
+				return
+			}
+		}
+		recentHooks.Store(dedupKey, time.Now())
 
 		// Map TMUX_PANE to pane target — check header (HTTP hooks) then query param (command hooks)
 		tmuxPane := r.Header.Get("X-Tmux-Pane")
@@ -142,8 +156,8 @@ func runWeb(port int) {
 		hooks.processEvent(event)
 		feed.add(buildFeedEntry(event))
 
-		// Track costs — update on Stop and periodically on PostToolUse
-		if event.EventName == "Stop" || event.EventName == "StopFailure" || event.EventName == "PostToolUse" {
+		// Track costs — only on Stop events (reading full transcript is expensive)
+		if event.EventName == "Stop" || event.EventName == "StopFailure" {
 			if event.TranscriptPath != "" {
 				go finance.processTranscript(event)
 			} else {
@@ -267,7 +281,12 @@ func runWeb(port int) {
 	fmt.Printf("▸ Dashboard at http://%s\n", addr)
 
 	// Graceful shutdown
-	srv := &http.Server{Handler: http.DefaultServeMux}
+	var handler http.Handler = http.DefaultServeMux
+	if authToken != "" && publicMode {
+		fmt.Println("▸ Auth enabled (--token)")
+		handler = authMiddleware(http.DefaultServeMux)
+	}
+	srv := &http.Server{Handler: handler}
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -371,6 +390,48 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+// authMiddleware protects all routes except hooks (which come from local Claude Code)
+func authMiddleware(next http.Handler) http.Handler {
+	loginPage := `<html><body style="background:#1a1c23;color:#e8eaef;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0"><form method=POST action=/auth style="display:flex;gap:8px"><input name=token type=password placeholder="Enter token" style="padding:10px 14px;font-size:14px;background:#282b36;color:#e8eaef;border:1px solid #363a4a;border-radius:6px;outline:none;width:240px"><button style="padding:10px 20px;background:#6ea1f7;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">Login</button></form></body></html>`
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Hooks bypass auth (local Claude Code)
+		if strings.HasPrefix(r.URL.Path, "/api/hooks/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Login form handler
+		if r.URL.Path == "/auth" && r.Method == "POST" {
+			r.ParseForm()
+			if r.FormValue("token") == authToken {
+				http.SetCookie(w, &http.Cookie{Name: "cw-token", Value: authToken, Path: "/", MaxAge: 86400 * 30})
+				http.Redirect(w, r, "/", http.StatusFound)
+			} else {
+				w.WriteHeader(401)
+				fmt.Fprint(w, loginPage)
+			}
+			return
+		}
+
+		// Check auth: cookie or query param
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			if c, err := r.Cookie("cw-token"); err == nil {
+				token = c.Value
+			}
+		}
+		if token != authToken {
+			w.Header().Set("Content-Type", "text/html")
+			w.WriteHeader(401)
+			fmt.Fprint(w, loginPage)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // activateTerminal detects the running terminal emulator and brings it to front.

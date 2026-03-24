@@ -203,6 +203,7 @@ func handleMastermind(w http.ResponseWriter, r *http.Request) {
 		Text string
 	}
 	var history []chatMsg
+	var activeCmd *exec.Cmd
 
 	for {
 		_, msg, err := conn.ReadMessage()
@@ -242,6 +243,12 @@ func handleMastermind(w http.ResponseWriter, r *http.Request) {
 		if model == "" {
 			model = "haiku"
 		}
+		// Cancel previous request if still running
+		if activeCmd != nil && activeCmd.Process != nil {
+			activeCmd.Process.Kill()
+			activeCmd = nil
+		}
+
 		cmd := exec.Command("claude", "-p",
 			"--output-format", "stream-json",
 			"--verbose",
@@ -261,6 +268,7 @@ func handleMastermind(w http.ResponseWriter, r *http.Request) {
 			sendWS(&mu, conn, "error", "Failed to start Claude: "+err.Error())
 			continue
 		}
+		activeCmd = cmd
 
 		// Send "thinking" indicator
 		sendWS(&mu, conn, "status", "thinking")

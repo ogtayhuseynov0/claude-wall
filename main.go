@@ -122,6 +122,8 @@ Flags:
 
 const dashSession = "claude-wall"
 
+var authToken string
+
 func parseFlags() (int, bool) {
 	port := 7685
 	public := false
@@ -131,6 +133,9 @@ func parseFlags() (int, bool) {
 		}
 		if a == "--port" && i+1 < len(os.Args) {
 			fmt.Sscanf(os.Args[i+1], "%d", &port)
+		}
+		if a == "--token" && i+1 < len(os.Args) {
+			authToken = os.Args[i+1]
 		}
 	}
 	return port, public
