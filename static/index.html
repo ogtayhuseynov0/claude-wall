@@ -332,34 +332,19 @@
     overflow: hidden;
     background: var(--bg-deep);
   }
-  .group-header {
-    grid-column: 1 / -1;
-    padding: 4px 10px;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.8px;
-    color: var(--text-muted);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    cursor: pointer;
-    user-select: none;
-  }
-  .group-header::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--border-subtle);
-  }
-  .group-header:hover { color: var(--text-secondary); }
-  .group-header .group-count {
-    font-size: 9px;
-    color: var(--text-muted);
+  /* Group filter dropdown in header */
+  #group-filter {
+    padding: 3px 8px;
+    font-size: 11px;
+    font-family: var(--font-ui);
+    color: var(--text-secondary);
     background: var(--bg-raised);
-    padding: 1px 6px;
-    border-radius: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    outline: none;
+    cursor: pointer;
   }
+  #group-filter:hover { border-color: var(--accent); }
 
   /* ── Tile ── */
   .tile {
@@ -901,6 +886,7 @@
   <h1>Claude Wall</h1>
   <span class="count" id="count"></span>
   <span class="status-summary" id="status-summary"></span>
+  <select id="group-filter"><option value="">All</option></select>
   <input type="text" id="search" placeholder="Filter…">
   <button class="refresh-btn" id="notif-btn" onclick="toggleNotifs()">🔔</button>
   <a href="/finance.html" class="refresh-btn" style="text-decoration:none">💰</a>
@@ -1027,39 +1013,57 @@ function getProjectGroup(dir) {
   return parts.length >= 2 ? parts[parts.length - 2] : 'Other';
 }
 
+const groupFilter = document.getElementById('group-filter');
+let activeGroup = '';
+
+groupFilter.addEventListener('change', () => {
+  activeGroup = groupFilter.value;
+  applyGroupFilter();
+});
+
+function applyGroupFilter() {
+  for (const [, state] of tiles) {
+    if (state.tile.parentElement !== grid && !state.tile.classList.contains('minimized')) continue;
+    if (!activeGroup) {
+      state.tile.style.display = '';
+    } else {
+      const group = getProjectGroup(state.pane.dir || '');
+      state.tile.style.display = group === activeGroup ? '' : 'none';
+    }
+  }
+  updateGridLayout();
+}
+
+function updateGridLayout() {
+  const visible = Array.from(grid.querySelectorAll('.tile')).filter(t => t.style.display !== 'none').length;
+  if (visible === 0) return;
+  const cols = Math.ceil(Math.sqrt(visible));
+  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  grid.style.gridTemplateRows = '';
+  grid.style.gridAutoRows = '1fr';
+}
+
 function updateGrid() {
   countEl.textContent = `${tiles.size} instances`;
   updateStatusSummary();
 
-  // Remove old group headers
-  grid.querySelectorAll('.group-header').forEach(h => h.remove());
-
-  const gridTiles = Array.from(grid.querySelectorAll('.tile'));
-  if (gridTiles.length === 0) return;
-
-  const cols = Math.ceil(Math.sqrt(gridTiles.length));
-  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  grid.style.gridTemplateRows = '';
-  grid.style.gridAutoRows = '1fr';
-
-  // Group tiles by project
+  // Update group filter dropdown
   const groups = new Map();
-  for (const [target, state] of tiles) {
-    if (state.tile.parentElement !== grid) continue;
+  for (const [, state] of tiles) {
     const group = getProjectGroup(state.pane.dir || '');
-    if (!groups.has(group)) groups.set(group, []);
-    groups.get(group).push(state);
+    groups.set(group, (groups.get(group) || 0) + 1);
   }
+  const currentVal = groupFilter.value;
+  groupFilter.innerHTML = '<option value="">All groups</option>';
+  for (const [group, count] of [...groups.entries()].sort()) {
+    const opt = document.createElement('option');
+    opt.value = group;
+    opt.textContent = `${group} (${count})`;
+    groupFilter.appendChild(opt);
+  }
+  groupFilter.value = currentVal;
 
-  // Show headers only when multiple groups exist
-  if (groups.size > 1) {
-    for (const [group, states] of groups) {
-      const header = document.createElement('div');
-      header.className = 'group-header';
-      header.innerHTML = `${group} <span class="group-count">${states.length}</span>`;
-      grid.insertBefore(header, states[0].tile);
-    }
-  }
+  applyGroupFilter();
 }
 
 let tileCounter = 0;
