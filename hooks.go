@@ -23,13 +23,14 @@ type hookEvent struct {
 
 // hookState tracks the derived state for a Claude Code session
 type hookState struct {
-	SessionID string
-	CWD       string
-	Status    string // "working", "permission", "idle"
-	Activity  string // e.g. "$ npm test", "Edit main.go"
-	ToolName  string
-	UpdatedAt time.Time
-	PaneTarget string // mapped pane target (if resolved)
+	SessionID    string
+	CWD          string
+	Status       string // "working", "permission", "idle"
+	Activity     string // e.g. "$ npm test", "Edit main.go"
+	ToolName     string
+	UpdatedAt    time.Time
+	LastWorkingAt time.Time // when status was last set to "working"
+	PaneTarget   string    // mapped pane target (if resolved)
 }
 
 // hookStore maps session_id → hookState
@@ -68,11 +69,13 @@ func (s *hookStore) processEvent(event hookEvent) {
 	switch event.EventName {
 	case "PreToolUse":
 		state.Status = "working"
+		state.LastWorkingAt = time.Now()
 		state.ToolName = event.ToolName
 		state.Activity = formatActivity(event.ToolName, event.ToolInput)
 
 	case "PostToolUse":
 		state.Status = "working"
+		state.LastWorkingAt = time.Now()
 
 	case "PermissionRequest":
 		state.Status = "permission"
@@ -90,10 +93,17 @@ func (s *hookStore) processEvent(event hookEvent) {
 				switch t {
 				case "permission_prompt":
 					state.Status = "permission"
+				case "elicitation_dialog":
+					state.Status = "permission"
+					state.Activity = "Waiting for input"
 				case "idle_prompt":
+					// Don't override permission status — user hasn't responded yet
+					if state.Status == "permission" {
+						break
+					}
 					// Only go idle if we haven't been working recently (>3s)
 					// This prevents flicker from idle_prompt between rapid tool calls
-					if state.Status != "working" || time.Since(state.UpdatedAt) > 3*time.Second {
+					if state.Status != "working" || time.Since(state.LastWorkingAt) > 3*time.Second {
 						state.Status = "idle"
 						state.Activity = ""
 					}
@@ -111,10 +121,12 @@ func (s *hookStore) processEvent(event hookEvent) {
 
 	case "SubagentStart":
 		state.Status = "working"
+		state.LastWorkingAt = time.Now()
 		state.Activity = "Subagent started"
 
 	case "SubagentStop":
 		state.Status = "working"
+		state.LastWorkingAt = time.Now()
 
 	case "TaskCompleted":
 		state.Status = "idle"
