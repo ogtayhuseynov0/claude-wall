@@ -14,9 +14,10 @@ var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 // captureHub runs a single goroutine that captures all registered panes
 // and broadcasts updates to subscribers. Replaces per-WebSocket polling.
 type captureHub struct {
-	mu          sync.RWMutex
-	subscribers map[string][]chan paneUpdate // target → channels
-	latest      map[string]paneUpdate       // target → last update
+	mu               sync.RWMutex
+	subscribers      map[string][]chan paneUpdate // target → channels
+	latest           map[string]paneUpdate       // target → last update
+	termWorkingUntil map[string]time.Time        // target → debounce: stay "working" until this time
 }
 
 type paneUpdate struct {
@@ -47,8 +48,9 @@ func getPaneDir(target string) string {
 
 func newCaptureHub() *captureHub {
 	return &captureHub{
-		subscribers: make(map[string][]chan paneUpdate),
-		latest:      make(map[string]paneUpdate),
+		subscribers:      make(map[string][]chan paneUpdate),
+		latest:           make(map[string]paneUpdate),
+		termWorkingUntil: make(map[string]time.Time),
 	}
 }
 
@@ -180,25 +182,60 @@ func (h *captureHub) run() {
 
 // resolveStatus returns (status, activity) — uses hooks if available, falls back to terminal parsing
 func (h *captureHub) resolveStatus(target, content string) (string, string) {
-	if hooks == nil {
-		return "idle", ""
+	if hooks != nil {
+		dir := getPaneDir(target)
+		if dir != "" {
+			hs := hooks.getStateForPane(target, dir)
+			if hs != nil {
+				// Stale working/error: if no hook event in 120s, fall through to terminal
+				if (hs.Status == "working" || hs.Status == "error") && time.Since(hs.UpdatedAt) > 120*time.Second {
+					// fall through to terminal parsing
+				} else {
+					// Hooks are authoritative
+					return hs.Status, hs.Activity
+				}
+			}
+		}
 	}
-
-	dir := getPaneDir(target)
-	if dir == "" {
-		return "idle", ""
+	// Fallback: detect status from Claude Code terminal output with debounce
+	status, activity := parseTerminalStatus(content)
+	if status == "working" {
+		// Extend debounce: stay "working" for at least 5s after last detection
+		h.termWorkingUntil[target] = time.Now().Add(5 * time.Second)
+	} else if deadline, ok := h.termWorkingUntil[target]; ok && time.Now().Before(deadline) {
+		// Within debounce window: keep showing "working" to prevent flicker
+		status = "working"
 	}
+	return status, activity
+}
 
-	hs := hooks.getStateForPane(target, dir)
-	if hs == nil {
-		// No hooks ever received for this pane — show idle (don't guess from terminal)
-		return "idle", ""
+// parseTerminalStatus detects idle vs working from Claude Code terminal content.
+// Used when no hook state exists or hook state is stale.
+func parseTerminalStatus(content string) (string, string) {
+	lines := strings.Split(content, "\n")
+	checked := 0
+	for i := len(lines) - 1; i >= 0 && checked < 15; i-- {
+		plain := ansiRegex.ReplaceAllString(lines[i], "")
+		plain = strings.TrimSpace(plain)
+		if plain == "" || plain == "@@HRULE@@" {
+			continue
+		}
+		// Skip decorative separator lines
+		stripped := strings.TrimLeft(plain, "─━═╌╍┄┅╶╴ ")
+		if len(plain) > 40 && len(stripped) == 0 {
+			continue
+		}
+		checked++
+		// Thinking spinner
+		if strings.HasPrefix(plain, "\u2733") {
+			return "working", ""
+		}
+		// Tool actively running
+		if strings.HasSuffix(plain, "Running\u2026") || strings.HasSuffix(plain, "Running...") {
+			return "working", ""
+		}
 	}
-
-	// Hooks are authoritative. Trust the last hook state.
-	// Only exception: if permission hook is old (>30s) and a Stop/PostToolUse came after,
-	// the hook store already updated the state. So just return what hooks say.
-	return hs.Status, hs.Activity
+	return "idle", ""
 }
 
 // pushHookStatus broadcasts hook-derived status changes to all subscribers
