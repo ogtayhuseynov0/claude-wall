@@ -1155,14 +1155,21 @@ function createTile(pane) {
     updateGrid();
     localStorage.setItem('cw-tile-' + pane.target, JSON.stringify({ minimized: isMin }));
   }
-  minBtn.addEventListener('click', (e) => { e.stopPropagation(); setMinimized(!tile.classList.contains('minimized')); });
-  zoomBtn.addEventListener('click', (e) => { e.stopPropagation(); tile.classList.toggle('zoomed'); });
-  tile.querySelector('.tile-header').addEventListener('dblclick', () => tile.classList.toggle('zoomed'));
+  minBtn.addEventListener('click', (e) => { e.stopPropagation(); setMinimized(!tile.classList.contains('minimized')); sendHistoryMode(); });
+  function sendHistoryMode() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const on = (tile.classList.contains('zoomed') || tile.classList.contains('active')) && !tile.classList.contains('minimized');
+    ws.send(JSON.stringify({ type: 'history-mode', data: on ? 'on' : 'off' }));
+  }
+
+  zoomBtn.addEventListener('click', (e) => { e.stopPropagation(); tile.classList.toggle('zoomed'); sendHistoryMode(); });
+  tile.querySelector('.tile-header').addEventListener('dblclick', () => { tile.classList.toggle('zoomed'); sendHistoryMode(); });
 
   tile.addEventListener('click', () => {
     body.focus();
     document.querySelectorAll('.tile').forEach(t => t.classList.remove('active'));
     tile.classList.add('active');
+    notifyAllHistoryModes();
   });
 
 
@@ -1199,8 +1206,15 @@ function createTile(pane) {
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === 'history') {
+        const atBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 30;
+        const prevHeight = body.scrollHeight;
         historyPre.innerHTML = renderAnsi(msg.data);
-        body.scrollTop = body.scrollHeight;
+        if (atBottom) {
+          body.scrollTop = body.scrollHeight;
+        } else {
+          // Preserve scroll position: adjust for height change from new scrollback
+          body.scrollTop += (body.scrollHeight - prevHeight);
+        }
         if (msg.status) setStatus(msg.status, msg.activity);
       } else if (msg.type === 'content') {
         wasAtBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 30;
@@ -1235,7 +1249,7 @@ function createTile(pane) {
         case 'Backspace': data = '\x7f'; break;
         case 'Tab': data = '\t'; e.preventDefault(); break;
         case 'Escape':
-          if (tile.classList.contains('zoomed')) { tile.classList.remove('zoomed'); return; }
+          if (tile.classList.contains('zoomed')) { tile.classList.remove('zoomed'); sendHistoryMode(); return; }
           data = '\x1b'; break;
         case 'ArrowUp': data = '\x1b[A'; break;
         case 'ArrowDown': data = '\x1b[B'; break;
@@ -1275,7 +1289,7 @@ function createTile(pane) {
     return false;
   }
 
-  const state = { tile, connect, pane, sendInput, destroy: () => {
+  const state = { tile, connect, pane, sendInput, sendHistoryMode, destroy: () => {
     if (ws) ws.close();
     tile.classList.add('removing');
     setTimeout(() => tile.remove(), 300);
@@ -1349,6 +1363,11 @@ searchInput.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { searchInput.value = ''; searchInput.dispatchEvent(new Event('input')); searchInput.blur(); }
 });
 
+// Notify all tiles of focus/zoom/minimize changes so history mode stays in sync
+function notifyAllHistoryModes() {
+  for (const [, s] of tiles) s.sendHistoryMode();
+}
+
 let cycleIndex = -1;
 function focusTileByIndex(idx) {
   const arr = Array.from(tiles.values());
@@ -1357,6 +1376,7 @@ function focusTileByIndex(idx) {
     document.querySelectorAll('.tile').forEach(t => t.classList.remove('active'));
     arr[idx].tile.classList.add('active');
     cycleIndex = idx;
+    notifyAllHistoryModes();
   }
 }
 document.addEventListener('keydown', (e) => {
@@ -1387,6 +1407,7 @@ function focusTileByTarget(target) {
   body.focus();
   document.querySelectorAll('.tile').forEach(t => t.classList.remove('active'));
   state.tile.classList.add('active');
+  notifyAllHistoryModes();
   // Scroll tile into view
   state.tile.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -1546,7 +1567,7 @@ function getCommands(query) {
       icon: '⤢', label: 'Zoom focused tile', kbd: 'dblclick',
       action: () => {
         const active = document.querySelector('.tile.active');
-        if (active) active.classList.toggle('zoomed');
+        if (active) { active.classList.toggle('zoomed'); notifyAllHistoryModes(); }
       }
     });
   }
@@ -1716,7 +1737,7 @@ uiEvents.onmessage = (e) => {
         break;
       case 'zoom':
         const zState = tiles.get(target);
-        if (zState) zState.tile.classList.toggle('zoomed');
+        if (zState) { zState.tile.classList.toggle('zoomed'); notifyAllHistoryModes(); }
         break;
       case 'minimize': {
         const mState = tiles.get(target);
