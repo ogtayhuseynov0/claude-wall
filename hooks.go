@@ -180,17 +180,6 @@ func (s *hookStore) getStateForPane(paneTarget, paneDir string) *hookState {
 	return best
 }
 
-// isStale returns true if the session's last hook event is older than timeout
-func (s *hookStore) isStaleForPane(paneTarget string, timeout time.Duration) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for _, state := range s.sessions {
-		if state.PaneTarget == paneTarget {
-			return time.Since(state.UpdatedAt) > timeout
-		}
-	}
-	return true
-}
 
 func normalizePath(p string) string {
 	p = strings.TrimRight(p, "/")

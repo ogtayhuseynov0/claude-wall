@@ -79,6 +79,7 @@ func (h *captureHub) unsubscribe(target string, ch chan paneUpdate) {
 	}
 	if len(h.subscribers[target]) == 0 {
 		delete(h.subscribers, target)
+		delete(h.termWorkingUntil, target)
 	}
 	h.mu.Unlock()
 	close(ch)
