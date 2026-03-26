@@ -144,13 +144,23 @@ func (h *captureHub) run() {
 
 			h.mu.Lock()
 			prev := h.latest[target]
+			// Get scheduled task info for this pane
+			var schedInfo interface{}
+			if tasks := sched.getTasksForPane(target); len(tasks) > 0 {
+				schedInfo = tasks
+			}
+
 			if content != prev.Msg_content {
-				msg, _ := json.Marshal(map[string]interface{}{
+				msgData := map[string]interface{}{
 					"type":     "content",
 					"data":     content,
 					"status":   status,
 					"activity": activity,
-				})
+				}
+				if schedInfo != nil {
+					msgData["scheduled"] = schedInfo
+				}
+				msg, _ := json.Marshal(msgData)
 				update := paneUpdate{Status: status, Activity: activity, Full: true, Msg: msg, Msg_content: content}
 				h.latest[target] = update
 				for _, ch := range h.subscribers[target] {

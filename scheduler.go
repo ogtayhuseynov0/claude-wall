@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -34,6 +35,37 @@ type scheduler struct {
 var sched = &scheduler{
 	tasks: make(map[string]*scheduledTask),
 	stop:  make(chan struct{}),
+}
+
+func schedulerFile() string {
+	home, _ := os.UserHomeDir()
+	return home + "/.claude/claude-wall-scheduler.json"
+}
+
+func (s *scheduler) save() {
+	s.mu.RLock()
+	data, _ := json.MarshalIndent(s.tasks, "", "  ")
+	s.mu.RUnlock()
+	os.WriteFile(schedulerFile(), data, 0644)
+}
+
+func (s *scheduler) load() {
+	data, err := os.ReadFile(schedulerFile())
+	if err != nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var tasks map[string]*scheduledTask
+	if json.Unmarshal(data, &tasks) == nil && tasks != nil {
+		s.tasks = tasks
+		// Resume running tasks
+		for _, t := range s.tasks {
+			if t.Status == "running" {
+				t.NextRunAt = time.Now().Add(30 * time.Second) // give 30s after restart
+			}
+		}
+	}
 }
 
 func (s *scheduler) run() {
@@ -98,6 +130,8 @@ func (s *scheduler) tick() {
 		fmt.Printf("  [scheduler] Task %s: sent cycle %d/%d to %s, next in %dm\n",
 			task.ID, task.Attempts, task.MaxAttempts, task.Target, task.IntervalMin)
 	}
+
+	s.save()
 }
 
 // getPaneHookStatus returns the hook-derived status of a pane
@@ -132,13 +166,32 @@ func handleSchedulerList(w http.ResponseWriter, r *http.Request) {
 	sched.mu.RLock()
 	defer sched.mu.RUnlock()
 
+	// Optional filter by target
+	target := r.URL.Query().Get("target")
+
 	tasks := make([]*scheduledTask, 0, len(sched.tasks))
 	for _, t := range sched.tasks {
+		if target != "" && t.Target != target {
+			continue
+		}
 		tasks = append(tasks, t)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(tasks)
+}
+
+// getTasksForPane returns active tasks for a specific pane
+func (s *scheduler) getTasksForPane(target string) []*scheduledTask {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []*scheduledTask
+	for _, t := range s.tasks {
+		if t.Target == target && (t.Status == "running" || t.Status == "paused") {
+			result = append(result, t)
+		}
+	}
+	return result
 }
 
 func handleSchedulerCreate(w http.ResponseWriter, r *http.Request) {
@@ -193,6 +246,7 @@ func handleSchedulerCreate(w http.ResponseWriter, r *http.Request) {
 	sched.mu.Lock()
 	sched.tasks[id] = task
 	sched.mu.Unlock()
+	sched.save()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
@@ -231,6 +285,7 @@ func handleSchedulerAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	sched.save()
 	w.Write([]byte(`{"status":"ok"}`))
 }
 

@@ -56,6 +56,7 @@ func runWeb(port int) {
 	feed = newFeedStore(500)
 	initFinance()
 	go hub.run()
+	sched.load()
 	go sched.run()
 
 	// Scheduler APIs

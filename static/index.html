@@ -500,6 +500,11 @@
     white-space: nowrap;
   }
   .tile-header .activity-label:empty { display: none; }
+  .tile-header .sched-badge {
+    font-size: 9px; font-family: var(--font-mono); font-weight: 600;
+    color: var(--accent); background: rgba(110,161,247,0.1);
+    padding: 1px 6px; border-radius: 8px;
+  }
 
   /* Header Buttons */
   .tile.blurred .tile-body { filter: blur(6px); pointer-events: none; }
@@ -1060,6 +1065,7 @@ function createTile(pane) {
       <span class="pane-size ${parseInt(pane.cols) < 80 ? 'narrow' : ''}" title="Pane width in tmux">${pane.cols || '?'}col</span>
       <span class="spacer"></span>
       <span class="activity-label"></span>
+      <span class="sched-badge" style="display:none" title="Scheduled task active"></span>
       <span class="status-label idle"></span>
       <span class="goto-btn" title="Open in terminal">↗</span>
       <span class="blur-btn" title="Blur content">◉</span>
@@ -1081,6 +1087,7 @@ function createTile(pane) {
   const statusDot = tile.querySelector('.status-dot');
   const statusLabel = tile.querySelector('.status-label');
   const activityLabel = tile.querySelector('.activity-label');
+  const schedBadge = tile.querySelector('.sched-badge');
   const zoomBtn = tile.querySelector('.zoom-btn');
   const ansi = new AnsiUp();
   ansi.use_classes = true;
@@ -1221,6 +1228,15 @@ function createTile(pane) {
         livePre.innerHTML = renderAnsi(msg.data);
         if (wasAtBottom) body.scrollTop = body.scrollHeight;
         if (msg.status) setStatus(msg.status, msg.activity);
+        // Show scheduled task badge
+        if (msg.scheduled && msg.scheduled.length > 0) {
+          const t = msg.scheduled[0];
+          schedBadge.style.display = '';
+          schedBadge.textContent = `⏱ ${t.attempts}/${t.maxAttempts}`;
+          schedBadge.title = `Scheduled: ${t.command} (every ${t.intervalMin}m)`;
+        } else {
+          schedBadge.style.display = 'none';
+        }
       } else if (msg.type === 'status-update') {
         if (msg.status) setStatus(msg.status, msg.activity);
       } else if (msg.type === 'status' && msg.data === 'disconnected') {
