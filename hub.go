@@ -137,6 +137,10 @@ func (h *captureHub) run() {
 				}
 				rawLines[i] = line
 			}
+			// Trim trailing empty lines
+			for len(rawLines) > 0 && rawLines[len(rawLines)-1] == "" {
+				rawLines = rawLines[:len(rawLines)-1]
+			}
 			content := strings.Join(rawLines, "\n")
 
 			// Determine status: prefer hooks, fall back to terminal parsing
