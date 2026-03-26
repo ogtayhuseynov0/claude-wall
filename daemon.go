@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 func pidFile() string {
@@ -28,6 +29,7 @@ func daemonStart(port int, public bool) {
 		if processAlive(pid) {
 			fmt.Printf("▸ Already running (PID %d), restarting...\n", pid)
 			daemonStop()
+			time.Sleep(time.Second)
 		}
 		// Stale PID file
 		os.Remove(pidFile())
