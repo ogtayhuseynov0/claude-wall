@@ -27,9 +27,9 @@ func daemonStart(port int, public bool) {
 	// Check if already running
 	if pid := readPid(); pid > 0 {
 		if processAlive(pid) {
-			fmt.Printf("▸ Already running (PID %d), restarting...\n", pid)
-			daemonStop()
-			time.Sleep(time.Second)
+			fmt.Printf("▸ Already running (PID %d)\n", pid)
+			fmt.Printf("  Dashboard at http://%s:%d\n", bindHost(public), port)
+			return
 		}
 		// Stale PID file
 		os.Remove(pidFile())
@@ -95,7 +95,15 @@ func daemonStop() {
 }
 
 func daemonRestart(port int, public bool) {
+	pid := readPid()
 	daemonStop()
+	// Wait for old process to fully exit
+	for i := 0; i < 20; i++ {
+		if pid <= 0 || !processAlive(pid) {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 	daemonStart(port, public)
 }
 

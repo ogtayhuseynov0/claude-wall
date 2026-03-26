@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 func main() {
@@ -42,6 +43,17 @@ func main() {
 		runInit()
 		if !dryRun {
 			fmt.Println()
+			// Stop existing daemon first, then start fresh
+			if pid := readPid(); pid > 0 && processAlive(pid) {
+				daemonStop()
+				fmt.Println("  Waiting for old instance to exit...")
+				for i := 0; i < 20; i++ {
+					if !processAlive(pid) {
+						break
+					}
+					time.Sleep(250 * time.Millisecond)
+				}
+			}
 			daemonStart(port, public)
 			exec.Command("open", fmt.Sprintf("http://127.0.0.1:%d", port)).Start()
 		}
