@@ -100,35 +100,38 @@ func runInit() {
 	for _, event := range hookEvents {
 		groups, _ := hooksSection[event].([]interface{})
 
-		// Check if claude-wall hook already exists in any group
-		alreadyExists := false
+		// Check if claude-wall hooks already exist (command and/or HTTP)
+		hasCommand := false
+		hasHTTP := false
 		for _, g := range groups {
 			group, ok := g.(map[string]interface{})
 			if !ok {
 				continue
 			}
-			hooks, _ := group["hooks"].([]interface{})
-			for _, h := range hooks {
+			groupHooks, _ := group["hooks"].([]interface{})
+			for _, h := range groupHooks {
 				hook, ok := h.(map[string]interface{})
 				if !ok {
 					continue
 				}
 				if cmd, _ := hook["command"].(string); strings.Contains(cmd, hookScriptName) {
-					alreadyExists = true
-					break
+					hasCommand = true
 				}
-			}
-			if alreadyExists {
-				break
+				if url, _ := hook["url"].(string); strings.Contains(url, "/api/hooks/event") {
+					hasHTTP = true
+				}
 			}
 		}
 
-		if !alreadyExists {
-			// Use native HTTP hook (Claude Code 2.1+) with command fallback
-			port := "7685"
-			if p := os.Getenv("CLAUDE_WALL_PORT"); p != "" {
-				port = p
-			}
+		port := "7685"
+		if p := os.Getenv("CLAUDE_WALL_PORT"); p != "" {
+			port = p
+		}
+
+		if hasCommand && hasHTTP {
+			fmt.Printf("  Hook for %s already exists, skipping\n", event)
+		} else if hasCommand && !hasHTTP {
+			// Upgrade: command-only hook from older install → add HTTP hook
 			httpHook := map[string]interface{}{
 				"type":           "http",
 				"url":            fmt.Sprintf("http://127.0.0.1:%s/api/hooks/event", port),
@@ -138,7 +141,46 @@ func runInit() {
 					"X-Tmux-Pane": "$TMUX_PANE",
 				},
 			}
-			// Also add command hook as fallback for older Claude Code
+			// Find the group with our command hook, add HTTP hook, and set async
+			for _, g := range groups {
+				group, ok := g.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				groupHooks, _ := group["hooks"].([]interface{})
+				found := false
+				for _, h := range groupHooks {
+					hook, ok := h.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					if cmd, _ := hook["command"].(string); strings.Contains(cmd, hookScriptName) {
+						hook["async"] = true
+						found = true
+					}
+				}
+				if found {
+					group["hooks"] = append([]interface{}{httpHook}, groupHooks...)
+					break
+				}
+			}
+			hooksSection[event] = groups
+			if dryRun {
+				fmt.Printf("  [dry-run] Would upgrade hook for %s (adding http)\n", event)
+			} else {
+				fmt.Printf("  Upgraded hook for %s (added http)\n", event)
+			}
+		} else {
+			// Fresh install: add both HTTP + command
+			httpHook := map[string]interface{}{
+				"type":           "http",
+				"url":            fmt.Sprintf("http://127.0.0.1:%s/api/hooks/event", port),
+				"timeout":        5,
+				"allowedEnvVars": []string{"TMUX_PANE"},
+				"headers": map[string]string{
+					"X-Tmux-Pane": "$TMUX_PANE",
+				},
+			}
 			cmdHook := map[string]interface{}{
 				"type":    "command",
 				"command": hookPath,
@@ -154,8 +196,6 @@ func runInit() {
 			} else {
 				fmt.Printf("  Added hook for %s (http + command fallback)\n", event)
 			}
-		} else {
-			fmt.Printf("  Hook for %s already exists, skipping\n", event)
 		}
 	}
 
@@ -243,9 +283,15 @@ func runUninstall() {
 					filteredHooks = append(filteredHooks, h)
 					continue
 				}
+				// Remove command hooks matching our script
 				if cmd, _ := hook["command"].(string); strings.Contains(cmd, hookScriptName) {
 					modified = true
-					continue // remove claude-wall hook
+					continue
+				}
+				// Remove HTTP hooks pointing to our API
+				if url, _ := hook["url"].(string); strings.Contains(url, "/api/hooks/event") {
+					modified = true
+					continue
 				}
 				filteredHooks = append(filteredHooks, h)
 			}

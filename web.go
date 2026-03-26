@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -329,6 +330,11 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 	// Done channel to stop writer when reader exits
 	done := make(chan struct{})
 
+	// Track whether client has this tile focused (zoomed/active)
+	var historyEnabled int32  // atomic: 0 = off, 1 = on
+	var contentChanged int32  // atomic: set to 1 when live content updates arrive
+	var historyRequest int32  // atomic: set to 1 for immediate one-time catchup
+
 	// Reader: browser input → tmux send-keys
 	go func() {
 		defer close(done)
@@ -344,21 +350,40 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 			if json.Unmarshal(msg, &input) != nil {
 				continue
 			}
-			if input.Type == "input" && len(input.Data) > 0 {
-				hexes := make([]string, len(input.Data))
-				for i, b := range []byte(input.Data) {
-					hexes[i] = fmt.Sprintf("%02x", b)
+			switch input.Type {
+			case "input":
+				if len(input.Data) > 0 {
+					hexes := make([]string, len(input.Data))
+					for i, b := range []byte(input.Data) {
+						hexes[i] = fmt.Sprintf("%02x", b)
+					}
+					args := append([]string{"send-keys", "-t", target, "-H"}, hexes...)
+					exec.Command("tmux", args...).Run()
 				}
-				args := append([]string{"send-keys", "-t", target, "-H"}, hexes...)
-				exec.Command("tmux", args...).Run()
+			case "history-mode":
+				if input.Data == "on" {
+					atomic.StoreInt32(&historyEnabled, 1)
+					atomic.StoreInt32(&historyRequest, 1) // immediate catchup
+				} else {
+					atomic.StoreInt32(&historyEnabled, 0)
+				}
 			}
 		}
 	}()
 
-	// Send scrollback history ONCE on connect (excludes visible area to avoid overlap with live)
-	historyOut, err := exec.Command("tmux", "capture-pane", "-t", target, "-e", "-p", "-S", "-", "-E", "-1").Output()
-	if err == nil && len(historyOut) > 1 {
-		rawLines := strings.Split(string(historyOut), "\n")
+	// Send scrollback history on connect (excludes visible area to avoid overlap with live)
+	lastHistory := ""
+	captureHistory := func() {
+		historyOut, err := exec.Command("tmux", "capture-pane", "-t", target, "-e", "-p", "-S", "-", "-E", "-1").Output()
+		if err != nil || len(historyOut) <= 1 {
+			return
+		}
+		h := string(historyOut)
+		if h == lastHistory {
+			return
+		}
+		lastHistory = h
+		rawLines := strings.Split(h, "\n")
 		for i, line := range rawLines {
 			rawLines[i] = strings.TrimRight(line, " ")
 		}
@@ -368,6 +393,7 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 		})
 		conn.WriteMessage(websocket.TextMessage, msg)
 	}
+	captureHistory()
 
 	// Subscribe to capture hub (shared single-goroutine capture)
 	updates := hub.subscribe(target)
@@ -375,6 +401,11 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 
 	pingTicker := time.NewTicker(30 * time.Second)
 	defer pingTicker.Stop()
+
+	// Periodically refresh scrollback history to fill the gap between
+	// the initial snapshot and the live visible area
+	historyTicker := time.NewTicker(5 * time.Second)
+	defer historyTicker.Stop()
 
 	for {
 		select {
@@ -386,9 +417,20 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+		case <-historyTicker.C:
+			// Refresh history only when: tile is focused AND (content changed OR explicit request)
+			if atomic.LoadInt32(&historyEnabled) == 1 {
+				if atomic.CompareAndSwapInt32(&historyRequest, 1, 0) || atomic.CompareAndSwapInt32(&contentChanged, 1, 0) {
+					captureHistory()
+				}
+			}
+
 		case update, ok := <-updates:
 			if !ok {
 				return
+			}
+			if update.Full {
+				atomic.StoreInt32(&contentChanged, 1)
 			}
 			if conn.WriteMessage(websocket.TextMessage, update.Msg) != nil {
 				return

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"sync"
 	"time"
@@ -78,22 +79,39 @@ func (f *feedStore) getRecent(n int) []feedEntry {
 	return result
 }
 
-// getPending returns entries with status "permission" that aren't stale (>60s)
+// getPending returns entries with status "permission" that aren't stale (>60s).
+// Cross-checks hookStore state: if hooks say a pane is "permission", the most
+// recent permission entry is returned even if later feed entries overwrote it.
 func (f *feedStore) getPending() []feedEntry {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
-	// Track latest status per target
+	// Track latest status per target AND most recent permission entry
 	latest := map[string]*feedEntry{}
+	lastPerm := map[string]*feedEntry{}
 	for i := range f.entries {
 		e := &f.entries[i]
 		latest[e.Target] = e
+		if e.Status == "permission" {
+			lastPerm[e.Target] = e
+		}
 	}
 
 	var result []feedEntry
-	for _, e := range latest {
+	for target, e := range latest {
 		if e.Status == "permission" && time.Since(e.Time) < 60*time.Second {
 			result = append(result, *e)
+			continue
+		}
+		// Fallback: if hookStore still says "permission", use the last permission entry
+		if hooks != nil && lastPerm[target] != nil && time.Since(lastPerm[target].Time) < 60*time.Second {
+			dir := getPaneDir(target)
+			if dir != "" {
+				hs := hooks.getStateForPane(target, dir)
+				if hs != nil && hs.Status == "permission" {
+					result = append(result, *lastPerm[target])
+				}
+			}
 		}
 	}
 	return result
@@ -180,7 +198,17 @@ func buildFeedEntry(event hookEvent) feedEntry {
 	case "PermissionRequest":
 		status = "permission"
 	case "Notification":
-		status = "permission"
+		// Parse notification type to distinguish permission from idle
+		var notif map[string]interface{}
+		if json.Unmarshal(event.Notification, &notif) == nil {
+			if t, _ := notif["type"].(string); t == "permission_prompt" || t == "elicitation_dialog" {
+				status = "permission"
+			} else {
+				status = "idle"
+			}
+		} else {
+			status = "idle"
+		}
 	case "SessionStart":
 		status = "idle"
 	case "SessionEnd":
