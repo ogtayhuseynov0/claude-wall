@@ -42,6 +42,7 @@ func schedulerFile() string {
 	return home + "/.claude/claude-wall-scheduler.json"
 }
 
+// save writes tasks to disk. Caller must NOT hold s.mu.
 func (s *scheduler) save() {
 	s.mu.RLock()
 	data, _ := json.MarshalIndent(s.tasks, "", "  ")
@@ -84,9 +85,9 @@ func (s *scheduler) run() {
 
 func (s *scheduler) tick() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	now := time.Now()
+	dirty := false
 
 	for _, task := range s.tasks {
 		if task.Status != "running" {
@@ -113,25 +114,32 @@ func (s *scheduler) tick() {
 			fmt.Printf("  [scheduler] Task %s completed: max attempts reached (%d)\n", task.ID, task.MaxAttempts)
 			continue
 		}
-		if task.EmptyCount >= task.MaxEmpty {
+		if task.MaxEmpty > 0 && task.EmptyCount >= task.MaxEmpty {
 			task.Status = "completed"
 			fmt.Printf("  [scheduler] Task %s completed: %d consecutive empty cycles\n", task.ID, task.MaxEmpty)
 			continue
 		}
 
-		// Send command to pane
-		sendTextToPane(task.Target, task.Command)
-
+		// Send command to pane (unlock first — tmux can be slow)
+		target := task.Target
+		command := task.Command
 		task.Attempts++
 		task.LastRunAt = now
 		task.NextRunAt = now.Add(time.Duration(task.IntervalMin) * time.Minute)
-		task.WaitingIdle = true // wait for pane to finish before next run
+		task.WaitingIdle = true
+		dirty = true
+		s.mu.Unlock()
+		sendTextToPane(target, command)
+		s.mu.Lock()
 
 		fmt.Printf("  [scheduler] Task %s: sent cycle %d/%d to %s, next in %dm\n",
 			task.ID, task.Attempts, task.MaxAttempts, task.Target, task.IntervalMin)
 	}
 
-	s.save()
+	s.mu.Unlock()
+	if dirty {
+		s.save()
+	}
 }
 
 // getPaneHookStatus returns the hook-derived status of a pane
@@ -153,7 +161,7 @@ func getPaneHookStatus(target string) string {
 // sendTextToPane types text + Enter into a tmux pane
 func sendTextToPane(target, text string) {
 	hexes := make([]string, 0, len(text)+1)
-	for _, b := range []byte(text + "\n") {
+	for _, b := range []byte(text + "\r") {
 		hexes = append(hexes, fmt.Sprintf("%02x", b))
 	}
 	args := append([]string{"send-keys", "-t", target, "-H"}, hexes...)
@@ -181,14 +189,14 @@ func handleSchedulerList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(tasks)
 }
 
-// getTasksForPane returns active tasks for a specific pane
-func (s *scheduler) getTasksForPane(target string) []*scheduledTask {
+// getTasksForPane returns copies of active tasks for a specific pane
+func (s *scheduler) getTasksForPane(target string) []scheduledTask {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var result []*scheduledTask
+	var result []scheduledTask
 	for _, t := range s.tasks {
 		if t.Target == target && (t.Status == "running" || t.Status == "paused") {
-			result = append(result, t)
+			result = append(result, *t) // copy, not pointer
 		}
 	}
 	return result
@@ -262,10 +270,10 @@ func handleSchedulerAction(w http.ResponseWriter, r *http.Request) {
 	id, action := parts[0], parts[1]
 
 	sched.mu.Lock()
-	defer sched.mu.Unlock()
 
 	task, ok := sched.tasks[id]
 	if !ok {
+		sched.mu.Unlock()
 		http.Error(w, "task not found", 404)
 		return
 	}
@@ -281,11 +289,23 @@ func handleSchedulerAction(w http.ResponseWriter, r *http.Request) {
 	case "delete":
 		delete(sched.tasks, id)
 	default:
+		sched.mu.Unlock()
 		http.Error(w, "unknown action: "+action, 400)
 		return
 	}
 
+	target := task.Target
+	sched.mu.Unlock()
 	sched.save()
+
+	// Clear hub cache so tile gets fresh content (removes stale badge)
+	// Safe: sched.mu is released, hub.mu is not held by us
+	if hub != nil {
+		hub.mu.Lock()
+		delete(hub.latest, target)
+		hub.mu.Unlock()
+	}
+
 	w.Write([]byte(`{"status":"ok"}`))
 }
 

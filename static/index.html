@@ -249,6 +249,35 @@
   .approval-btn.focus-btn { margin-left: auto; color: var(--accent); border-color: rgba(110, 161, 247, 0.3); background: rgba(110, 161, 247, 0.06); }
   .approval-btn.focus-btn:hover { background: rgba(110, 161, 247, 0.12); }
 
+  /* Task items */
+  .task-item {
+    padding: 10px 12px; border-bottom: 1px solid var(--border-subtle);
+  }
+  .task-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .task-target { color: var(--accent); font-weight: 600; font-size: 12px; }
+  .task-status { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 8px; }
+  .task-status.running { color: var(--green); background: rgba(74,222,128,0.1); }
+  .task-status.paused { color: var(--amber); background: rgba(251,191,36,0.1); }
+  .task-status.completed { color: var(--text-muted); background: var(--bg-raised); }
+  .task-status.stopped { color: var(--red); background: rgba(248,113,113,0.1); }
+  .task-command { font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary); padding: 4px 8px; background: var(--bg-deep); border-radius: 4px; margin-bottom: 6px; word-break: break-all; }
+  .task-meta { font-size: 10px; color: var(--text-muted); display: flex; gap: 10px; margin-bottom: 6px; font-family: var(--font-mono); }
+  .task-actions { display: flex; gap: 6px; }
+  .task-btn { padding: 3px 10px; border-radius: 4px; font-size: 10px; cursor: pointer; border: 1px solid var(--border); background: var(--bg-raised); color: var(--text-secondary); transition: all 0.15s; font-family: var(--font-ui); }
+  .task-btn:hover { background: var(--bg-hover); color: var(--text); }
+  .task-btn.danger { color: var(--red); border-color: rgba(248,113,113,0.3); }
+  .task-btn.danger:hover { background: rgba(248,113,113,0.1); }
+
+  /* New task form */
+  .task-form { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .task-form-title { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; }
+  .task-form select, .task-form input { width: 100%; padding: 5px 8px; font-size: 11px; font-family: var(--font-ui); color: var(--text); background: var(--bg-raised); border: 1px solid var(--border); border-radius: 4px; outline: none; margin-bottom: 6px; }
+  .task-form select:focus, .task-form input:focus { border-color: var(--accent); }
+  .task-form-row { display: flex; gap: 6px; }
+  .task-form-row input { flex: 1; }
+  .task-form button { width: 100%; padding: 6px; font-size: 11px; font-family: var(--font-ui); background: var(--accent); color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 4px; }
+  .task-form button:hover { opacity: 0.85; }
+
   /* ── Summary Card (hover tooltip) ── */
 
   /* ── Toggle button ── */
@@ -879,9 +908,11 @@
     <div class="panel-tabs">
       <button class="panel-tab active" data-tab="feed">Activity</button>
       <button class="panel-tab" data-tab="approvals">Approvals <span class="badge" id="approval-count" style="display:none">0</span></button>
+      <button class="panel-tab" data-tab="tasks">Tasks <span class="badge" id="tasks-count" style="display:none">0</span></button>
     </div>
     <div id="feed-panel" class="panel-content active"></div>
     <div id="approvals-panel" class="panel-content"></div>
+    <div id="tasks-panel" class="panel-content"></div>
   </div>
 </div>
 <div class="panel-toggle" id="panel-toggle" title="Toggle panel">◀</div>
@@ -1554,6 +1585,126 @@ async function refreshApprovals() {
 setInterval(refreshFeed, 2000);
 setInterval(refreshApprovals, 2000);
 
+
+// ── Scheduled Tasks Panel ──
+const tasksPanel = document.getElementById('tasks-panel');
+const tasksCountBadge = document.getElementById('tasks-count');
+
+// Build the form once, separate from the task list
+function initTaskForm() {
+  const formHtml = `
+    <div class="task-form">
+      <div class="task-form-title">New Scheduled Task</div>
+      <select id="task-target">
+        <option value="">Select agent...</option>
+      </select>
+      <input type="text" id="task-command" placeholder="Command to send (e.g. /review-fix-loop 617)">
+      <div class="task-form-row">
+        <label style="flex:1;font-size:10px;color:var(--text-muted)">Every (min)<input type="number" id="task-interval" value="10" min="1" style="margin-top:2px"></label>
+        <label style="flex:1;font-size:10px;color:var(--text-muted)">Max runs<input type="number" id="task-max" value="5" min="1" style="margin-top:2px"></label>
+      </div>
+      <button onclick="createTask()">Create Task</button>
+    </div>
+    <div id="task-list"></div>
+  `;
+  tasksPanel.innerHTML = formHtml;
+}
+initTaskForm();
+
+// Update agent dropdown without resetting selection
+function updateTaskTargets() {
+  const sel = document.getElementById('task-target');
+  if (!sel) return;
+  const current = sel.value;
+  const options = ['<option value="">Select agent...</option>'];
+  for (const [t, s] of tiles) {
+    options.push(`<option value="${t}" ${t === current ? 'selected' : ''}>${s.pane.session} · ${s.pane.dirName}</option>`);
+  }
+  sel.innerHTML = options.join('');
+}
+
+async function refreshTasks() {
+  try {
+    updateTaskTargets();
+    const res = await fetch('/api/scheduler');
+    const tasks = await res.json();
+
+    const active = (tasks || []).filter(t => t.status === 'running' || t.status === 'paused');
+    if (active.length > 0) {
+      tasksCountBadge.style.display = 'inline-block';
+      tasksCountBadge.textContent = active.length;
+    } else {
+      tasksCountBadge.style.display = 'none';
+    }
+
+    const listEl = document.getElementById('task-list');
+    if (!listEl) return;
+
+    if (!tasks || tasks.length === 0) {
+      listEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">No scheduled tasks</div>';
+      return;
+    }
+
+    tasks.sort((a, b) => {
+      const order = { running: 0, paused: 1, completed: 2, stopped: 3 };
+      return (order[a.status] || 9) - (order[b.status] || 9);
+    });
+
+    let html = '';
+    for (const t of tasks) {
+      const pane = tiles.get(t.target);
+      const name = pane ? `${pane.pane.session} · ${pane.pane.dirName}` : t.target;
+      const nextIn = t.status === 'running' && t.nextRunAt ? Math.max(0, Math.round((new Date(t.nextRunAt) - Date.now()) / 60000)) : null;
+
+      html += `<div class="task-item">
+        <div class="task-header">
+          <span class="task-target">${name}</span>
+          <span class="task-status ${t.status}">${t.status}</span>
+          <span style="margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--text-muted)">${t.attempts}/${t.maxAttempts}</span>
+        </div>
+        <div class="task-command">${t.command}</div>
+        <div class="task-meta">
+          <span>every ${t.intervalMin}m</span>
+          ${t.maxEmpty > 0 ? `<span>empty: ${t.emptyCount}/${t.maxEmpty}</span>` : ""}
+          ${nextIn !== null ? `<span>next: ${nextIn}m</span>` : ''}
+        </div>
+        <div class="task-actions">
+          ${t.status === 'running' ? `<button class="task-btn" onclick="taskAction('${t.id}','pause')">⏸ Pause</button>` : ''}
+          ${t.status === 'paused' ? `<button class="task-btn" onclick="taskAction('${t.id}','resume')">▶ Resume</button>` : ''}
+          ${t.status === 'running' || t.status === 'paused' ? `<button class="task-btn" onclick="taskAction('${t.id}','stop')">⏹ Stop</button>` : ''}
+          <button class="task-btn danger" onclick="taskAction('${t.id}','delete')">✕ Delete</button>
+        </div>
+      </div>`;
+    }
+    listEl.innerHTML = html;
+  } catch(e) {}
+}
+
+async function createTask() {
+  const target = document.getElementById('task-target').value;
+  const command = document.getElementById('task-command').value;
+  const interval = parseInt(document.getElementById('task-interval').value) || 10;
+  const max = parseInt(document.getElementById('task-max').value) || 5;
+  if (!target || !command) { alert('Select agent and enter command'); return; }
+
+  await fetch('/api/scheduler/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target, command, intervalMin: interval, maxAttempts: max, maxEmpty: 0 })
+  });
+  // Clear form
+  document.getElementById('task-target').value = '';
+  document.getElementById('task-command').value = '';
+  refreshTasks();
+}
+
+async function taskAction(id, action) {
+  await fetch(`/api/scheduler/${id}/${action}`, { method: 'POST' });
+  refreshTasks();
+}
+
+setInterval(refreshTasks, 3000);
+refreshTasks();
 
 // ── Command Palette ──
 const cmdOverlay = document.getElementById('cmd-overlay');
