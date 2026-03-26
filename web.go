@@ -56,6 +56,12 @@ func runWeb(port int) {
 	feed = newFeedStore(500)
 	initFinance()
 	go hub.run()
+	go sched.run()
+
+	// Scheduler APIs
+	http.HandleFunc("/api/scheduler", handleSchedulerList)
+	http.HandleFunc("/api/scheduler/create", handleSchedulerCreate)
+	http.HandleFunc("/api/scheduler/", handleSchedulerAction)
 
 	// API: list panes (re-detects each time, includes dimensions)
 	http.HandleFunc("/api/panes", func(w http.ResponseWriter, r *http.Request) {
@@ -176,6 +182,15 @@ func runWeb(port int) {
 
 		// Notify the hub to push a status update to matching panes
 		hub.pushHookStatus(hooks)
+
+		// Notify scheduler about pane state changes
+		if event.PaneTarget != "" {
+			if event.EventName == "Stop" || event.EventName == "StopFailure" {
+				sched.onPaneIdle(event.PaneTarget)
+			} else if event.EventName == "PreToolUse" {
+				sched.onPaneWorking(event.PaneTarget)
+			}
+		}
 
 		w.WriteHeader(200)
 		w.Write([]byte(`{"status":"ok"}`))
