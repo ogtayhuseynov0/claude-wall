@@ -137,9 +137,17 @@ func (h *captureHub) run() {
 				}
 				rawLines[i] = line
 			}
-			// Trim trailing empty lines
-			for len(rawLines) > 0 && rawLines[len(rawLines)-1] == "" {
-				rawLines = rawLines[:len(rawLines)-1]
+			// Trim trailing empty lines but keep last 2 (Claude Code uses them for status bar)
+			emptyCount := 0
+			for i := len(rawLines) - 1; i >= 0; i-- {
+				if rawLines[i] == "" {
+					emptyCount++
+				} else {
+					break
+				}
+			}
+			if emptyCount > 2 {
+				rawLines = rawLines[:len(rawLines)-emptyCount+2]
 			}
 			content := strings.Join(rawLines, "\n")
 
