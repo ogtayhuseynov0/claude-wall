@@ -99,12 +99,13 @@ func (f *feedStore) getPending() []feedEntry {
 
 	var result []feedEntry
 	for target, e := range latest {
-		if e.Status == "permission" && time.Since(e.Time) < 60*time.Second {
+		if e.Status == "permission" {
 			result = append(result, *e)
 			continue
 		}
-		// Fallback: if hookStore still says "permission", use the last permission entry
-		if hooks != nil && lastPerm[target] != nil && time.Since(lastPerm[target].Time) < 60*time.Second {
+		// Latest entry isn't permission, but hooks might still say permission
+		// (e.g. a PreToolUse came after PermissionRequest in the feed)
+		if hooks != nil && lastPerm[target] != nil {
 			dir := getPaneDir(target)
 			if dir != "" {
 				hs := hooks.getStateForPane(target, dir)

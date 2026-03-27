@@ -169,16 +169,23 @@
     border-left: none;
     border-right: none;
   }
+  .panel-tab { position: relative; }
   .panel-tab:hover { color: var(--text-secondary); }
   .panel-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
   .panel-tab .badge {
-    display: inline-block;
+    position: absolute;
+    top: -2px;
+    right: -4px;
     background: var(--amber);
     color: #000;
-    font-size: 9px;
-    padding: 1px 5px;
-    border-radius: 8px;
-    margin-left: 4px;
+    font-size: 8px;
+    font-weight: 700;
+    min-width: 14px;
+    height: 14px;
+    line-height: 14px;
+    text-align: center;
+    padding: 0 3px;
+    border-radius: 7px;
     font-weight: 700;
   }
 
@@ -277,6 +284,31 @@
   .task-form-row input { flex: 1; }
   .task-form button { width: 100%; padding: 6px; font-size: 11px; font-family: var(--font-ui); background: var(--accent); color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 4px; }
   .task-form button:hover { opacity: 0.85; }
+
+  /* Webhook items */
+  .webhook-item {
+    padding: 10px 12px; border-bottom: 1px solid var(--border-subtle);
+  }
+  .webhook-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .webhook-type { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 8px; font-weight: 600; }
+  .webhook-type.slack { color: #e01e5a; background: rgba(224,30,90,0.1); }
+  .webhook-type.discord { color: #5865f2; background: rgba(88,101,242,0.1); }
+  .webhook-type.generic { color: var(--accent); background: var(--accent-glow); }
+  .webhook-url { font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary); padding: 4px 8px; background: var(--bg-deep); border-radius: 4px; margin-bottom: 4px; word-break: break-all; overflow: hidden; text-overflow: ellipsis; }
+  .webhook-events { font-size: 10px; color: var(--text-muted); display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  .webhook-events span { padding: 1px 6px; background: var(--bg-raised); border-radius: 4px; border: 1px solid var(--border-subtle); }
+  .webhook-actions { display: flex; gap: 6px; }
+
+  /* Webhook form */
+  .wh-form { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .wh-form-title { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; }
+  .wh-form input, .wh-form select { width: 100%; padding: 5px 8px; font-size: 11px; font-family: var(--font-ui); color: var(--text); background: var(--bg-raised); border: 1px solid var(--border); border-radius: 4px; outline: none; margin-bottom: 6px; }
+  .wh-form input:focus, .wh-form select:focus { border-color: var(--accent); }
+  .wh-form-checks { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .wh-form-checks label { font-size: 10px; color: var(--text-secondary); display: flex; align-items: center; gap: 3px; cursor: pointer; }
+  .wh-form-checks input[type="checkbox"] { width: auto; margin: 0; accent-color: var(--accent); }
+  .wh-form button { width: 100%; padding: 6px; font-size: 11px; font-family: var(--font-ui); background: var(--accent); color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 4px; }
+  .wh-form button:hover { opacity: 0.85; }
 
   /* ── Summary Card (hover tooltip) ── */
 
@@ -558,6 +590,10 @@
     border-radius: 4px;
     transition: all 0.15s;
   }
+  @keyframes mic-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
   .tile-header .goto-btn:hover,
   .tile-header .zoom-btn:hover,
   .tile-header .more-btn:hover {
@@ -652,8 +688,17 @@
   .tile-fab:hover { opacity: 1 !important; background: var(--bg-hover); color: var(--text); }
   .scroll-fab { right: 10px; bottom: 10px; }
   .scroll-fab.hidden { opacity: 0 !important; pointer-events: none; }
-  .close-fab { right: 10px; bottom: 44px; background: rgba(248, 113, 113, 0.1); border-color: rgba(248, 113, 113, 0.2); color: var(--red); }
-  .close-fab:hover { background: rgba(248, 113, 113, 0.2) !important; color: var(--red) !important; }
+  .mic-fab { right: 10px; bottom: 44px; }
+  .mic-fab.recording { background: rgba(248, 113, 113, 0.15); border-color: rgba(248, 113, 113, 0.3); animation: mic-pulse 1s infinite; }
+  .tile-close {
+    position: absolute; top: 36px; right: 6px; z-index: 10;
+    width: 28px; height: 28px; display: none; align-items: center; justify-content: center;
+    font-size: 13px; color: var(--text-muted); background: var(--bg-raised);
+    border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+    opacity: 0; transition: opacity 0.15s;
+  }
+  .tile:hover .tile-close { display: flex; opacity: 0.5; }
+  .tile-close:hover { opacity: 1 !important; color: var(--red); background: rgba(248,113,113,0.15); border-color: rgba(248,113,113,0.3); }
 
   /* Command Palette */
   .cmd-overlay {
@@ -889,7 +934,7 @@
     .tile-header .more-btn { width: 28px; height: 28px; font-size: 14px; }
     .tile-fab { width: 36px; height: 36px; font-size: 16px; }
     .scroll-fab { right: 8px; bottom: 8px; }
-    .close-fab { right: 8px; bottom: 50px; }
+    .mic-fab { right: 8px; bottom: 50px; }
   }
 
   /* Small phones */
@@ -928,10 +973,12 @@
       <button class="panel-tab active" data-tab="feed">Activity</button>
       <button class="panel-tab" data-tab="approvals">Approvals <span class="badge" id="approval-count" style="display:none">0</span></button>
       <button class="panel-tab" data-tab="tasks">Tasks <span class="badge" id="tasks-count" style="display:none">0</span></button>
+      <button class="panel-tab" data-tab="webhooks">Webhooks</button>
     </div>
     <div id="feed-panel" class="panel-content active"></div>
     <div id="approvals-panel" class="panel-content"></div>
     <div id="tasks-panel" class="panel-content"></div>
+    <div id="webhooks-panel" class="panel-content"></div>
   </div>
 </div>
 <div class="panel-toggle" id="panel-toggle" title="Toggle panel">◀</div>
@@ -987,6 +1034,12 @@ function toggleNotifs() {
   notifsEnabled = !notifsEnabled;
   localStorage.setItem('cw-notifs', notifsEnabled ? 'on' : 'off');
   updateNotifBtn();
+  // Sync with server (controls OS notifications)
+  fetch('/api/notifications', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: notifsEnabled })
+  });
 }
 updateNotifBtn();
 
@@ -1114,7 +1167,6 @@ function createTile(pane) {
       <span class="branch">🌿 ${pane.branch || '-'}</span>
       <span class="pane-id">${pane.target.split('.')[1] ? ':' + pane.target.split(':')[1] : ''}</span>
       <span class="spacer"></span>
-      <span class="activity-label"></span>
       <span class="sched-badge" style="display:none" title="Scheduled task active"></span>
       <span class="status-label idle"></span>
       <span class="goto-btn" title="Open in terminal">↗</span>
@@ -1133,7 +1185,8 @@ function createTile(pane) {
       <pre class="live"></pre>
     </div>
     <div class="tile-fab scroll-fab" title="Scroll to bottom">↓</div>
-    <div class="tile-fab close-fab" title="Close session (Ctrl+C×2)">✕</div>
+    <div class="tile-fab mic-fab" title="Voice input">🎤</div>
+    <div class="tile-close" title="Close session (Ctrl+C×2)">✕</div>
   `;
   grid.appendChild(tile);
 
@@ -1142,7 +1195,6 @@ function createTile(pane) {
   const livePre = tile.querySelector('.live');
   const statusDot = tile.querySelector('.status-dot');
   const statusLabel = tile.querySelector('.status-label');
-  const activityLabel = tile.querySelector('.activity-label');
   const schedBadge = tile.querySelector('.sched-badge');
   const ansi = new AnsiUp();
   ansi.use_classes = true;
@@ -1154,7 +1206,8 @@ function createTile(pane) {
 
   // Scroll-to-bottom FAB
   const scrollFab = tile.querySelector('.scroll-fab');
-  const closeFab = tile.querySelector('.close-fab');
+  const closeFab = tile.querySelector('.tile-close');
+  const micFab = tile.querySelector('.mic-fab');
 
   scrollFab.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1185,6 +1238,48 @@ function createTile(pane) {
   gotoBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     fetch(`/api/goto/${pane.target}`);
+  });
+
+  // Voice input (Web Speech API) — mic FAB in tile body
+  let recognition = null;
+  micFab.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      alert('Speech recognition not supported in this browser');
+      return;
+    }
+
+    if (recognition) {
+      recognition.stop();
+      return;
+    }
+
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    recognition = new SR();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    micFab.classList.add('recording');
+
+    recognition.onresult = (event) => {
+      const text = event.results[0][0].transcript;
+      if (text && sendInput) {
+        sendInput(text);
+      }
+    };
+
+    recognition.onerror = () => {
+      micFab.classList.remove('recording');
+      recognition = null;
+    };
+
+    recognition.onend = () => {
+      micFab.classList.remove('recording');
+      recognition = null;
+    };
+
+    recognition.start();
   });
 
   // More menu (⋯ dropdown)
@@ -1262,9 +1357,6 @@ function createTile(pane) {
     statusDot.className = `status-dot ${status}`;
     statusLabel.className = `status-label ${status}`;
     statusLabel.textContent = status === 'idle' ? '' : status;
-    if (activity !== undefined) {
-      activityLabel.textContent = activity || '';
-    }
     if (status === prevStatus) return;
     if (status === 'working') workingStartedAt = Date.now();
     if (status === 'permission' && prevStatus !== 'permission') {
@@ -1743,6 +1835,91 @@ async function taskAction(id, action) {
 
 setInterval(refreshTasks, 3000);
 refreshTasks();
+
+// ── Webhooks Panel ──
+const webhooksPanel = document.getElementById('webhooks-panel');
+
+function initWebhookForm() {
+  webhooksPanel.innerHTML = `
+    <div class="wh-form">
+      <div class="wh-form-title">Add Webhook</div>
+      <input type="text" id="wh-url" placeholder="https://hooks.slack.com/services/...">
+      <select id="wh-type">
+        <option value="slack">Slack</option>
+        <option value="discord">Discord</option>
+        <option value="generic">Generic (JSON)</option>
+      </select>
+      <div class="wh-form-checks">
+        <label><input type="checkbox" value="permission" checked> permission</label>
+        <label><input type="checkbox" value="error" checked> error</label>
+        <label><input type="checkbox" value="stopped" checked> stopped</label>
+        <label><input type="checkbox" value="task_completed" checked> task_completed</label>
+      </div>
+      <button onclick="createWebhook()">Add Webhook</button>
+    </div>
+    <div id="wh-list"></div>
+  `;
+}
+initWebhookForm();
+
+async function refreshWebhooks() {
+  try {
+    const res = await fetch('/api/webhooks');
+    const hooks = await res.json();
+
+    const listEl = document.getElementById('wh-list');
+    if (!listEl) return;
+
+    if (!hooks || hooks.length === 0) {
+      listEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px">No webhooks configured</div>';
+      return;
+    }
+
+    let html = '';
+    for (const wh of hooks) {
+      html += `<div class="webhook-item">
+        <div class="webhook-header">
+          <span class="webhook-type ${wh.type}">${wh.type}</span>
+          <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted)">${wh.id}</span>
+        </div>
+        <div class="webhook-url">${wh.url}</div>
+        <div class="webhook-events">${(wh.events || []).map(e => `<span>${e}</span>`).join('')}</div>
+        <div class="webhook-actions">
+          <button class="task-btn danger" onclick="deleteWebhook('${wh.id}')">Delete</button>
+        </div>
+      </div>`;
+    }
+    listEl.innerHTML = html;
+  } catch(e) {}
+}
+
+async function createWebhook() {
+  const url = document.getElementById('wh-url').value.trim();
+  const type = document.getElementById('wh-type').value;
+  if (!url) { alert('Enter a webhook URL'); return; }
+
+  const events = [];
+  document.querySelectorAll('.wh-form-checks input[type="checkbox"]:checked').forEach(cb => {
+    events.push(cb.value);
+  });
+  if (events.length === 0) { alert('Select at least one event'); return; }
+
+  await fetch('/api/webhooks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, type, events })
+  });
+  document.getElementById('wh-url').value = '';
+  refreshWebhooks();
+}
+
+async function deleteWebhook(id) {
+  await fetch(`/api/webhooks/${id}`, { method: 'DELETE' });
+  refreshWebhooks();
+}
+
+setInterval(refreshWebhooks, 5000);
+refreshWebhooks();
 
 // ── Command Palette ──
 const cmdOverlay = document.getElementById('cmd-overlay');

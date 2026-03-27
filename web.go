@@ -54,6 +54,7 @@ func runWeb(port int) {
 	hub = newCaptureHub()
 	hooks = newHookStore()
 	feed = newFeedStore(500)
+	webhooks = newWebhookStore()
 	initFinance()
 	go hub.run()
 	sched.load()
@@ -63,6 +64,16 @@ func runWeb(port int) {
 	http.HandleFunc("/api/scheduler", handleSchedulerList)
 	http.HandleFunc("/api/scheduler/create", handleSchedulerCreate)
 	http.HandleFunc("/api/scheduler/", handleSchedulerAction)
+
+	// Webhook APIs
+	http.HandleFunc("/api/webhooks", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			handleWebhookCreate(w, r)
+		} else {
+			handleWebhookList(w, r)
+		}
+	})
+	http.HandleFunc("/api/webhooks/", handleWebhookDelete)
 
 	// API: list panes (re-detects each time, includes dimensions)
 	http.HandleFunc("/api/panes", func(w http.ResponseWriter, r *http.Request) {
@@ -177,6 +188,11 @@ func runWeb(port int) {
 
 		hooks.processEvent(event)
 		feed.add(buildFeedEntry(event))
+
+		// Fire webhooks for matching events (in background, debounced)
+		if whEvent, whMsg := mapEventToWebhook(event); whEvent != "" {
+			go webhooks.sendWebhook(whEvent, whMsg)
+		}
 
 		// Track costs — only on Stop events (reading full transcript is expensive)
 		if (event.EventName == "Stop" || event.EventName == "StopFailure") && event.TranscriptPath != "" {
