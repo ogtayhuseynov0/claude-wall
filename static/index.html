@@ -1256,16 +1256,30 @@ function createTile(pane) {
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     recognition = new SR();
-    recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.continuous = true;
+    recognition.interimResults = true;
     recognition.lang = 'en-US';
 
     micFab.classList.add('recording');
+    let lastSentLen = 0; // track how many chars we already typed
 
     recognition.onresult = (event) => {
-      const text = event.results[0][0].transcript;
-      if (text && sendInput) {
-        sendInput(text);
+      // Build full transcript from all results
+      let final = '', interim = '';
+      for (let i = 0; i < event.results.length; i++) {
+        const text = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          final += text;
+        } else {
+          interim += text;
+        }
+      }
+      const full = final + interim;
+      // Send only the new characters (delta) so we don't re-type
+      if (full.length > lastSentLen && sendInput) {
+        const delta = full.slice(lastSentLen);
+        sendInput(delta);
+        lastSentLen = full.length;
       }
     };
 
