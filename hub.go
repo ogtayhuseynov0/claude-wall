@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -86,10 +87,30 @@ func (h *captureHub) unsubscribe(target string, ch chan paneUpdate) {
 }
 
 func (h *captureHub) run() {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	// Try control mode first (zero subprocess architecture)
+	tc := newTmuxControl()
+	useControlMode := false
+
+	if err := tc.start(); err != nil {
+		log.Printf("[hub] control mode failed, using batch capture: %v", err)
+	} else {
+		useControlMode = true
+		log.Println("[hub] control mode active (zero-poll)")
+
+		// Periodically refresh pane map (new panes, closed panes)
+		go func() {
+			for range time.NewTicker(10 * time.Second).C {
+				tc.refreshPaneMap()
+			}
+		}()
+	}
+
+	// Control mode: captures via persistent connection (no subprocess), can tick faster
+	interval := 100 * time.Millisecond
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	failCounts := map[string]int{} // track consecutive capture failures
+	failCounts := map[string]int{}
 
 	for range ticker.C {
 		h.mu.RLock()
@@ -103,10 +124,32 @@ func (h *captureHub) run() {
 			continue
 		}
 
-		// Batch capture: ONE subprocess for all panes
-		captures := batchCapture(targets)
+		// Determine which panes to capture
+		var toCapture []string
+		if useControlMode {
+			// Always capture all subscribed panes — control mode capture is cheap (no subprocess)
+			toCapture = targets
+		} else {
+			toCapture = targets
+		}
 
-		for _, target := range targets {
+		// Capture pane contents
+		var captures map[string]string
+		if useControlMode {
+			captures = make(map[string]string, len(toCapture))
+			for _, t := range toCapture {
+				out, err := tc.capturePaneByTarget(t)
+				if err != nil {
+					log.Printf("[hub] capture failed for %s: %v", t, err)
+				} else {
+					captures[t] = out
+				}
+			}
+		} else {
+			captures = batchCapture(toCapture)
+		}
+
+		for _, target := range toCapture {
 			out, ok := captures[target]
 			if !ok {
 				failCounts[target]++
@@ -130,29 +173,26 @@ func (h *captureHub) run() {
 			rawLines := strings.Split(out, "\n")
 			for i, line := range rawLines {
 				line = strings.TrimRight(line, " ")
-				// Strip ANSI codes to check if line is purely decorative
 				plain := ansiRegex.ReplaceAllString(line, "")
 				plain = strings.TrimRight(plain, " ")
 				stripped := strings.TrimLeft(plain, "─━═╌╍┄┅╶╴ ")
 				if len(plain) > 40 && len(stripped) == 0 {
-					// Replace with a marker that the client renders as full-width
 					line = "@@HRULE@@"
 				}
 				rawLines[i] = line
 			}
 			content := strings.Join(rawLines, "\n")
 
-			// Determine status: prefer hooks, fall back to terminal parsing
 			status, activity := h.resolveStatus(target, content)
 
-			h.mu.Lock()
-			prev := h.latest[target]
-			// Get scheduled task info for this pane
+			// Get scheduled task info BEFORE locking hub
 			var schedInfo interface{}
 			if tasks := sched.getTasksForPane(target); len(tasks) > 0 {
 				schedInfo = tasks
 			}
 
+			h.mu.Lock()
+			prev := h.latest[target]
 			if content != prev.Msg_content {
 				msgData := map[string]interface{}{
 					"type":     "content",
@@ -173,8 +213,6 @@ func (h *captureHub) run() {
 					}
 				}
 			} else if status != prev.Status {
-				// Only broadcast when STATUS changes (not activity-only changes)
-				// Activity updates piggyback on content updates above
 				msg, _ := json.Marshal(map[string]interface{}{
 					"type":     "status-update",
 					"status":   status,
