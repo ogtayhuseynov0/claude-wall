@@ -1375,10 +1375,12 @@ function createTile(pane) {
   let workingStartedAt = 0;
 
   function setStatus(status, activity) {
-    tile.dataset.status = status;
-    statusDot.className = `status-dot ${status}`;
-    statusLabel.className = `status-label ${status}`;
-    statusLabel.textContent = status === 'idle' ? '' : status;
+    if (tile.dataset.status !== status) {
+      tile.dataset.status = status;
+      statusDot.className = `status-dot ${status}`;
+      statusLabel.className = `status-label ${status}`;
+      statusLabel.textContent = status === 'idle' ? '' : status;
+    }
     if (status === prevStatus) return;
     if (status === 'working') workingStartedAt = Date.now();
     if (status === 'permission' && prevStatus !== 'permission') {
@@ -1413,13 +1415,16 @@ function createTile(pane) {
         livePre.innerHTML = renderAnsi(msg.data);
         if (wasAtBottom) body.scrollTop = body.scrollHeight;
         if (msg.status) setStatus(msg.status, msg.activity);
-        // Show scheduled task badge
+        // Show scheduled task badge — only update DOM when changed
         if (msg.scheduled && msg.scheduled.length > 0) {
           const t = msg.scheduled[0];
-          schedBadge.style.display = '';
-          schedBadge.textContent = `⏱ ${t.attempts}/${t.maxAttempts}`;
-          schedBadge.title = `Scheduled: ${t.command} (every ${t.intervalMin}m)`;
-        } else {
+          const badgeText = `⏱ ${t.attempts}/${t.maxAttempts}`;
+          if (schedBadge.textContent !== badgeText) {
+            schedBadge.style.display = '';
+            schedBadge.textContent = badgeText;
+            schedBadge.title = `Scheduled: ${t.command} (every ${t.intervalMin}m)`;
+          }
+        } else if (schedBadge.style.display !== 'none') {
           schedBadge.style.display = 'none';
         }
       } else if (msg.type === 'status-update') {
