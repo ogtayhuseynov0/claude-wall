@@ -106,7 +106,10 @@ func (h *captureHub) run() {
 	}
 
 	// Control mode: captures via persistent connection (no subprocess), can tick faster
-	interval := 100 * time.Millisecond
+	interval := 40 * time.Millisecond // 25fps
+	if !useControlMode {
+		interval = 100 * time.Millisecond // 10fps fallback
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
