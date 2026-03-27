@@ -7,7 +7,7 @@
 ## Features
 
 - **Web Dashboard** — Real-time grid of all Claude Code instances in tmux
-- **Live Terminal Capture** — See what each agent is doing, streamed via WebSocket
+- **Live Terminal Capture** — 25fps streaming via tmux control mode (zero subprocess, ~2% CPU)
 - **Status Indicators** — Idle (gray), working (green), permission needed (pulsing amber), error (red)
 - **Activity Feed** — Chronological timeline of tool calls across all agents
 - **Approval Queue** — One-click approve/deny pending permissions (Yes / Always / No)
@@ -147,7 +147,7 @@ Model selector: Haiku (fast/cheap), Sonnet, or Opus per message. Uses `claude -p
 ## Architecture
 
 ```
-Browser <--WebSocket--> Go Server <--tmux--> Claude Code instances
+Browser <--WebSocket--> Go Server <--tmux -C--> tmux server
                           |
                      Hook Server <-- Claude Code HTTP hooks
                           |
@@ -156,11 +156,13 @@ Browser <--WebSocket--> Go Server <--tmux--> Claude Code instances
                      Scheduler --> timed commands to agents
 ```
 
-1. Go server polls `tmux capture-pane` for each Claude pane (100ms)
-2. Content streamed to browsers via WebSocket (only sends diffs)
-3. Claude Code hooks push structured events (PreToolUse, Stop, PermissionRequest, etc.)
-4. Mastermind AI gets full context and can control agents + dashboard UI
-5. Scheduler sends recurring commands to agents when they go idle
+1. **tmux Control Mode** — persistent `tmux -C` connection, zero subprocess spawning
+2. Captures all panes at 25fps via protocol messages (not `exec.Command`)
+3. Content streamed to browsers via WebSocket (only sends diffs)
+4. Claude Code hooks push structured events (PreToolUse, Stop, PermissionRequest, etc.)
+5. Mastermind AI gets full context and can control agents + dashboard UI
+6. Scheduler sends recurring commands to agents when they go idle
+7. CPU usage: ~2-5% for 10+ agents (vs 10%+ with subprocess polling)
 
 ## Chrome Extension
 
