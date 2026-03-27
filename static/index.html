@@ -1261,7 +1261,13 @@ function createTile(pane) {
     recognition.lang = 'en-US';
 
     micFab.classList.add('recording');
-    let lastSentLen = 0; // track how many chars we already typed
+    let lastSentLen = 0;
+    let silenceTimer = null;
+    const resetSilence = () => {
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => { if (recognition) recognition.stop(); }, 3000);
+    };
+    resetSilence();
 
     recognition.onresult = (event) => {
       // Build full transcript from all results
@@ -1280,6 +1286,7 @@ function createTile(pane) {
         const delta = full.slice(lastSentLen);
         sendInput(delta);
         lastSentLen = full.length;
+        resetSilence();
       }
     };
 
@@ -1290,6 +1297,7 @@ function createTile(pane) {
 
     recognition.onend = () => {
       micFab.classList.remove('recording');
+      clearTimeout(silenceTimer);
       recognition = null;
     };
 
