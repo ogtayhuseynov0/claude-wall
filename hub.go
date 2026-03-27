@@ -103,11 +103,14 @@ func (h *captureHub) run() {
 			continue
 		}
 
+		// Batch capture: ONE subprocess for all panes
+		captures := batchCapture(targets)
+
 		for _, target := range targets {
-			out, err := exec.Command("tmux", "capture-pane", "-t", target, "-e", "-p").Output()
-			if err != nil {
+			out, ok := captures[target]
+			if !ok {
 				failCounts[target]++
-				if failCounts[target] > 50 { // 5 seconds of failures → send disconnect
+				if failCounts[target] > 50 {
 					h.mu.Lock()
 					msg, _ := json.Marshal(map[string]string{"type": "status", "data": "disconnected"})
 					update := paneUpdate{Status: "disconnected", Full: false, Msg: msg}
@@ -124,7 +127,7 @@ func (h *captureHub) run() {
 			delete(failCounts, target)
 
 			// Strip trailing whitespace + truncate decorative lines
-			rawLines := strings.Split(string(out), "\n")
+			rawLines := strings.Split(out, "\n")
 			for i, line := range rawLines {
 				line = strings.TrimRight(line, " ")
 				// Strip ANSI codes to check if line is purely decorative
@@ -189,6 +192,46 @@ func (h *captureHub) run() {
 			h.mu.Unlock()
 		}
 	}
+}
+
+// batchCapture runs ONE shell command to capture all panes at once.
+// Returns map[target] → captured content string.
+// Reduces subprocess count from N to 1 per tick.
+const captureSep = "@@CWSEP@@"
+
+func batchCapture(targets []string) map[string]string {
+	if len(targets) == 0 {
+		return nil
+	}
+
+	// Build a single shell command: for each target, capture and print separator
+	var cmd strings.Builder
+	for i, t := range targets {
+		if i > 0 {
+			cmd.WriteString(" ; ")
+		}
+		// Use printf for separator (not echo, to avoid newline issues)
+		cmd.WriteString("tmux capture-pane -t '")
+		cmd.WriteString(t)
+		cmd.WriteString("' -e -p 2>/dev/null ; printf '\\n")
+		cmd.WriteString(captureSep)
+		cmd.WriteString("\\n'")
+	}
+
+	out, err := exec.Command("sh", "-c", cmd.String()).Output()
+	if err != nil {
+		return nil
+	}
+
+	// Split output by separator
+	parts := strings.Split(string(out), "\n"+captureSep+"\n")
+	result := make(map[string]string, len(targets))
+	for i, t := range targets {
+		if i < len(parts) {
+			result[t] = parts[i]
+		}
+	}
+	return result
 }
 
 // resolveStatus returns (status, activity) — uses hooks if available, falls back to terminal parsing
