@@ -11,7 +11,9 @@
 - **Status Indicators** — Idle (gray), working (green), permission needed (pulsing amber), error (red)
 - **Activity Feed** — Chronological timeline of tool calls across all agents
 - **Approval Queue** — One-click approve/deny pending permissions (Yes / Always / No)
-- **Scheduled Tasks** — Send recurring commands to agents on a timer (review loops, test runs, deploys)
+- **Scheduled Tasks** — Send recurring commands to agents on a timer with progress tracking
+- **Webhooks** — Slack, Discord, or generic HTTP webhooks for permission, error, and completion events
+- **Voice Input** — Real-time speech-to-text per tile via Web Speech API (auto-stops on silence)
 - **Mastermind AI** — Orchestrator chat that reads, instructs, and coordinates all agents
 - **Cost Tracking** — Per-session token usage and estimated cost breakdown (`/finance.html`)
 - **Chrome Extension** — Send selected text or full page content to any agent
@@ -20,10 +22,10 @@
 - **Group Filter** — Filter tiles by project group or search by name
 - **Daemon Mode** — Runs in background with `start`/`stop`/`restart`/`status`/`logs`
 - **Remote Access** — `--public` flag binds to `0.0.0.0`, `--token` for authentication
-- **Blur Mode** — Hide sensitive content on any tile with one click
+- **Blur Mode** — Hide sensitive content via tile dropdown menu
 - **Drag to Reorder** — Rearrange tiles, order persists across reloads
 - **Auto-detect** — New/removed Claude instances appear automatically
-- **Sound Notifications** — Alerts for permission requests and task completion
+- **Sound Notifications** — Browser alerts for permission requests and task completion
 - **Mobile Responsive** — Usable from phone via Tailscale
 
 ## Install
@@ -119,6 +121,31 @@ curl -X POST http://localhost:7685/api/scheduler/{id}/delete
 ```
 
 Tasks wait for the agent to go idle before sending the next cycle. Progress shows as `⏱ 2/5` badge on the tile header. Tasks persist across server restarts.
+
+## Webhooks
+
+Get notified in Slack, Discord, or any HTTP endpoint when agents need attention.
+
+**From the dashboard:** Side panel → Webhooks tab → add URL, select type, choose events → Create.
+
+**Supported types:**
+- **Slack** — sends `{"text": "message"}` to your webhook URL
+- **Discord** — sends `{"content": "message"}` to your webhook URL
+- **Generic** — sends full JSON event payload to any HTTP endpoint
+
+**Events:** `permission` (agent needs approval), `error` (agent failure), `stopped` (agent completed), `task_completed` (scheduled task finished)
+
+Webhooks are debounced (max 1 per event type per 30s) and persisted to `~/.claude/claude-wall-webhooks.json`.
+
+## Voice Input
+
+Click the 🎤 button on any tile to dictate text using your browser's speech recognition.
+
+- Real-time transcription — words appear as you speak
+- Auto-stops after 3 seconds of silence
+- Text is typed into the pane without pressing Enter (review first)
+- Click 🎤 again to stop manually
+- Works in Chrome and Edge (Web Speech API)
 
 ## Dashboard Shortcuts
 
