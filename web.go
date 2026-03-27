@@ -101,9 +101,11 @@ func runWeb(port int) {
 		}
 
 		// Switch tmux to the right session, window, and pane
-		exec.Command("tmux", "select-pane", "-t", target).Run()
-		exec.Command("tmux", "select-window", "-t", sessWin).Run()
+		// Order matters: switch client first, then window, then pane
+		// Use -t session to target the user's client (not the control mode client)
 		exec.Command("tmux", "switch-client", "-t", session).Run()
+		exec.Command("tmux", "select-window", "-t", sessWin).Run()
+		exec.Command("tmux", "select-pane", "-t", target).Run()
 
 		// Activate the terminal application (detect which one is running)
 		activateTerminal()
