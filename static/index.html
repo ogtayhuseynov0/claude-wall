@@ -355,7 +355,7 @@
     background: var(--bg-surface);
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow: visible;
     position: relative;
     min-width: 0;
     min-height: 0;
@@ -546,8 +546,6 @@
   .tile.blurred .tile-header .activity-label { filter: blur(5px); }
 
   .tile-header .goto-btn,
-  .tile-header .blur-btn,
-  .tile-header .min-btn,
   .tile-header .zoom-btn {
     color: var(--text-muted);
     cursor: pointer;
@@ -561,12 +559,34 @@
     transition: all 0.15s;
   }
   .tile-header .goto-btn:hover,
-  .tile-header .blur-btn:hover,
-  .tile-header .min-btn:hover,
-  .tile-header .zoom-btn:hover {
+  .tile-header .zoom-btn:hover,
+  .tile-header .more-btn:hover {
     color: var(--text);
     background: rgba(255,255,255,0.06);
   }
+  .more-wrap { position: relative; display: flex; }
+  .tile-header .more-btn {
+    color: var(--text-muted); cursor: pointer; font-size: 14px;
+    width: 20px; height: 20px; display: flex; align-items: center;
+    justify-content: center; border-radius: 4px; transition: all 0.15s;
+  }
+  .more-menu {
+    position: absolute; top: 24px; right: 0; z-index: 9999;
+    background: #1e1e2e; border: 1px solid #444;
+    border-radius: 6px; padding: 4px 0; min-width: 160px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  }
+  .more-menu-item {
+    padding: 6px 12px; font-size: 11px; color: #ccc;
+    cursor: pointer; white-space: nowrap; font-family: var(--font-ui);
+  }
+  .more-menu-item:hover { background: #333; color: #fff; }
+  .more-menu-item.pane-info {
+    padding: 4px 12px; font-size: 9px; color: var(--text-muted);
+    cursor: default; border-top: 1px solid var(--border-subtle); margin-top: 2px;
+    font-family: var(--font-mono);
+  }
+  .more-menu-item.pane-info:hover { background: transparent; color: var(--text-muted); }
 
   /* ── Tile Body (Terminal) ── */
   .tile-body {
@@ -628,7 +648,7 @@
   }
   .tile:hover .tile-fab { opacity: 0.7; }
   #minimized-bar .tile .tile-fab { display: none; }
-  #minimized-bar .tile .blur-btn { display: none; }
+  #minimized-bar .tile .more-btn { display: none; }
   .tile-fab:hover { opacity: 1 !important; background: var(--bg-hover); color: var(--text); }
   .scroll-fab { right: 10px; bottom: 10px; }
   .scroll-fab.hidden { opacity: 0 !important; pointer-events: none; }
@@ -865,9 +885,8 @@
 
     /* Larger touch targets for buttons */
     .tile-header .goto-btn,
-    .tile-header .blur-btn,
-    .tile-header .min-btn,
-    .tile-header .zoom-btn { width: 28px; height: 28px; font-size: 14px; }
+    .tile-header .zoom-btn,
+    .tile-header .more-btn { width: 28px; height: 28px; font-size: 14px; }
     .tile-fab { width: 36px; height: 36px; font-size: 16px; }
     .scroll-fab { right: 8px; bottom: 8px; }
     .close-fab { right: 8px; bottom: 50px; }
@@ -1094,15 +1113,20 @@ function createTile(pane) {
       <span class="sep">·</span>
       <span class="branch">🌿 ${pane.branch || '-'}</span>
       <span class="pane-id">${pane.target.split('.')[1] ? ':' + pane.target.split(':')[1] : ''}</span>
-      <span class="pane-size ${parseInt(pane.cols) < 80 ? 'narrow' : ''}" title="Pane width in tmux">${pane.cols || '?'}col</span>
       <span class="spacer"></span>
       <span class="activity-label"></span>
       <span class="sched-badge" style="display:none" title="Scheduled task active"></span>
       <span class="status-label idle"></span>
       <span class="goto-btn" title="Open in terminal">↗</span>
-      <span class="blur-btn" title="Blur content">◉</span>
       <span class="min-btn" title="Minimize">▁</span>
-      <span class="zoom-btn" title="Zoom">⤢</span>
+      <span class="more-wrap">
+        <span class="more-btn" title="More options">⋯</span>
+        <div class="more-menu" style="display:none">
+          <div class="more-menu-item zoom-toggle">⤢ Zoom</div>
+          <div class="more-menu-item blur-toggle">◉ Blur content</div>
+          <div class="more-menu-item pane-info">${pane.cols || '?'}col · ${pane.target}</div>
+        </div>
+      </span>
     </div>
     <div class="tile-body" tabindex="0">
       <pre class="history"></pre>
@@ -1120,7 +1144,6 @@ function createTile(pane) {
   const statusLabel = tile.querySelector('.status-label');
   const activityLabel = tile.querySelector('.activity-label');
   const schedBadge = tile.querySelector('.sched-badge');
-  const zoomBtn = tile.querySelector('.zoom-btn');
   const ansi = new AnsiUp();
   ansi.use_classes = true;
   const renderAnsi = (text) => ansi.ansi_to_html(text).replace(/@@HRULE@@/g, '<span class="hrule"></span>');
@@ -1160,25 +1183,28 @@ function createTile(pane) {
     fetch(`/api/goto/${pane.target}`);
   });
 
-  // Blur toggle
-  const blurBtn = tile.querySelector('.blur-btn');
-  blurBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    tile.classList.toggle('blurred');
-    blurBtn.textContent = tile.classList.contains('blurred') ? '◎' : '◉';
-  });
+  // More menu (⋯ dropdown)
+  const moreBtn = tile.querySelector('.more-btn');
+  const moreMenu = tile.querySelector('.more-menu');
+  const blurToggle = tile.querySelector('.blur-toggle');
+  const zoomToggle = tile.querySelector('.zoom-toggle');
 
-  // Click narrow pane-size badge to zoom the tmux pane
-  const paneSizeBadge = tile.querySelector('.pane-size');
-  if (paneSizeBadge.classList.contains('narrow')) {
-    paneSizeBadge.title = 'Pane is narrow — click to zoom in tmux';
-    paneSizeBadge.addEventListener('click', (e) => {
-      e.stopPropagation();
-      fetch(`/api/zoom/${pane.target}`);
-      paneSizeBadge.classList.remove('narrow');
-      paneSizeBadge.textContent = 'zooming...';
-    });
-  }
+  moreBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = moreMenu.style.display === 'none';
+    // Close all other menus first
+    document.querySelectorAll('.more-menu').forEach(m => m.style.display = 'none');
+    moreMenu.style.display = open ? 'block' : 'none';
+  });
+  // Close menu on click outside
+  document.addEventListener('click', () => { moreMenu.style.display = 'none'; });
+  moreMenu.addEventListener('click', (e) => e.stopPropagation());
+
+  blurToggle.addEventListener('click', () => {
+    tile.classList.toggle('blurred');
+    blurToggle.textContent = tile.classList.contains('blurred') ? '◎ Unblur' : '◉ Blur content';
+    moreMenu.style.display = 'none';
+  });
 
   const minBtn = tile.querySelector('.min-btn');
   const minBar = document.getElementById('minimized-bar');
@@ -1194,14 +1220,23 @@ function createTile(pane) {
     updateGrid();
     localStorage.setItem('cw-tile-' + pane.target, JSON.stringify({ minimized: isMin }));
   }
-  minBtn.addEventListener('click', (e) => { e.stopPropagation(); setMinimized(!tile.classList.contains('minimized')); sendHistoryMode(); });
+  minBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setMinimized(!tile.classList.contains('minimized'));
+    sendHistoryMode();
+  });
+
+  zoomToggle.addEventListener('click', () => {
+    tile.classList.toggle('zoomed');
+    sendHistoryMode();
+    moreMenu.style.display = 'none';
+  });
   function sendHistoryMode() {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     const on = (tile.classList.contains('zoomed') || tile.classList.contains('active')) && !tile.classList.contains('minimized');
     ws.send(JSON.stringify({ type: 'history-mode', data: on ? 'on' : 'off' }));
   }
 
-  zoomBtn.addEventListener('click', (e) => { e.stopPropagation(); tile.classList.toggle('zoomed'); sendHistoryMode(); });
   tile.querySelector('.tile-header').addEventListener('dblclick', () => { tile.classList.toggle('zoomed'); sendHistoryMode(); });
 
   tile.addEventListener('click', () => {
@@ -1446,9 +1481,8 @@ function focusTileByTarget(target) {
   const state = tiles.get(target);
   if (!state) return;
   // If minimized, restore it
-  const minBtn = state.tile.querySelector('.min-btn');
   if (state.tile.classList.contains('minimized')) {
-    minBtn.click();
+    state.tile.querySelector('.min-btn').click();
   }
   // Focus + highlight
   const body = state.tile.querySelector('.tile-body');
