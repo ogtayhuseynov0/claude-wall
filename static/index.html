@@ -1146,7 +1146,11 @@ function createTile(pane) {
   const schedBadge = tile.querySelector('.sched-badge');
   const ansi = new AnsiUp();
   ansi.use_classes = true;
-  const renderAnsi = (text) => ansi.ansi_to_html(text).replace(/@@HRULE@@/g, '<span class="hrule"></span>');
+  // Strip OSC 8 hyperlinks: \x1b]8;params;url ST display_text \x1b]8;; ST
+  // Keep only the display text between the opening and closing markers
+  // ST = \x1b\\ or \x07 (BEL)
+  const stripOSC = (text) => text.replace(/\x1b\]8;[^]*?(?:\x1b\\|\x07)(.*?)\x1b\]8;[^]*?(?:\x1b\\|\x07)/g, '$1').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '');
+  const renderAnsi = (text) => ansi.ansi_to_html(stripOSC(text)).replace(/^@@HRULE@@$/gm, '<span class="hrule"></span>');
 
   // Scroll-to-bottom FAB
   const scrollFab = tile.querySelector('.scroll-fab');
