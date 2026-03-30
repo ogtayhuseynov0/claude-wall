@@ -1371,6 +1371,7 @@ function createTile(pane) {
   let ws = null;
   let reconnectDelay = 500;
   let wasAtBottom = true;
+  let lastContentData = '';
   let prevStatus = '';
   let workingStartedAt = 0;
 
@@ -1411,6 +1412,11 @@ function createTile(pane) {
         }
         if (msg.status) setStatus(msg.status, msg.activity);
       } else if (msg.type === 'content') {
+        if (msg.data === lastContentData) {
+          if (msg.status) setStatus(msg.status, msg.activity);
+          return;
+        }
+        lastContentData = msg.data;
         wasAtBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 30;
         livePre.innerHTML = renderAnsi(msg.data);
         if (wasAtBottom) body.scrollTop = body.scrollHeight;

@@ -131,8 +131,6 @@ Flags:
 	}
 }
 
-const dashSession = "claude-wall"
-
 var authToken string
 
 func parseFlags() (int, bool) {
@@ -185,9 +183,6 @@ func findClaudePanes() ([]claudePane, error) {
 		}
 		target, session, dir, cmd, title := parts[0], parts[1], parts[2], parts[3], parts[4]
 
-		if session == dashSession {
-			continue
-		}
 		// Match "claude" command OR Claude Code version (e.g. "2.0.76")
 		// Title check only if command is NOT a regular shell (stale titles persist after exit)
 		shells := map[string]bool{"zsh": true, "bash": true, "sh": true, "fish": true}
