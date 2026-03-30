@@ -617,6 +617,11 @@
     cursor: pointer; white-space: nowrap; font-family: var(--font-ui);
   }
   .more-menu-item:hover { background: #333; color: #fff; }
+  .more-menu-sep {
+    height: 1px;
+    background: var(--border-subtle);
+    margin: 3px 8px;
+  }
   .more-menu-item.font-row {
     display: flex;
     align-items: center;
@@ -1200,8 +1205,9 @@ function createTile(pane) {
         <span class="more-btn" title="More options">⋯</span>
         <div class="more-menu" style="display:none">
           <div class="more-menu-item zoom-toggle">⤢ Expand</div>
-          <div class="more-menu-item font-row"><span class="font-down">A−</span><span class="font-label">Font</span><span class="font-up">A+</span></div>
           <div class="more-menu-item blur-toggle">◉ Blur content</div>
+          <div class="more-menu-sep"></div>
+          <div class="more-menu-item font-row"><span class="font-down">A−</span><span class="font-label">Font</span><span class="font-up">A+</span></div>
           <div class="more-menu-item pane-info">${pane.cols || '?'}col · ${pane.target}</div>
         </div>
       </span>
@@ -1396,7 +1402,10 @@ function createTile(pane) {
     ws.send(JSON.stringify({ type: 'history-mode', data: on ? 'on' : 'off' }));
   }
 
-  tile.querySelector('.tile-header').addEventListener('dblclick', () => { tile.classList.toggle('zoomed'); sendHistoryMode(); });
+  tile.querySelector('.tile-header').addEventListener('dblclick', (e) => {
+    if (e.target.closest('.more-menu') || e.target.closest('.more-btn')) return;
+    tile.classList.toggle('zoomed'); sendHistoryMode();
+  });
 
   tile.addEventListener('click', () => {
     body.focus();
@@ -1412,8 +1421,9 @@ function createTile(pane) {
   let lastContentData = '';
   let prevStatus = '';
   let workingStartedAt = 0;
+  let idleTimer = null;
 
-  function setStatus(status, activity) {
+  function applyStatus(status, activity) {
     if (tile.dataset.status !== status) {
       tile.dataset.status = status;
       statusDot.className = `status-dot ${status}`;
@@ -1429,6 +1439,28 @@ function createTile(pane) {
       notify(`${pane.session} finished`, `${pane.dirName} — task complete`);
     }
     prevStatus = status;
+  }
+
+  function setStatus(status, activity) {
+    // Permission is always urgent — apply immediately
+    if (status === 'permission') {
+      clearTimeout(idleTimer); idleTimer = null;
+      applyStatus(status, activity);
+      return;
+    }
+    // Entering working — apply immediately, cancel any pending idle
+    if (status === 'working') {
+      clearTimeout(idleTimer); idleTimer = null;
+      applyStatus(status, activity);
+      return;
+    }
+    // Leaving working → idle/error: delay to absorb rapid transitions
+    if (prevStatus === 'working' || idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => { idleTimer = null; applyStatus(status, activity); }, 3000);
+      return;
+    }
+    applyStatus(status, activity);
   }
 
   function connect() {

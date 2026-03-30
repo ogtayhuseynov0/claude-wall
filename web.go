@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -59,6 +60,11 @@ func runWeb(port int) {
 	go hub.run()
 	sched.load()
 	go sched.run()
+	go func() {
+		for range time.NewTicker(2 * time.Minute).C {
+			hooks.cleanup()
+		}
+	}()
 
 	// Scheduler APIs
 	http.HandleFunc("/api/scheduler", handleSchedulerList)
@@ -175,11 +181,15 @@ func runWeb(port int) {
 		if tmuxPane == "" {
 			tmuxPane = r.URL.Query().Get("tmux_pane")
 		}
-		if tmuxPane != "" {
+		if tmuxPane != "" && tmuxPane != "$TMUX_PANE" {
 			target := resolveTmuxPane(tmuxPane)
 			if target != "" {
 				event.PaneTarget = target
+			} else {
+				log.Printf("[hooks] TMUX_PANE=%s resolved to no target", tmuxPane)
 			}
+		} else {
+			log.Printf("[hooks] no TMUX_PANE for session=%s event=%s (header=%q)", event.SessionID, event.EventName, tmuxPane)
 		}
 
 		hooks.processEvent(event)

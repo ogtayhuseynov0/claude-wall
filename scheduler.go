@@ -88,9 +88,26 @@ func (s *scheduler) tick() {
 
 	now := time.Now()
 	dirty := false
+	var completedTargets []string
 
 	for _, task := range s.tasks {
 		if task.Status != "running" {
+			continue
+		}
+
+		// Check stop conditions first — don't wait another interval after last attempt
+		if task.Attempts >= task.MaxAttempts {
+			task.Status = "completed"
+			dirty = true
+			completedTargets = append(completedTargets, task.Target)
+			fmt.Printf("  [scheduler] Task %s completed: max attempts reached (%d)\n", task.ID, task.MaxAttempts)
+			continue
+		}
+		if task.MaxEmpty > 0 && task.EmptyCount >= task.MaxEmpty {
+			task.Status = "completed"
+			dirty = true
+			completedTargets = append(completedTargets, task.Target)
+			fmt.Printf("  [scheduler] Task %s completed: %d consecutive empty cycles\n", task.ID, task.MaxEmpty)
 			continue
 		}
 
@@ -106,18 +123,6 @@ func (s *scheduler) tick() {
 				continue // still busy, check again in 5s
 			}
 			task.WaitingIdle = false
-		}
-
-		// Check stop conditions
-		if task.Attempts >= task.MaxAttempts {
-			task.Status = "completed"
-			fmt.Printf("  [scheduler] Task %s completed: max attempts reached (%d)\n", task.ID, task.MaxAttempts)
-			continue
-		}
-		if task.MaxEmpty > 0 && task.EmptyCount >= task.MaxEmpty {
-			task.Status = "completed"
-			fmt.Printf("  [scheduler] Task %s completed: %d consecutive empty cycles\n", task.ID, task.MaxEmpty)
-			continue
 		}
 
 		// Send command to pane (unlock first — tmux can be slow)
@@ -139,6 +144,14 @@ func (s *scheduler) tick() {
 	s.mu.Unlock()
 	if dirty {
 		s.save()
+	}
+	// Invalidate hub cache after releasing sched lock to clear stale badges
+	for _, target := range completedTargets {
+		if hub != nil {
+			hub.mu.Lock()
+			delete(hub.latest, target)
+			hub.mu.Unlock()
+		}
 	}
 }
 

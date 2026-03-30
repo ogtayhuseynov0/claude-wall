@@ -45,6 +45,17 @@ func newHookStore() *hookStore {
 	}
 }
 
+// cleanup removes sessions that haven't received events in a while
+func (s *hookStore) cleanup() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, state := range s.sessions {
+		if time.Since(state.UpdatedAt) > 10*time.Minute {
+			delete(s.sessions, id)
+		}
+	}
+}
+
 // processEvent updates state based on a hook event
 func (s *hookStore) processEvent(event hookEvent) {
 	s.mu.Lock()
@@ -66,6 +77,12 @@ func (s *hookStore) processEvent(event hookEvent) {
 		state.PaneTarget = event.PaneTarget
 	}
 
+	// recentlyWorking returns true if agent was working within the cooldown window.
+	// Used to prevent flicker: don't drop out of "working" too quickly.
+	recentlyWorking := func() bool {
+		return state.Status == "working" && time.Since(state.LastWorkingAt) < 8*time.Second
+	}
+
 	switch event.EventName {
 	case "PreToolUse":
 		state.Status = "working"
@@ -82,9 +99,11 @@ func (s *hookStore) processEvent(event hookEvent) {
 		state.Activity = formatActivity(event.ToolName, event.ToolInput)
 
 	case "Stop":
-		state.Status = "idle"
-		state.Activity = ""
-		state.ToolName = ""
+		if !recentlyWorking() {
+			state.Status = "idle"
+			state.Activity = ""
+			state.ToolName = ""
+		}
 
 	case "Notification":
 		var notif map[string]interface{}
@@ -97,13 +116,10 @@ func (s *hookStore) processEvent(event hookEvent) {
 					state.Status = "permission"
 					state.Activity = "Waiting for input"
 				case "idle_prompt":
-					// Don't override permission status — user hasn't responded yet
 					if state.Status == "permission" {
 						break
 					}
-					// Only go idle if we haven't been working recently (>3s)
-					// This prevents flicker from idle_prompt between rapid tool calls
-					if state.Status != "working" || time.Since(state.LastWorkingAt) > 3*time.Second {
+					if !recentlyWorking() {
 						state.Status = "idle"
 						state.Activity = ""
 					}
@@ -112,12 +128,15 @@ func (s *hookStore) processEvent(event hookEvent) {
 		}
 
 	case "PostToolUseFailure":
-		state.Status = "error"
+		state.Status = "working"
+		state.LastWorkingAt = time.Now()
 		state.Activity = "⚠ " + formatActivity(event.ToolName, event.ToolInput) + " (failed)"
 
 	case "StopFailure":
-		state.Status = "error"
-		state.Activity = "⚠ API error"
+		if !recentlyWorking() {
+			state.Status = "idle"
+			state.Activity = "⚠ API error"
+		}
 
 	case "SubagentStart":
 		state.Status = "working"
@@ -142,42 +161,19 @@ func (s *hookStore) processEvent(event hookEvent) {
 	}
 }
 
-// getStateForPane finds the best matching hook session for a pane.
-// Uses pane target → session mapping if available, otherwise matches by cwd.
+// getStateForPane finds the hook session mapped to this pane target.
+// Only returns a match when the session was explicitly linked via TMUX_PANE
+// (X-Tmux-Pane header). No CWD guessing — prevents cross-pane status leaking.
 func (s *hookStore) getStateForPane(paneTarget, paneDir string) *hookState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	dir := normalizePath(paneDir)
-
-	// First: check if any session is already mapped to this pane target
 	for _, state := range s.sessions {
 		if state.PaneTarget == paneTarget {
 			return state
 		}
 	}
-
-	// Second: find unmapped sessions whose cwd matches this pane dir
-	// Pick the most recently updated one
-	var best *hookState
-	for _, state := range s.sessions {
-		if state.PaneTarget != "" {
-			continue // already claimed by another pane
-		}
-		cwd := state.CWD
-		if cwd == dir || strings.HasPrefix(cwd, dir+"/") {
-			if best == nil || state.UpdatedAt.After(best.UpdatedAt) {
-				best = state
-			}
-		}
-	}
-
-	// Claim this session for the pane
-	if best != nil {
-		best.PaneTarget = paneTarget
-	}
-
-	return best
+	return nil
 }
 
 
