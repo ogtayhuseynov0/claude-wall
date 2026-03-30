@@ -617,6 +617,31 @@
     cursor: pointer; white-space: nowrap; font-family: var(--font-ui);
   }
   .more-menu-item:hover { background: #333; color: #fff; }
+  .more-menu-item.font-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0;
+    gap: 0;
+  }
+  .more-menu-item.font-row:hover { background: transparent; }
+  .font-row .font-down,
+  .font-row .font-up {
+    flex: 1;
+    text-align: center;
+    padding: 6px 0;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+    border-radius: var(--radius-sm);
+  }
+  .font-row .font-down:hover,
+  .font-row .font-up:hover { background: #333; color: #fff; }
+  .font-row .font-label {
+    color: var(--text-muted);
+    font-size: 11px;
+    pointer-events: none;
+  }
   .more-menu-item.pane-info {
     padding: 4px 12px; font-size: 9px; color: var(--text-muted);
     cursor: default; border-top: 1px solid var(--border-subtle); margin-top: 2px;
@@ -1174,7 +1199,8 @@ function createTile(pane) {
       <span class="more-wrap">
         <span class="more-btn" title="More options">⋯</span>
         <div class="more-menu" style="display:none">
-          <div class="more-menu-item zoom-toggle">⤢ Zoom</div>
+          <div class="more-menu-item zoom-toggle">⤢ Expand</div>
+          <div class="more-menu-item font-row"><span class="font-down">A−</span><span class="font-label">Font</span><span class="font-up">A+</span></div>
           <div class="more-menu-item blur-toggle">◉ Blur content</div>
           <div class="more-menu-item pane-info">${pane.cols || '?'}col · ${pane.target}</div>
         </div>
@@ -1320,6 +1346,18 @@ function createTile(pane) {
   // Close menu on click outside
   document.addEventListener('click', () => { moreMenu.style.display = 'none'; });
   moreMenu.addEventListener('click', (e) => e.stopPropagation());
+
+  const fontUp = tile.querySelector('.font-up');
+  const fontDown = tile.querySelector('.font-down');
+  let fontSize = parseFloat(getComputedStyle(body).fontSize);
+  fontUp.addEventListener('click', () => {
+    fontSize = Math.min(fontSize + 1, 24);
+    body.style.fontSize = fontSize + 'px';
+  });
+  fontDown.addEventListener('click', () => {
+    fontSize = Math.max(fontSize - 1, 6);
+    body.style.fontSize = fontSize + 'px';
+  });
 
   blurToggle.addEventListener('click', () => {
     tile.classList.toggle('blurred');

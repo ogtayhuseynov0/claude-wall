@@ -101,21 +101,17 @@ func runWeb(port int) {
 			http.Error(w, "missing target", 400)
 			return
 		}
-		// Parse session:window.pane
+		// Parse session from target (e.g. "Agent:1.2" → "Agent")
 		session := target
 		if idx := strings.Index(target, ":"); idx >= 0 {
 			session = target[:idx]
 		}
-		sessWin := target
-		if idx := strings.Index(target, "."); idx >= 0 {
-			sessWin = target[:idx]
-		}
 
-		// Switch tmux to the right session, window, and pane
-		// Order matters: switch client first, then window, then pane
-		// Use -t session to target the user's client (not the control mode client)
-		exec.Command("tmux", "switch-client", "-t", session).Run()
-		exec.Command("tmux", "select-window", "-t", sessWin).Run()
+		// Find interactive client (real TTY, not control mode) and switch it
+		if client := findInteractiveClient(); client != "" {
+			exec.Command("tmux", "switch-client", "-c", client, "-t", session).Run()
+		}
+		exec.Command("tmux", "select-window", "-t", target).Run()
 		exec.Command("tmux", "select-pane", "-t", target).Run()
 
 		// Activate the terminal application (detect which one is running)
@@ -539,6 +535,22 @@ func isRunning(appName string) bool {
 		return false
 	}
 	return len(strings.TrimSpace(string(out))) > 0
+}
+
+// findInteractiveClient returns the name of an interactive tmux client (real TTY),
+// skipping control-mode clients so switch-client targets the user's terminal.
+func findInteractiveClient() string {
+	out, err := tmuxOutput("list-clients", "-F", "#{client_name}\t#{client_flags}")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) == 2 && !strings.Contains(parts[1], "control-mode") {
+			return parts[0]
+		}
+	}
+	return ""
 }
 
 // resolveTmuxPane maps a tmux pane ID (%NNN) to a pane target (Session:W.P)
