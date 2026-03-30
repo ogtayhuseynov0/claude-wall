@@ -22,6 +22,7 @@
 - **Group Filter** — Filter tiles by project group or search by name
 - **Daemon Mode** — Runs in background with `start`/`stop`/`restart`/`status`/`logs`
 - **Remote Access** — `--public` flag binds to `0.0.0.0`, `--token` for authentication
+- **Per-Pane Font Size** — Increase/decrease font size per tile via dropdown (A−/A+)
 - **Blur Mode** — Hide sensitive content via tile dropdown menu
 - **Drag to Reorder** — Rearrange tiles, order persists across reloads
 - **Auto-detect** — New/removed Claude instances appear automatically
