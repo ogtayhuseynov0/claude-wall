@@ -66,6 +66,7 @@ func runWeb(port int) {
 			hooks.cleanup()
 		}
 	}()
+	tgBot.start()
 
 	// Claude Code tasks (PM view)
 	http.HandleFunc("/api/tasks", handleTasksAPI)
@@ -218,6 +219,8 @@ func runWeb(port int) {
 		// Fire webhooks for matching events (in background, debounced)
 		if whEvent, whMsg := mapEventToWebhook(event); whEvent != "" {
 			go webhooks.sendWebhook(whEvent, whMsg)
+			// Telegram interactive: send buttons for permissions
+			go tgBot.handleHookEvent(event, whEvent, whMsg)
 		}
 
 		// Track costs — only on Stop events (reading full transcript is expensive)

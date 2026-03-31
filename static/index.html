@@ -1845,19 +1845,51 @@ async function refreshApprovals() {
 
       const el = document.createElement('div');
       el.className = 'approval-item';
+
+      // Check if this is an AskUserQuestion with options
+      let questions = null;
+      if (p.toolInput) {
+        try { questions = (typeof p.toolInput === 'string' ? JSON.parse(p.toolInput) : p.toolInput).questions; } catch(e) {}
+      }
+      const isQuestion = questions && questions.length > 0 && questions[0].options;
+      const q = isQuestion ? questions[0] : null;
+
+      let actionsHtml;
+      if (isQuestion) {
+        const optBtns = q.options.map((o, i) =>
+          `<button class="approval-btn approve opt-btn" data-idx="${i+1}" title="${o.description || ''}" style="width:100%;text-align:left">${o.label} <span style="color:var(--text-muted);font-size:9px;margin-left:4px">${o.description || ''}</span></button>`
+        ).join('');
+        actionsHtml = `
+          <div class="approval-activity">❓ ${q.question}</div>
+          <div class="approval-actions" style="flex-direction:column">
+            ${optBtns}
+            <div style="display:flex;gap:6px;margin-top:4px">
+              <input type="text" class="other-input" placeholder="Other..." style="flex:1;padding:4px 8px;font-size:11px;background:var(--bg-raised);border:1px solid var(--border);border-radius:4px;color:var(--text);outline:none;display:none">
+              <button class="approval-btn approve other-toggle" style="font-size:10px">Other...</button>
+              <button class="approval-btn deny">✕ Deny</button>
+              <button class="approval-btn focus-btn">⎘ Focus</button>
+            </div>
+          </div>
+        `;
+      } else {
+        actionsHtml = `
+          <div class="approval-activity">${p.activity || p.toolName || 'Permission needed'}</div>
+          <div class="approval-actions">
+            <button class="approval-btn approve">✓ Yes</button>
+            <button class="approval-btn approve-always">✓ Always</button>
+            <button class="approval-btn deny">✕ No</button>
+            <button class="approval-btn focus-btn">⎘ Focus</button>
+          </div>
+        `;
+      }
+
       el.innerHTML = `
         <div class="approval-header">
           <span class="approval-session">${session}</span>
           <span style="color:var(--text-secondary);font-size:10px">📂 ${dirName}</span>
           ${branch ? `<span style="color:#a78bfa;font-size:10px;font-family:var(--font-mono)">🌿 ${branch}</span>` : ''}
         </div>
-        <div class="approval-activity">${p.activity || p.toolName || 'Permission needed'}</div>
-        <div class="approval-actions">
-          <button class="approval-btn approve">✓ Yes</button>
-          <button class="approval-btn approve-always">✓ Always</button>
-          <button class="approval-btn deny">✕ No</button>
-          <button class="approval-btn focus-btn">⎘ Focus</button>
-        </div>
+        ${actionsHtml}
       `;
       function resolveApproval(input) {
         const state = tiles.get(p.target);
@@ -1866,10 +1898,47 @@ async function refreshApprovals() {
         el.remove();
         setTimeout(refreshApprovals, 500);
       }
-      el.querySelector('.approve').addEventListener('click', () => resolveApproval('1'));
-      el.querySelector('.approve-always').addEventListener('click', () => resolveApproval('2'));
+      if (isQuestion) {
+        // Option buttons: approve (1) then select option after delay
+        el.querySelectorAll('.opt-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const state = tiles.get(p.target);
+            if (state) {
+              // AskUserQuestion: option selection IS the approval — just send the number
+              state.sendInput(btn.dataset.idx);
+            }
+            fetch(`/api/approvals/clear/${p.target}`);
+            el.remove();
+            setTimeout(refreshApprovals, 500);
+          });
+        });
+        // Other toggle: show input, submit on Enter
+        const otherToggle = el.querySelector('.other-toggle');
+        const otherInput = el.querySelector('.other-input');
+        otherToggle.addEventListener('click', () => {
+          otherInput.style.display = otherInput.style.display === 'none' ? '' : 'none';
+          if (otherInput.style.display !== 'none') otherInput.focus();
+        });
+        otherInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && otherInput.value.trim()) {
+            const state = tiles.get(p.target);
+            if (state) {
+              state.sendInput('1'); // approve
+              // Select "Other" (last option + 1) then type the text
+              const otherIdx = String(q.options.length + 1);
+              setTimeout(() => { state.sendInput(otherIdx); }, 1500);
+              setTimeout(() => { sendTextToPane(p.target, otherInput.value.trim()); }, 2500);
+            }
+            fetch(`/api/approvals/clear/${p.target}`);
+            el.remove();
+            setTimeout(refreshApprovals, 500);
+          }
+        });
+      } else {
+        el.querySelector('.approve').addEventListener('click', () => resolveApproval('1'));
+        el.querySelector('.approve-always').addEventListener('click', () => resolveApproval('2'));
+      }
       el.querySelector('.deny').addEventListener('click', () => resolveApproval('\x1b'));
-      // Focus tile
       el.querySelector('.focus-btn').addEventListener('click', () => {
         focusTileByTarget(p.target);
       });

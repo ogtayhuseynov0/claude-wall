@@ -9,15 +9,16 @@ import (
 
 // feedEntry is one item in the activity feed
 type feedEntry struct {
-	Time      time.Time `json:"time"`
-	Session   string    `json:"session"`   // tmux session name
-	DirName   string    `json:"dirName"`   // project directory basename
-	Branch    string    `json:"branch"`    // git branch
-	Target    string    `json:"target"`    // tmux pane target
-	Event     string    `json:"event"`     // PreToolUse, PostToolUse, Stop, PermissionRequest, etc.
-	Status    string    `json:"status"`    // working, permission, idle
-	Activity  string    `json:"activity"`  // human-readable: "$ npm test", "Edit main.go"
-	ToolName  string    `json:"toolName"`  // raw tool name
+	Time      time.Time       `json:"time"`
+	Session   string          `json:"session"`              // tmux session name
+	DirName   string          `json:"dirName"`              // project directory basename
+	Branch    string          `json:"branch"`               // git branch
+	Target    string          `json:"target"`               // tmux pane target
+	Event     string          `json:"event"`                // PreToolUse, PostToolUse, Stop, PermissionRequest, etc.
+	Status    string          `json:"status"`               // working, permission, idle
+	Activity  string          `json:"activity"`             // human-readable: "$ npm test", "Edit main.go"
+	ToolName  string          `json:"toolName"`             // raw tool name
+	ToolInput json.RawMessage `json:"toolInput,omitempty"`  // raw tool input (for AskUserQuestion options)
 }
 
 // feedStore keeps a ring buffer of recent events
@@ -216,7 +217,7 @@ func buildFeedEntry(event hookEvent) feedEntry {
 		status = "idle"
 	}
 
-	return feedEntry{
+	entry := feedEntry{
 		Time:     time.Now(),
 		Session:  session,
 		DirName:  dirName,
@@ -227,5 +228,10 @@ func buildFeedEntry(event hookEvent) feedEntry {
 		Activity: formatActivity(event.ToolName, event.ToolInput),
 		ToolName: event.ToolName,
 	}
+	// Include tool_input for permission events (AskUserQuestion options, etc.)
+	if status == "permission" && len(event.ToolInput) > 0 {
+		entry.ToolInput = event.ToolInput
+	}
+	return entry
 }
 

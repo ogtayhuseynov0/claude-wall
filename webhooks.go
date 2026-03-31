@@ -153,6 +153,11 @@ func (ws *webhookStore) sendWebhook(eventType string, message string) {
 
 // fireWebhook sends a single HTTP POST to the webhook URL
 func fireWebhook(wh *WebhookConfig, eventType string, message string) {
+	// Skip Telegram if bot poller is running (it sends interactive messages instead)
+	if wh.Type == WebhookTelegram && tgBot.isRunning() {
+		return
+	}
+
 	var payload []byte
 	var url string
 
@@ -428,6 +433,7 @@ func handleWebhookCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	webhooks.add(wh)
+	tgBot.start() // pick up new telegram credentials if applicable
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(wh)
@@ -481,6 +487,7 @@ func handleWebhookToggle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	webhooks.save()
+	tgBot.start() // re-check credentials on toggle
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(wh)
 }
