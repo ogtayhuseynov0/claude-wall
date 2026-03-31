@@ -275,6 +275,53 @@
   .task-btn.danger { color: var(--red); border-color: rgba(248,113,113,0.3); }
   .task-btn.danger:hover { background: rgba(248,113,113,0.1); }
 
+  /* PM task badge in tile header */
+  .pm-badge {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--bg-raised);
+    white-space: nowrap;
+    transition: all 0.15s;
+  }
+  .pm-badge:hover { background: var(--bg-hover); color: var(--text); }
+  .pm-badge .pm-done { color: var(--green); }
+  .pm-badge .pm-active { color: var(--accent); }
+
+  /* PM panel */
+  .pm-agent-group { border-bottom: 1px solid var(--border-subtle); }
+  .pm-agent-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; cursor: pointer;
+    font-size: 12px; font-weight: 600; color: var(--text);
+  }
+  .pm-agent-header:hover { background: var(--bg-hover); }
+  .pm-agent-header .pm-progress-bar {
+    flex: 1; height: 4px; background: var(--bg-deep); border-radius: 2px; overflow: hidden;
+  }
+  .pm-progress-bar .pm-bar-done { height: 100%; background: var(--green); float: left; }
+  .pm-progress-bar .pm-bar-active { height: 100%; background: var(--accent); float: left; }
+  .pm-agent-header .pm-counts { font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); white-space: nowrap; }
+  .pm-agent-actions { display: flex; gap: 4px; }
+  .pm-task-list { padding: 0 12px 8px; }
+  .pm-task {
+    display: flex; align-items: flex-start; gap: 8px; padding: 5px 0;
+    font-size: 11px; color: var(--text-secondary); cursor: default;
+  }
+  .pm-task-icon { flex-shrink: 0; width: 16px; text-align: center; }
+  .pm-task-subject { flex: 1; line-height: 1.4; }
+  .pm-task-subject.active-task { color: var(--text); font-weight: 500; }
+  .pm-task-action {
+    flex-shrink: 0; font-size: 9px; padding: 2px 8px; border-radius: 4px;
+    cursor: pointer; border: 1px solid var(--border); background: var(--bg-raised);
+    color: var(--text-muted); transition: all 0.15s; font-family: var(--font-ui);
+  }
+  .pm-task-action:hover { background: var(--bg-hover); color: var(--text); }
+  .pm-empty { padding: 30px 12px; text-align: center; color: var(--text-muted); font-size: 12px; }
+
   /* New task form */
   .task-form { padding: 10px 12px; border-bottom: 1px solid var(--border); }
   .task-form-title { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; }
@@ -294,6 +341,7 @@
   .webhook-type.slack { color: #e01e5a; background: rgba(224,30,90,0.1); }
   .webhook-type.discord { color: #5865f2; background: rgba(88,101,242,0.1); }
   .webhook-type.generic { color: var(--accent); background: var(--accent-glow); }
+  .webhook-type.telegram { color: #29b6f6; background: rgba(41,182,246,0.1); }
   .webhook-url { font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary); padding: 4px 8px; background: var(--bg-deep); border-radius: 4px; margin-bottom: 4px; word-break: break-all; overflow: hidden; text-overflow: ellipsis; }
   .webhook-events { font-size: 10px; color: var(--text-muted); display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
   .webhook-events span { padding: 1px 6px; background: var(--bg-raised); border-radius: 4px; border: 1px solid var(--border-subtle); }
@@ -309,6 +357,19 @@
   .wh-form-checks input[type="checkbox"] { width: auto; margin: 0; accent-color: var(--accent); }
   .wh-form button { width: 100%; padding: 6px; font-size: 11px; font-family: var(--font-ui); background: var(--accent); color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 4px; }
   .wh-form button:hover { opacity: 0.85; }
+  .wh-or { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 10px; color: var(--text-muted); }
+  .wh-or::before, .wh-or::after { content: ''; flex: 1; height: 1px; background: var(--border-subtle); }
+  .secrets-section { border-top: 1px solid var(--border); padding: 10px 12px; overflow: hidden; }
+  .secrets-title { font-size: 11px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+  .secret-item { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 11px; }
+  .secret-item .secret-name { color: var(--accent); font-family: var(--font-mono); font-weight: 500; }
+  .secret-item .secret-val { color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; flex: 1; }
+  .secret-item .secret-del { cursor: pointer; color: var(--text-muted); font-size: 12px; padding: 2px 4px; border-radius: 3px; }
+  .secret-item .secret-del:hover { color: var(--red); background: rgba(248,113,113,0.1); }
+  .secret-add { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+  .secret-add input { flex: 1 1 0; min-width: 0; padding: 4px 6px; font-size: 10px; font-family: var(--font-mono); color: var(--text); background: var(--bg-raised); border: 1px solid var(--border); border-radius: 4px; outline: none; }
+  .secret-add input:focus { border-color: var(--accent); }
+  .secret-add button { flex-shrink: 0; padding: 4px 10px; font-size: 10px; background: var(--accent); color: #fff; border: none; border-radius: 4px; cursor: pointer; }
 
   /* ── Summary Card (hover tooltip) ── */
 
@@ -1002,11 +1063,13 @@
     <div class="panel-tabs">
       <button class="panel-tab active" data-tab="feed">Activity</button>
       <button class="panel-tab" data-tab="approvals">Approvals <span class="badge" id="approval-count" style="display:none">0</span></button>
-      <button class="panel-tab" data-tab="tasks">Tasks <span class="badge" id="tasks-count" style="display:none">0</span></button>
+      <button class="panel-tab" data-tab="pm">PM <span class="badge" id="pm-count" style="display:none">0</span></button>
+      <button class="panel-tab" data-tab="tasks">Sched <span class="badge" id="tasks-count" style="display:none">0</span></button>
       <button class="panel-tab" data-tab="webhooks">Webhooks</button>
     </div>
     <div id="feed-panel" class="panel-content active"></div>
     <div id="approvals-panel" class="panel-content"></div>
+    <div id="pm-panel" class="panel-content"></div>
     <div id="tasks-panel" class="panel-content"></div>
     <div id="webhooks-panel" class="panel-content"></div>
   </div>
@@ -1197,6 +1260,7 @@ function createTile(pane) {
       <span class="branch">🌿 ${pane.branch || '-'}</span>
       <span class="pane-id">${pane.target.split('.')[1] ? ':' + pane.target.split(':')[1] : ''}</span>
       <span class="spacer"></span>
+      <span class="pm-badge" style="display:none" title="Claude Code tasks"></span>
       <span class="sched-badge" style="display:none" title="Scheduled task active"></span>
       <span class="status-label idle"></span>
       <span class="goto-btn" title="Open in terminal">↗</span>
@@ -1939,19 +2003,154 @@ async function taskAction(id, action) {
 setInterval(refreshTasks, 3000);
 refreshTasks();
 
+// ── PM Panel (Claude Code Tasks) ──
+const pmPanel = document.getElementById('pm-panel');
+const pmCountBadge = document.getElementById('pm-count');
+let pmData = []; // cached for tile badge updates
+const pmExpanded = new Set(); // tracks which agent groups are expanded
+
+async function refreshPM() {
+  try {
+    const res = await fetch('/api/tasks');
+    pmData = await res.json() || [];
+
+    // Update PM badge count (total in-progress)
+    const totalActive = pmData.reduce((n, a) => n + a.summary.inProgress, 0);
+    const totalPending = pmData.reduce((n, a) => n + a.summary.pending, 0);
+    if (totalActive + totalPending > 0) {
+      pmCountBadge.style.display = 'inline-block';
+      pmCountBadge.textContent = totalActive + totalPending;
+    } else {
+      pmCountBadge.style.display = 'none';
+    }
+
+    // Update tile header badges
+    for (const agent of pmData) {
+      const state = tiles.get(agent.target);
+      if (!state) continue;
+      const badge = state.tile.querySelector('.pm-badge');
+      if (agent.summary.total === 0) { badge.style.display = 'none'; continue; }
+      const text = `<span class="pm-done">${agent.summary.completed}</span>/<span class="pm-active">${agent.summary.inProgress + agent.summary.pending + agent.summary.completed}</span>`;
+      if (badge.innerHTML !== text) {
+        badge.innerHTML = text;
+        badge.style.display = '';
+        badge.title = `${agent.summary.completed} done, ${agent.summary.inProgress} active, ${agent.summary.pending} pending`;
+      }
+    }
+
+    // Render side panel
+    renderPMPanel();
+  } catch(e) {}
+}
+
+function renderPMPanel() {
+  if (!pmData.length) {
+    pmPanel.innerHTML = '<div class="pm-empty">No Claude Code tasks found.<br><span style="font-size:10px;margin-top:4px;display:block">Tasks appear when agents use the task system.</span></div>';
+    return;
+  }
+
+  let html = '';
+  for (const agent of pmData) {
+    const pane = tiles.get(agent.target);
+    const name = pane ? `${pane.pane.session} · ${pane.pane.dirName}` : agent.target;
+    const s = agent.summary;
+    const pct = s.total > 0 ? Math.round(s.completed / s.total * 100) : 0;
+    const activePct = s.total > 0 ? Math.round(s.inProgress / s.total * 100) : 0;
+    const expanded = pmExpanded.has(agent.target);
+
+    html += `<div class="pm-agent-group">
+      <div class="pm-agent-header" onclick="pmToggle('${agent.target}')">
+        <span style="color:var(--text-muted)">${expanded ? '▾' : '▸'}</span>
+        <span>${name}</span>
+        <div class="pm-progress-bar"><div class="pm-bar-done" style="width:${pct}%"></div><div class="pm-bar-active" style="width:${activePct}%"></div></div>
+        <span class="pm-counts">${s.completed}/${s.total}</span>
+        <div class="pm-agent-actions">
+          <button class="pm-task-action" onclick="event.stopPropagation();pmContinue('${agent.target}')" title="Send /continue">▶</button>
+        </div>
+      </div>`;
+
+    if (expanded) {
+      html += '<div class="pm-task-list">';
+      // Sort: in_progress first, then pending, then completed
+      const sorted = [...agent.tasks].sort((a, b) => {
+        const order = { in_progress: 0, pending: 1, completed: 2 };
+        return (order[a.status] ?? 3) - (order[b.status] ?? 3);
+      });
+      for (const t of sorted) {
+        const icon = t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '●' : '○';
+        const iconColor = t.status === 'completed' ? 'var(--green)' : t.status === 'in_progress' ? 'var(--accent)' : 'var(--text-muted)';
+        const cls = t.status === 'in_progress' ? 'active-task' : '';
+        const canAssign = t.status === 'pending';
+        html += `<div class="pm-task">
+          <span class="pm-task-icon" style="color:${iconColor}">${icon}</span>
+          <span class="pm-task-subject ${cls}">${t.subject}</span>
+          ${canAssign ? `<button class="pm-task-action" onclick="pmWorkOn('${agent.target}','${t.id}',\`${t.subject.replace(/`/g,"'")}\`)" title="Assign to agent">→</button>` : ''}
+        </div>`;
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  pmPanel.innerHTML = html;
+}
+
+function pmToggle(target) {
+  if (pmExpanded.has(target)) pmExpanded.delete(target); else pmExpanded.add(target);
+  renderPMPanel();
+}
+
+async function pmContinue(target) {
+  await fetch(`/api/tasks/${target}/continue`, { method: 'POST' });
+}
+
+async function pmWorkOn(target, taskId, subject) {
+  await fetch(`/api/tasks/${target}/work-on`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ taskId, subject })
+  });
+}
+
+setInterval(refreshPM, 5000);
+refreshPM();
+
 // ── Webhooks Panel ──
 const webhooksPanel = document.getElementById('webhooks-panel');
+let secretNames = []; // cached from API
+
+function secretOptions(fieldId, placeholder) {
+  const opts = secretNames.map(n => `<option value="$${n}">$${n}</option>`).join('');
+  return `<select id="${fieldId}-sel" onchange="whSecretPick('${fieldId}')" style="margin-bottom:0">
+    <option value="">Type value or pick secret...</option>${opts}
+  </select>
+  <input type="text" id="${fieldId}" placeholder="${placeholder}" style="margin-top:0">`;
+}
+
+function whSecretPick(fieldId) {
+  const sel = document.getElementById(fieldId + '-sel');
+  const inp = document.getElementById(fieldId);
+  if (sel.value) { inp.value = sel.value; inp.type = 'text'; }
+}
 
 function initWebhookForm() {
+  const urlField = secretNames.length > 0
+    ? secretOptions('wh-url', 'Paste value or use $SECRET_NAME')
+    : '<input type="text" id="wh-url" placeholder="URL or bot token">';
+  const chatField = secretNames.length > 0
+    ? secretOptions('wh-chatid', 'Chat ID or $SECRET_NAME')
+    : '<input type="text" id="wh-chatid" placeholder="Chat ID">';
+
   webhooksPanel.innerHTML = `
     <div class="wh-form">
       <div class="wh-form-title">Add Webhook</div>
-      <input type="text" id="wh-url" placeholder="https://hooks.slack.com/services/...">
-      <select id="wh-type">
+      <select id="wh-type" onchange="whTypeChanged()">
+        <option value="telegram">Telegram</option>
         <option value="slack">Slack</option>
         <option value="discord">Discord</option>
         <option value="generic">Generic (JSON)</option>
       </select>
+      ${urlField}
+      <div id="wh-chatid-wrap">${chatField}</div>
       <div class="wh-form-checks">
         <label><input type="checkbox" value="permission" checked> permission</label>
         <label><input type="checkbox" value="error" checked> error</label>
@@ -1961,15 +2160,60 @@ function initWebhookForm() {
       <button onclick="createWebhook()">Add Webhook</button>
     </div>
     <div id="wh-list"></div>
+    <div class="secrets-section">
+      <div class="secrets-title">Secrets <button class="secret-add-btn" onclick="document.getElementById('secret-add-row').style.display='flex'" style="font-size:9px;padding:2px 8px;background:var(--bg-raised);border:1px solid var(--border);border-radius:4px;color:var(--text-muted);cursor:pointer">+ Add</button></div>
+      <div id="secrets-list"></div>
+      <div class="secret-add" id="secret-add-row" style="display:none">
+        <input type="text" id="secret-name" placeholder="NAME">
+        <input type="password" id="secret-value" placeholder="value">
+        <button onclick="addSecret()">Save</button>
+      </div>
+    </div>
   `;
+  whTypeChanged();
 }
-initWebhookForm();
+
+function whTypeChanged() {
+  const type = document.getElementById('wh-type')?.value;
+  const chatWrap = document.getElementById('wh-chatid-wrap');
+  const urlInput = document.getElementById('wh-url');
+  if (!chatWrap || !urlInput) return;
+  if (type === 'telegram') {
+    urlInput.placeholder = 'Bot token or $SECRET_NAME';
+    chatWrap.style.display = '';
+  } else {
+    urlInput.placeholder = type === 'slack' ? 'https://hooks.slack.com/...' : type === 'discord' ? 'https://discord.com/api/...' : 'https://...';
+    chatWrap.style.display = 'none';
+  }
+}
 
 async function refreshWebhooks() {
   try {
-    const res = await fetch('/api/webhooks');
-    const hooks = await res.json();
+    const whRes = await fetch('/api/webhooks');
+    const hooks = await whRes.json();
+    let secData = { secrets: [], names: [] };
+    try { const secRes = await fetch('/api/secrets'); secData = await secRes.json(); } catch(e) {}
+    const prevNames = JSON.stringify(secretNames);
+    secretNames = secData.names || [];
 
+    // Re-render secrets list
+    const secretsList = document.getElementById('secrets-list');
+    if (secretsList) {
+      if (!secData.secrets || secData.secrets.length === 0) {
+        secretsList.innerHTML = '<div style="font-size:10px;color:var(--text-muted);padding:4px 0">No secrets stored</div>';
+      } else {
+        secretsList.innerHTML = secData.secrets.map(s =>
+          `<div class="secret-item"><span class="secret-name">$${s.name}</span><span class="secret-val">${s.value}</span><span class="secret-del" onclick="deleteSecret('${s.name}')" title="Delete">✕</span></div>`
+        ).join('');
+      }
+    }
+
+    // Rebuild form if secret names changed (updates dropdowns)
+    if (JSON.stringify(secretNames) !== prevNames) {
+      initWebhookForm();
+    }
+
+    // Render webhook list
     const listEl = document.getElementById('wh-list');
     if (!listEl) return;
 
@@ -1980,14 +2224,19 @@ async function refreshWebhooks() {
 
     let html = '';
     for (const wh of hooks) {
-      html += `<div class="webhook-item">
+      const disabledCls = wh.enabled ? '' : 'opacity:0.5';
+      const urlDisplay = wh.type === 'telegram'
+        ? `${wh.url.startsWith('$') ? wh.url : wh.url.substring(0,8)+'***'} · ${wh.chatId?.startsWith('$') ? wh.chatId : wh.chatId}`
+        : (wh.url.startsWith('$') ? wh.url : wh.url.substring(0, 40) + (wh.url.length > 40 ? '...' : ''));
+      html += `<div class="webhook-item" style="${disabledCls}">
         <div class="webhook-header">
           <span class="webhook-type ${wh.type}">${wh.type}</span>
-          <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted)">${wh.id}</span>
+          <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted)">${urlDisplay}</span>
         </div>
-        <div class="webhook-url">${wh.url}</div>
         <div class="webhook-events">${(wh.events || []).map(e => `<span>${e}</span>`).join('')}</div>
         <div class="webhook-actions">
+          <button class="task-btn" onclick="testWebhook('${wh.id}')">Test</button>
+          <button class="task-btn" onclick="toggleWebhook('${wh.id}')">${wh.enabled ? 'Disable' : 'Enable'}</button>
           <button class="task-btn danger" onclick="deleteWebhook('${wh.id}')">Delete</button>
         </div>
       </div>`;
@@ -1999,28 +2248,58 @@ async function refreshWebhooks() {
 async function createWebhook() {
   const url = document.getElementById('wh-url').value.trim();
   const type = document.getElementById('wh-type').value;
-  if (!url) { alert('Enter a webhook URL'); return; }
+  const chatId = document.getElementById('wh-chatid')?.value?.trim() || '';
+  if (!url) { alert('Enter a URL, bot token, or select a secret'); return; }
+  if (type === 'telegram' && !chatId) { alert('Enter a chat ID or select a secret'); return; }
 
   const events = [];
-  document.querySelectorAll('.wh-form-checks input[type="checkbox"]:checked').forEach(cb => {
-    events.push(cb.value);
-  });
+  document.querySelectorAll('.wh-form-checks input[type="checkbox"]:checked').forEach(cb => events.push(cb.value));
   if (events.length === 0) { alert('Select at least one event'); return; }
 
   await fetch('/api/webhooks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, type, events })
+    body: JSON.stringify({ url, type, events, chatId })
   });
   document.getElementById('wh-url').value = '';
+  if (document.getElementById('wh-chatid')) document.getElementById('wh-chatid').value = '';
+  refreshWebhooks();
+}
+
+async function testWebhook(id) {
+  const res = await fetch(`/api/webhooks/test/${id}`, { method: 'POST' });
+  if (res.ok) alert('Test sent!'); else alert('Test failed');
+}
+
+async function toggleWebhook(id) {
+  await fetch(`/api/webhooks/toggle/${id}`, { method: 'POST' });
   refreshWebhooks();
 }
 
 async function deleteWebhook(id) {
+  if (!confirm('Delete this webhook?')) return;
   await fetch(`/api/webhooks/${id}`, { method: 'DELETE' });
   refreshWebhooks();
 }
 
+async function addSecret() {
+  const name = document.getElementById('secret-name').value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+  const value = document.getElementById('secret-value').value;
+  if (!name || !value) { alert('Enter name and value'); return; }
+  await fetch('/api/secrets', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name, value}) });
+  document.getElementById('secret-name').value = '';
+  document.getElementById('secret-value').value = '';
+  document.getElementById('secret-add-row').style.display = 'none';
+  refreshWebhooks();
+}
+
+async function deleteSecret(name) {
+  if (!confirm(`Delete secret $${name}?`)) return;
+  await fetch(`/api/secrets/${name}`, { method: 'DELETE' });
+  refreshWebhooks();
+}
+
+initWebhookForm();
 setInterval(refreshWebhooks, 5000);
 refreshWebhooks();
 

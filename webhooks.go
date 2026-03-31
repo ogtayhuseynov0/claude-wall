@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -15,17 +16,20 @@ import (
 type WebhookType string
 
 const (
-	WebhookSlack   WebhookType = "slack"
-	WebhookDiscord WebhookType = "discord"
-	WebhookGeneric WebhookType = "generic"
+	WebhookSlack    WebhookType = "slack"
+	WebhookDiscord  WebhookType = "discord"
+	WebhookGeneric  WebhookType = "generic"
+	WebhookTelegram WebhookType = "telegram"
 )
 
 // WebhookConfig holds the configuration for a single webhook endpoint
 type WebhookConfig struct {
-	ID     string      `json:"id"`
-	URL    string      `json:"url"`
-	Type   WebhookType `json:"type"`   // slack, discord, generic
-	Events []string    `json:"events"` // permission, error, stopped, task_completed
+	ID      string      `json:"id"`
+	URL     string      `json:"url"`              // For telegram: bot token (without "bot" prefix)
+	ChatID  string      `json:"chatId,omitempty"`  // Telegram chat ID
+	Type    WebhookType `json:"type"`              // slack, discord, generic, telegram
+	Events  []string    `json:"events"`            // permission, error, stopped, task_completed
+	Enabled bool        `json:"enabled"`
 }
 
 // webhookStore manages webhook configurations and sending
@@ -125,6 +129,9 @@ func (ws *webhookStore) sendWebhook(eventType string, message string) {
 	ws.mu.RLock()
 	var matching []*WebhookConfig
 	for _, wh := range ws.webhooks {
+		if !wh.Enabled {
+			continue
+		}
 		for _, ev := range wh.Events {
 			if ev == eventType {
 				matching = append(matching, wh)
@@ -147,17 +154,32 @@ func (ws *webhookStore) sendWebhook(eventType string, message string) {
 // fireWebhook sends a single HTTP POST to the webhook URL
 func fireWebhook(wh *WebhookConfig, eventType string, message string) {
 	var payload []byte
+	var url string
+
+	// Resolve secret references ($SECRET_NAME → actual value)
+	resolvedURL := secrets.resolve(wh.URL)
+	resolvedChatID := secrets.resolve(wh.ChatID)
 
 	switch wh.Type {
 	case WebhookSlack:
+		url = resolvedURL
 		payload, _ = json.Marshal(map[string]string{
 			"text": message,
 		})
 	case WebhookDiscord:
+		url = resolvedURL
 		payload, _ = json.Marshal(map[string]string{
 			"content": message,
 		})
+	case WebhookTelegram:
+		url = fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", resolvedURL)
+		payload, _ = json.Marshal(map[string]interface{}{
+			"chat_id":    resolvedChatID,
+			"text":       message,
+			"parse_mode": "HTML",
+		})
 	default: // generic
+		url = resolvedURL
 		payload, _ = json.Marshal(map[string]string{
 			"event":   eventType,
 			"message": message,
@@ -167,9 +189,9 @@ func fireWebhook(wh *WebhookConfig, eventType string, message string) {
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(wh.URL, "application/json", bytes.NewReader(payload))
+	resp, err := client.Post(url, "application/json", bytes.NewReader(payload))
 	if err != nil {
-		log.Printf("[webhook] send failed for %s (%s): %v", wh.ID, wh.URL, err)
+		log.Printf("[webhook] send failed for %s: %v", wh.ID, err)
 		return
 	}
 	resp.Body.Close()
@@ -179,34 +201,167 @@ func fireWebhook(wh *WebhookConfig, eventType string, message string) {
 	}
 }
 
+// agentContext gathers rich context about an agent for webhook messages.
+type agentContext struct {
+	Pane       string
+	Session    string
+	Folder     string
+	Branch     string
+	Activity   string
+	LastPrompt string
+}
+
+func resolveAgentContext(event hookEvent) agentContext {
+	ctx := agentContext{}
+	if hooks == nil {
+		return ctx
+	}
+	hooks.mu.RLock()
+	state := hooks.sessions[event.SessionID]
+	hooks.mu.RUnlock()
+
+	if state != nil {
+		ctx.Pane = state.PaneTarget
+		ctx.Activity = state.Activity
+		if state.PaneTarget != "" {
+			if idx := strings.Index(state.PaneTarget, ":"); idx >= 0 {
+				ctx.Session = state.PaneTarget[:idx]
+			}
+		}
+		if state.CWD != "" {
+			parts := strings.Split(state.CWD, "/")
+			if len(parts) > 0 {
+				ctx.Folder = parts[len(parts)-1]
+			}
+		}
+	}
+
+	if event.CWD != "" {
+		ctx.Branch = gitBranch(event.CWD)
+	}
+
+	// Extract last user prompt from transcript JSONL
+	if event.TranscriptPath != "" {
+		ctx.LastPrompt = lastUserPrompt(event.TranscriptPath)
+	}
+	return ctx
+}
+
+// lastUserPrompt reads the transcript JSONL and returns the last external user message.
+func lastUserPrompt(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var last string
+	for _, line := range strings.Split(string(data), "\n") {
+		if line == "" {
+			continue
+		}
+		// Quick filter before parsing JSON
+		if !strings.Contains(line, `"type":"user"`) {
+			continue
+		}
+		if !strings.Contains(line, `"userType":"external"`) {
+			continue
+		}
+		if strings.Contains(line, `"tool_result"`) {
+			continue
+		}
+		var entry struct {
+			Type    string `json:"type"`
+			Message struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal([]byte(line), &entry) != nil || entry.Type != "user" {
+			continue
+		}
+		// Content can be a string or an array
+		var text string
+		if json.Unmarshal(entry.Message.Content, &text) == nil && text != "" {
+			last = text
+			continue
+		}
+		var parts []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(entry.Message.Content, &parts) == nil {
+			for _, p := range parts {
+				if p.Type == "text" && p.Text != "" {
+					last = p.Text
+				}
+			}
+		}
+	}
+	if len(last) > 200 {
+		last = last[:200] + "..."
+	}
+	return last
+}
+
+// formatAgentBlock builds a multi-line context block with icons for webhook messages.
+func formatAgentBlock(ctx agentContext) string {
+	var lines []string
+	if ctx.Session != "" {
+		lines = append(lines, fmt.Sprintf("🖥 <b>Session:</b> %s", ctx.Session))
+	}
+	if ctx.Folder != "" {
+		lines = append(lines, fmt.Sprintf("📂 <b>Folder:</b> %s", ctx.Folder))
+	}
+	if ctx.Branch != "" {
+		lines = append(lines, fmt.Sprintf("🌿 <b>Branch:</b> %s", ctx.Branch))
+	}
+	if ctx.LastPrompt != "" {
+		lines = append(lines, fmt.Sprintf("💬 <b>Prompt:</b> %s", ctx.LastPrompt))
+	} else if ctx.Activity != "" {
+		lines = append(lines, fmt.Sprintf("💬 <b>Last:</b> %s", ctx.Activity))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
 // mapEventToWebhook maps a hook event to a webhook event type and message.
 // Returns ("", "") if this event should not trigger a webhook.
+// Messages use HTML tags for Telegram; Slack/Discord/generic render them naturally.
 func mapEventToWebhook(event hookEvent) (string, string) {
+	ctx := resolveAgentContext(event)
+	block := formatAgentBlock(ctx)
+
 	switch event.EventName {
 	case "PermissionRequest":
 		activity := formatActivity(event.ToolName, event.ToolInput)
-		return "permission", fmt.Sprintf("[claude-wall] Permission required: %s", activity)
+		msg := fmt.Sprintf("🟡 <b>Permission Required</b>\n%s⚡ <b>Action:</b> %s\n\n<i>Open dashboard to approve</i>", block, activity)
+		return "permission", msg
 
 	case "Notification":
 		var notif map[string]interface{}
 		if json.Unmarshal(event.Notification, &notif) == nil {
 			if t, _ := notif["type"].(string); t == "permission_prompt" || t == "elicitation_dialog" {
-				return "permission", "[claude-wall] Agent waiting for approval"
+				msg := fmt.Sprintf("🟡 <b>Waiting for Approval</b>\n%s\n<i>Agent is paused until you respond</i>", block)
+				return "permission", msg
 			}
 		}
 
 	case "PostToolUseFailure":
 		activity := formatActivity(event.ToolName, event.ToolInput)
-		return "error", fmt.Sprintf("[claude-wall] Tool failed: %s", activity)
+		msg := fmt.Sprintf("🔴 <b>Tool Failed</b>\n%s⚡ <b>Tool:</b> %s\n\n<i>Agent will retry or try a different approach</i>", block, activity)
+		return "error", msg
 
 	case "StopFailure":
-		return "error", "[claude-wall] Agent stopped with error (API failure)"
+		msg := fmt.Sprintf("🔴 <b>API Error</b>\n%s\n<i>Agent stopped due to an API failure</i>", block)
+		return "error", msg
 
 	case "Stop":
-		return "stopped", "[claude-wall] Agent stopped/completed"
+		msg := fmt.Sprintf("✅ <b>Agent Finished</b>\n%s\n<i>Task completed or conversation ended</i>", block)
+		return "stopped", msg
 
 	case "TaskCompleted":
-		return "task_completed", "[claude-wall] Scheduled task finished all runs"
+		msg := fmt.Sprintf("📋 <b>Scheduled Task Done</b>\n%s\n<i>All scheduled runs completed</i>", block)
+		return "task_completed", msg
 	}
 
 	return "", ""
@@ -227,6 +382,7 @@ func handleWebhookCreate(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		URL    string   `json:"url"`
+		ChatID string   `json:"chatId"`
 		Type   string   `json:"type"`
 		Events []string `json:"events"`
 	}
@@ -239,9 +395,13 @@ func handleWebhookCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "url is required", 400)
 		return
 	}
+	if WebhookType(req.Type) == WebhookTelegram && req.ChatID == "" {
+		http.Error(w, "chatId is required for telegram", 400)
+		return
+	}
 
 	whType := WebhookType(req.Type)
-	if whType != WebhookSlack && whType != WebhookDiscord && whType != WebhookGeneric {
+	if whType != WebhookSlack && whType != WebhookDiscord && whType != WebhookGeneric && whType != WebhookTelegram {
 		whType = WebhookGeneric
 	}
 
@@ -259,14 +419,68 @@ func handleWebhookCreate(w http.ResponseWriter, r *http.Request) {
 
 	id := fmt.Sprintf("wh-%d", time.Now().UnixNano()%100000)
 	wh := &WebhookConfig{
-		ID:     id,
-		URL:    req.URL,
-		Type:   whType,
-		Events: events,
+		ID:      id,
+		URL:     req.URL,
+		ChatID:  req.ChatID,
+		Type:    whType,
+		Events:  events,
+		Enabled: true,
 	}
 
 	webhooks.add(wh)
 
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(wh)
+}
+
+func handleWebhookTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/webhooks/test/")
+	if id == "" {
+		http.Error(w, "missing webhook id", 400)
+		return
+	}
+
+	webhooks.mu.RLock()
+	wh, ok := webhooks.webhooks[id]
+	webhooks.mu.RUnlock()
+
+	if !ok {
+		http.Error(w, "webhook not found", 404)
+		return
+	}
+
+	msg := "🧪 <b>Test Notification</b>\n🖥 <b>Source:</b> Claude Wall\n\n<i>If you see this, your webhook is working!</i>"
+	go fireWebhook(wh, "test", msg)
+	w.Write([]byte(`{"status":"sent"}`))
+}
+
+func handleWebhookToggle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "POST only", 405)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/webhooks/toggle/")
+	if id == "" {
+		http.Error(w, "missing webhook id", 400)
+		return
+	}
+
+	webhooks.mu.Lock()
+	wh, ok := webhooks.webhooks[id]
+	if ok {
+		wh.Enabled = !wh.Enabled
+	}
+	webhooks.mu.Unlock()
+
+	if !ok {
+		http.Error(w, "webhook not found", 404)
+		return
+	}
+	webhooks.save()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(wh)
 }

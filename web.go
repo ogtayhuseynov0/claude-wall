@@ -56,6 +56,7 @@ func runWeb(port int) {
 	hooks = newHookStore()
 	feed = newFeedStore(500)
 	webhooks = newWebhookStore()
+	secrets.load()
 	initFinance()
 	go hub.run()
 	sched.load()
@@ -65,6 +66,19 @@ func runWeb(port int) {
 			hooks.cleanup()
 		}
 	}()
+
+	// Claude Code tasks (PM view)
+	http.HandleFunc("/api/tasks", handleTasksAPI)
+	http.HandleFunc("/api/tasks/", func(w http.ResponseWriter, r *http.Request) {
+		// Route: /api/tasks/{target}/{action} → action handler
+		// Route: /api/tasks/{target} → list handler
+		path := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
+		if r.Method == "POST" && strings.Contains(path, "/") {
+			handleTaskAction(w, r)
+		} else {
+			handleTasksAPI(w, r)
+		}
+	})
 
 	// Scheduler APIs
 	http.HandleFunc("/api/scheduler", handleSchedulerList)
@@ -79,7 +93,13 @@ func runWeb(port int) {
 			handleWebhookList(w, r)
 		}
 	})
+	http.HandleFunc("/api/webhooks/test/", handleWebhookTest)
+	http.HandleFunc("/api/webhooks/toggle/", handleWebhookToggle)
 	http.HandleFunc("/api/webhooks/", handleWebhookDelete)
+
+	// Secrets management
+	http.HandleFunc("/api/secrets", handleSecretsAPI)
+	http.HandleFunc("/api/secrets/", handleSecretsAPI)
 
 	// API: list panes (re-detects each time, includes dimensions)
 	http.HandleFunc("/api/panes", func(w http.ResponseWriter, r *http.Request) {
