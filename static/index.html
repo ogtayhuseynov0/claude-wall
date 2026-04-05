@@ -126,6 +126,13 @@
     background: var(--bg-hover);
     border-color: var(--text-muted);
   }
+  .hdr-toggle {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 12px; font-size: 11px; color: var(--text-secondary);
+    cursor: pointer; white-space: nowrap;
+  }
+  .hdr-toggle:hover { background: var(--bg-hover); color: var(--text); }
+  .hdr-toggle input { margin: 0; accent-color: var(--accent); }
 
   /* ── Main Layout ── */
   #main-container {
@@ -1063,6 +1070,19 @@
   <input type="text" id="search" placeholder="Filter…">
   <button class="refresh-btn" id="notif-btn" onclick="toggleNotifs()">🔔</button>
   <a href="/finance.html" class="refresh-btn" style="text-decoration:none">💰</a>
+  <div style="position:relative;display:inline-block">
+    <button class="refresh-btn" id="header-settings-btn">⚙</button>
+    <div id="header-settings" style="display:none;position:absolute;right:0;top:100%;background:var(--bg-raised);border:1px solid var(--border);border-radius:6px;padding:6px 0;z-index:100;min-width:160px;box-shadow:0 4px 12px rgba(0,0,0,0.3)">
+      <div style="padding:4px 12px;font-size:10px;color:var(--text-muted);font-weight:600">Tile header elements</div>
+      <label class="hdr-toggle" data-key="tile-num"><input type="checkbox" checked> Tile number</label>
+      <label class="hdr-toggle" data-key="session"><input type="checkbox" checked> Session</label>
+      <label class="hdr-toggle" data-key="dir"><input type="checkbox" checked> Directory</label>
+      <label class="hdr-toggle" data-key="branch"><input type="checkbox" checked> Branch</label>
+      <label class="hdr-toggle" data-key="pane-id"><input type="checkbox" checked> Pane ID</label>
+      <label class="hdr-toggle" data-key="perm-mode"><input type="checkbox" checked> Permission mode</label>
+      <label class="hdr-toggle" data-key="status-label"><input type="checkbox" checked> Status label</label>
+    </div>
+  </div>
   <button class="refresh-btn" onclick="location.reload()">↻</button>
 </header>
 <div id="minimized-bar"></div>
@@ -1169,6 +1189,45 @@ function playSound() {
     o.start(); o.stop(ctx.currentTime + 0.2);
   } catch(e) {}
 }
+
+// Header element visibility settings
+const headerSettingsBtn = document.getElementById('header-settings-btn');
+const headerSettingsPanel = document.getElementById('header-settings');
+headerSettingsBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  headerSettingsPanel.style.display = headerSettingsPanel.style.display === 'none' ? '' : 'none';
+});
+document.addEventListener('click', () => { headerSettingsPanel.style.display = 'none'; });
+headerSettingsPanel.addEventListener('click', (e) => e.stopPropagation());
+
+// Load saved settings and apply
+const hdrSettings = JSON.parse(localStorage.getItem('cw-header-vis') || '{}');
+function applyHeaderVisibility() {
+  const style = document.getElementById('hdr-vis-style') || (() => {
+    const s = document.createElement('style');
+    s.id = 'hdr-vis-style';
+    document.head.appendChild(s);
+    return s;
+  })();
+  let css = '';
+  for (const [key, visible] of Object.entries(hdrSettings)) {
+    if (!visible) css += `.tile-header .${key} { display: none !important; }\n`;
+  }
+  // Also hide separators if both neighbors are hidden
+  if (!hdrSettings.session && !hdrSettings.dir) css += `.tile-header .sep:first-of-type { display: none !important; }\n`;
+  style.textContent = css;
+}
+headerSettingsPanel.querySelectorAll('.hdr-toggle').forEach(label => {
+  const key = label.dataset.key;
+  const cb = label.querySelector('input');
+  if (hdrSettings[key] === false) cb.checked = false;
+  cb.addEventListener('change', () => {
+    hdrSettings[key] = cb.checked;
+    localStorage.setItem('cw-header-vis', JSON.stringify(hdrSettings));
+    applyHeaderVisibility();
+  });
+});
+applyHeaderVisibility();
 
 function updateStatusSummary() {
   let working = 0, perm = 0, idle = 0;
