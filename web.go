@@ -5,12 +5,15 @@ import (
 	"io/fs"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
+	"path/filepath"
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -305,6 +308,110 @@ func runWeb(port int) {
 		w.Write([]byte(`{"status":"sent"}`))
 	})
 
+	// Resolve real file path from browser metadata (name, size, lastModified).
+	//
+	// Why: browsers hide the real filesystem path of dropped files for security.
+	// We work around this by searching the local filesystem for a file matching
+	// the metadata the browser DOES expose (name, size, modification time).
+	//
+	// macOS: uses mdfind (Spotlight index) — fast, ~50ms.
+	// Linux: tries locate (file database), falls back to find in home dir.
+	// If no match is found, the frontend falls back to uploading the file.
+	http.HandleFunc("/api/resolve-path", func(w http.ResponseWriter, r *http.Request) {
+		name := r.URL.Query().Get("name")
+		size := r.URL.Query().Get("size")
+		lastMod := r.URL.Query().Get("lastModified") // epoch ms from browser
+		if name == "" {
+			http.Error(w, "missing name", 400)
+			return
+		}
+
+		// Search for files matching the name using OS-specific tools
+		candidates := findFilesByName(name)
+
+		// Parse size and modification time for scoring
+		var sizeInt int64
+		if size != "" {
+			fmt.Sscanf(size, "%d", &sizeInt)
+		}
+		var modTime time.Time
+		if lastMod != "" {
+			var ms int64
+			fmt.Sscanf(lastMod, "%d", &ms)
+			if ms > 0 {
+				modTime = time.UnixMilli(ms)
+			}
+		}
+
+		// Score candidates: best match by size + modification time wins
+		type scored struct {
+			path  string
+			score int
+		}
+		var best scored
+		for _, path := range candidates {
+			info, err := os.Stat(path)
+			if err != nil {
+				continue
+			}
+			score := 0
+			if info.IsDir() {
+				score++ // dirs have no size to compare, name match is enough
+			} else if sizeInt > 0 && info.Size() == sizeInt {
+				score += 2 // exact size match
+			} else if sizeInt > 0 {
+				continue // size mismatch — wrong file
+			}
+			if !modTime.IsZero() {
+				diff := info.ModTime().Sub(modTime)
+				if diff < 0 {
+					diff = -diff
+				}
+				if diff < 2*time.Second {
+					score += 3 // modification time matches
+				}
+			}
+			if score > best.score {
+				best = scored{path: path, score: score}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"path": best.path})
+	})
+
+	// Upload file (for drag-and-drop files into panes)
+	http.HandleFunc("/api/upload", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "POST only", 405)
+			return
+		}
+		r.ParseMultipartForm(512 << 20) // 512MB — local only, no real limit needed
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			http.Error(w, "missing file", 400)
+			return
+		}
+		defer file.Close()
+
+		// Save to temp file preserving original name (sanitized)
+		safeName := strings.ReplaceAll(filepath.Base(header.Filename), " ", "_")
+		tmpDir := os.TempDir()
+		dst, err := os.CreateTemp(tmpDir, "cw-*-"+safeName)
+		if err != nil {
+			http.Error(w, "cannot create temp file", 500)
+			return
+		}
+		defer dst.Close()
+		if _, err := io.Copy(dst, file); err != nil {
+			http.Error(w, "write failed", 500)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"path": dst.Name()})
+	})
+
 	// Finance / cost tracking
 	http.HandleFunc("/api/finance", handleFinanceAPI)
 
@@ -584,6 +691,42 @@ func findInteractiveClient() string {
 		}
 	}
 	return ""
+}
+
+// findFilesByName searches the local filesystem for files/folders matching the given name.
+// macOS: uses mdfind (Spotlight) for indexed search (~50ms).
+// Linux: tries locate first (fast, database-backed), falls back to find in home dir.
+func findFilesByName(name string) []string {
+	var out []byte
+	var err error
+
+	switch runtime.GOOS {
+	case "darwin":
+		out, err = exec.Command("mdfind", "-name", name).Output()
+	default:
+		// Try locate first (fast if database exists)
+		out, err = exec.Command("locate", "-l", "50", "-i", name).Output()
+		if err != nil || len(strings.TrimSpace(string(out))) == 0 {
+			// Fall back to find in home directory (slower, limited depth)
+			home, _ := os.UserHomeDir()
+			if home != "" {
+				out, err = exec.Command("find", home, "-maxdepth", "5", "-name", name, "-print").Output()
+			}
+		}
+	}
+
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+
+	var results []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			results = append(results, line)
+		}
+	}
+	return results
 }
 
 // resolveTmuxPane maps a tmux pane ID (%NNN) to a pane target (Session:W.P)
