@@ -777,6 +777,17 @@
   #minimized-bar .tile .tile-fab { display: none; }
   #minimized-bar .tile .more-btn { display: none; }
   .tile-fab:hover { opacity: 1 !important; background: var(--bg-hover); color: var(--text); }
+  .drop-overlay {
+    position: absolute; inset: 0; z-index: 20;
+    display: none; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    background: rgba(110, 161, 247, 0.2); border: 3px dashed var(--accent);
+    border-radius: inherit; pointer-events: none;
+    backdrop-filter: blur(4px);
+  }
+  .drop-overlay .drop-icon { font-size: 36px; }
+  .drop-overlay .drop-text { font-size: 15px; color: var(--accent); font-weight: 600; letter-spacing: 0.5px; }
+  .tile.drag-over .drop-overlay { display: flex; }
+  .tile.drag-over .tile-body { overflow: hidden; }
   .scroll-fab { right: 10px; bottom: 10px; }
   .scroll-fab.hidden { opacity: 0 !important; pointer-events: none; }
   .mic-fab { right: 10px; bottom: 44px; }
@@ -1280,6 +1291,7 @@ function createTile(pane) {
       <pre class="history"></pre>
       <pre class="live"></pre>
     </div>
+    <div class="drop-overlay"><span class="drop-icon">📎</span><span class="drop-text"></span></div>
     <div class="tile-fab scroll-fab" title="Scroll to bottom">↓</div>
     <div class="tile-fab mic-fab" title="Voice input">🎤</div>
     <div class="tile-close" title="Close session (Ctrl+C×2)">✕</div>
@@ -1314,6 +1326,73 @@ function createTile(pane) {
   body.addEventListener('scroll', () => {
     const atBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 30;
     scrollFab.classList.toggle('hidden', atBottom);
+  });
+
+  // Drag-and-drop files onto tile.
+  // Simple approach: dragover keeps overlay visible via timer, no counter needed.
+  let dragTimer = null;
+  const dropText = tile.querySelector('.drop-text');
+  tile.addEventListener('dragenter', (e) => e.preventDefault()); // Chrome needs this for valid drop target
+  tile.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    if (tile.classList.contains('minimized')) { e.dataTransfer.dropEffect = 'none'; return; }
+    e.dataTransfer.dropEffect = 'copy';
+    const n = e.dataTransfer.items ? e.dataTransfer.items.length : 0;
+    dropText.textContent = n > 1 ? 'Drop files here' : 'Drop file here';
+    tile.classList.add('drag-over');
+    clearTimeout(dragTimer);
+    dragTimer = setTimeout(() => tile.classList.remove('drag-over'), 80);
+  });
+  tile.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (tile.classList.contains('minimized')) return;
+    tile.classList.remove('drag-over');
+    clearTimeout(dragTimer);
+    const files = e.dataTransfer.files;
+    const items = e.dataTransfer.items;
+    // Collect names from items (includes folders which have no size)
+    const entries = [];
+    if (items) {
+      for (const item of items) {
+        const entry = item.getAsEntry?.() ?? item.webkitGetAsEntry?.() ?? null;
+        entries.push(entry);
+      }
+    }
+    if (!files.length && !entries.length) return;
+    // Try to resolve real paths via filesystem search, fall back to upload
+    const paths = [];
+    for (let i = 0; i < Math.max(files.length, entries.length); i++) {
+      const file = files[i];
+      const entry = entries[i];
+      const name = entry ? entry.name : (file ? file.name : null);
+      if (!name) continue;
+      // Try filesystem resolve (mdfind on macOS, locate/find on Linux)
+      try {
+        const size = (file && !entry?.isDirectory) ? file.size : 0;
+        const lastMod = file ? file.lastModified : 0;
+        const res = await fetch(`/api/resolve-path?name=${encodeURIComponent(name)}&size=${size}&lastModified=${lastMod}`);
+        const data = await res.json();
+        if (data.path) { paths.push(data.path); continue; }
+      } catch (err) { console.debug('Path resolve failed, trying upload:', err); }
+      // Fallback: upload (only works for files, not folders)
+      if (file && !(entry && entry.isDirectory)) {
+        const form = new FormData();
+        form.append('file', file);
+        try {
+          const res = await fetch('/api/upload', { method: 'POST', body: form });
+          const data = await res.json();
+          if (data.path) paths.push(data.path);
+        } catch (err) { console.error('Drop upload failed:', err); }
+      }
+    }
+    if (paths.length) {
+      await fetch(`/api/send/${pane.target}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: paths.map(p => p.includes(' ') ? `"${p}"` : p).join(' ') })
+      });
+    }
   });
 
   // Close session: send Ctrl+C twice, then remove tile after delay
