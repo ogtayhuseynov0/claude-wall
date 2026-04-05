@@ -31,7 +31,7 @@ jobs:
           GOOS: linux
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
-        run: go build -ldflags="-s -w" -o claude-wall-${{ matrix.name }} .
+        run: go build -o claude-wall-${{ matrix.name }} .
 
       - uses: actions/upload-artifact@v4
         with:
@@ -78,7 +78,7 @@ jobs:
           GOOS: darwin
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
-        run: go build -ldflags="-s -w" -o claude-wall-${{ matrix.name }} .
+        run: go build -o claude-wall-${{ matrix.name }} .
 
       - name: Sign binary
         run: |
