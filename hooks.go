@@ -17,20 +17,22 @@ type hookEvent struct {
 	ToolInput      json.RawMessage `json:"tool_input"`
 	Notification   json.RawMessage `json:"notification"`
 	TranscriptPath string          `json:"transcript_path"`
+	PermissionMode string          `json:"permission_mode"` // default, plan, acceptEdits, bypassPermissions
 	ReceivedAt     time.Time       `json:"-"`
 	PaneTarget     string          `json:"-"`
 }
 
 // hookState tracks the derived state for a Claude Code session
 type hookState struct {
-	SessionID    string
-	CWD          string
-	Status       string // "working", "permission", "idle"
-	Activity     string // e.g. "$ npm test", "Edit main.go"
-	ToolName     string
-	UpdatedAt    time.Time
-	LastWorkingAt time.Time // when status was last set to "working"
-	PaneTarget   string    // mapped pane target (if resolved)
+	SessionID      string
+	CWD            string
+	Status         string // "working", "permission", "idle"
+	Activity       string // e.g. "$ npm test", "Edit main.go"
+	ToolName       string
+	PermissionMode string // default, plan, acceptEdits, bypassPermissions
+	UpdatedAt      time.Time
+	LastWorkingAt  time.Time // when status was last set to "working"
+	PaneTarget     string   // mapped pane target (if resolved)
 }
 
 // hookStore maps session_id → hookState
@@ -75,6 +77,9 @@ func (s *hookStore) processEvent(event hookEvent) {
 	state.CWD = normalizePath(event.CWD)
 	if event.PaneTarget != "" {
 		state.PaneTarget = event.PaneTarget
+	}
+	if event.PermissionMode != "" {
+		state.PermissionMode = event.PermissionMode
 	}
 
 	// recentlyWorking returns true if agent was working within the cooldown window.

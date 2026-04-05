@@ -186,7 +186,7 @@ func (h *captureHub) run() {
 			}
 			content := strings.Join(rawLines, "\n")
 
-			status, activity := h.resolveStatus(target, content)
+			status, activity, permMode := h.resolveStatus(target, content)
 
 			// Get scheduled task info BEFORE locking hub
 			var schedInfo interface{}
@@ -203,6 +203,9 @@ func (h *captureHub) run() {
 					"status":   status,
 					"activity": activity,
 				}
+				if permMode != "" {
+					msgData["permissionMode"] = permMode
+				}
 				if schedInfo != nil {
 					msgData["scheduled"] = schedInfo
 				}
@@ -216,11 +219,15 @@ func (h *captureHub) run() {
 					}
 				}
 			} else if status != prev.Status {
-				msg, _ := json.Marshal(map[string]interface{}{
+				statusMsg := map[string]interface{}{
 					"type":     "status-update",
 					"status":   status,
 					"activity": activity,
-				})
+				}
+				if permMode != "" {
+					statusMsg["permissionMode"] = permMode
+				}
+				msg, _ := json.Marshal(statusMsg)
 				update := paneUpdate{Status: status, Activity: activity, Full: false, Msg: msg, Msg_content: prev.Msg_content}
 				h.latest[target] = update
 				for _, ch := range h.subscribers[target] {
@@ -275,8 +282,8 @@ func batchCapture(targets []string) map[string]string {
 	return result
 }
 
-// resolveStatus returns (status, activity) — uses hooks if available, falls back to terminal parsing
-func (h *captureHub) resolveStatus(target, content string) (string, string) {
+// resolveStatus returns (status, activity, permissionMode) — uses hooks if available, falls back to terminal parsing
+func (h *captureHub) resolveStatus(target, content string) (string, string, string) {
 	if hooks != nil {
 		dir := getPaneDir(target)
 		if dir != "" {
@@ -286,8 +293,12 @@ func (h *captureHub) resolveStatus(target, content string) (string, string) {
 				if (hs.Status == "working" || hs.Status == "error") && time.Since(hs.UpdatedAt) > 120*time.Second {
 					// fall through to terminal parsing
 				} else {
-					// Hooks are authoritative
-					return hs.Status, hs.Activity
+					// Hooks are authoritative for status; terminal is authoritative for permission mode
+					mode := parsePermissionMode(content)
+					if mode == "" {
+						mode = hs.PermissionMode
+					}
+					return hs.Status, hs.Activity, mode
 				}
 			}
 		}
@@ -301,7 +312,12 @@ func (h *captureHub) resolveStatus(target, content string) (string, string) {
 		// Within debounce window: keep showing "working" to prevent flicker
 		status = "working"
 	}
-	return status, activity
+	// Always try to detect permission mode from terminal (updates faster than hooks)
+	mode := parsePermissionMode(content)
+	if mode != "" {
+		return status, activity, mode
+	}
+	return status, activity, ""
 }
 
 // parseTerminalStatus detects idle vs working from Claude Code terminal content.
@@ -333,6 +349,30 @@ func parseTerminalStatus(content string) (string, string) {
 	return "idle", ""
 }
 
+// parsePermissionMode detects the Claude Code permission mode from the terminal.
+// Scans last ~10 lines for mode keywords. Since we only run on confirmed Claude Code
+// panes, absence of a mode keyword means "default" mode.
+func parsePermissionMode(content string) string {
+	lines := strings.Split(content, "\n")
+	start := len(lines) - 10
+	if start < 0 {
+		start = 0
+	}
+	for i := len(lines) - 1; i >= start; i-- {
+		lower := strings.ToLower(ansiRegex.ReplaceAllString(lines[i], ""))
+		if strings.Contains(lower, "bypass permissions") {
+			return "bypassPermissions"
+		}
+		if strings.Contains(lower, "accept edits") {
+			return "acceptEdits"
+		}
+		if strings.Contains(lower, "plan mode") {
+			return "plan"
+		}
+	}
+	return "default"
+}
+
 // pushHookStatus broadcasts hook-derived status changes to all subscribers
 func (h *captureHub) pushHookStatus(hs *hookStore) {
 	h.mu.Lock()
@@ -350,11 +390,15 @@ func (h *captureHub) pushHookStatus(hs *hookStore) {
 
 		prev := h.latest[target]
 		if hookState.Status != prev.Status {
-			msg, _ := json.Marshal(map[string]interface{}{
+			pushMsg := map[string]interface{}{
 				"type":     "status-update",
 				"status":   hookState.Status,
 				"activity": hookState.Activity,
-			})
+			}
+			if hookState.PermissionMode != "" {
+				pushMsg["permissionMode"] = hookState.PermissionMode
+			}
+			msg, _ := json.Marshal(pushMsg)
 			update := paneUpdate{
 				Status:      hookState.Status,
 				Activity:    hookState.Activity,
