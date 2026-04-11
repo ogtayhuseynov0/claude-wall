@@ -1289,12 +1289,20 @@ function applyGroupFilter() {
 }
 
 function updateGridLayout() {
-  const visible = Array.from(grid.querySelectorAll('.tile')).filter(t => t.style.display !== 'none').length;
+  const tiles = Array.from(grid.querySelectorAll('.tile')).filter(t => t.style.display !== 'none');
+  const visible = tiles.length;
   if (visible === 0) return;
   const cols = Math.ceil(Math.sqrt(visible));
   grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
   grid.style.gridTemplateRows = '';
   grid.style.gridAutoRows = '1fr';
+  // Last tile in an incomplete row spans remaining columns
+  tiles.forEach(t => t.style.gridColumn = '');
+  const remainder = visible % cols;
+  if (remainder !== 0) {
+    const lastTile = tiles[visible - 1];
+    lastTile.style.gridColumn = `span ${cols - remainder + 1}`;
+  }
 }
 
 function updateGrid() {
