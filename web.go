@@ -541,10 +541,10 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Send scrollback history on connect (excludes visible area to avoid overlap with live)
+	// Send scrollback history on connect (limited to last 2000 lines to prevent memory bloat)
 	lastHistory := ""
 	captureHistory := func() {
-		historyOut, err := exec.Command("tmux", "capture-pane", "-t", target, "-e", "-p", "-S", "-", "-E", "-1").Output()
+		historyOut, err := exec.Command("tmux", "capture-pane", "-t", target, "-e", "-p", "-S", "-2000", "-E", "-1").Output()
 		if err != nil || len(historyOut) <= 1 {
 			return
 		}
