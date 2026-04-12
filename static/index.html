@@ -1601,6 +1601,11 @@ function createTile(pane) {
       minBar.appendChild(tile);
     } else {
       grid.appendChild(tile);
+      // Flush pending render on un-minimize
+      if (pendingRender && lastContentData) {
+        livePre.innerHTML = renderAnsi(lastContentData);
+        pendingRender = false;
+      }
       setTimeout(() => { body.scrollTop = body.scrollHeight; }, 100);
     }
     updateGrid();
@@ -1640,6 +1645,7 @@ function createTile(pane) {
   let reconnectDelay = 500;
   let wasAtBottom = true;
   let lastContentData = '';
+  let pendingRender = false;
   let prevStatus = '';
   let workingStartedAt = 0;
   let idleTimer = null;
@@ -1716,11 +1722,16 @@ function createTile(pane) {
           return;
         }
         lastContentData = msg.data;
+        // Update status/badges even for invisible tiles, but skip expensive DOM render
+        if (msg.status) setStatus(msg.status, msg.activity);
+        if (msg.permissionMode) setPermMode(msg.permissionMode);
+        if (tile.classList.contains('minimized') || tile.style.display === 'none') {
+          pendingRender = true;
+          return;
+        }
         wasAtBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 30;
         livePre.innerHTML = renderAnsi(msg.data);
         if (wasAtBottom) body.scrollTop = body.scrollHeight;
-        if (msg.status) setStatus(msg.status, msg.activity);
-        if (msg.permissionMode) setPermMode(msg.permissionMode);
         // Show scheduled task badge — only update DOM when changed
         if (msg.scheduled && msg.scheduled.length > 0) {
           const t = msg.scheduled[0];
