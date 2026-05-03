@@ -1,5 +1,7 @@
 # Claude Wall
 
+![views](https://gettrack.link/p/claude-wall/badge.svg?color=%2300a2ff&label_color=%23000000)
+
 **Mission control for Claude Code — monitor, orchestrate, and interact with all your AI coding agents from one dashboard.**
 
 ![Claude Wall Dashboard](screenshot.png)
