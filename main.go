@@ -69,7 +69,7 @@ func main() {
 			fatal("failed to detect panes: %v", err)
 		}
 		if len(panes) == 0 {
-			fatal("no Claude Code panes found")
+			fatal("no Claude Code or Codex panes found")
 		}
 		fmt.Println()
 		fmt.Printf("  %-22s %-20s %s\n", "TARGET", "DIRECTORY", "BRANCH")
@@ -157,6 +157,7 @@ type claudePane struct {
 	Dir     string `json:"dir"`     // full path
 	DirName string `json:"dirName"` // basename
 	Branch  string `json:"branch"`
+	Agent   string `json:"agent"`          // "claude" | "codex"
 	Cols    string `json:"cols,omitempty"` // pane width
 	Rows    string `json:"rows,omitempty"` // pane height
 }
@@ -183,14 +184,21 @@ func findClaudePanes() ([]claudePane, error) {
 		}
 		target, session, dir, cmd, title := parts[0], parts[1], parts[2], parts[3], parts[4]
 
-		// Match "claude" command OR Claude Code version (e.g. "2.0.76")
 		// Title check only if command is NOT a regular shell (stale titles persist after exit)
 		shells := map[string]bool{"zsh": true, "bash": true, "sh": true, "fish": true}
+		// Match "claude" command OR Claude Code version (e.g. "2.0.76")
 		isClaude := cmd == "claude" ||
 			isVersionString(cmd) ||
 			(strings.Contains(title, "Claude Code") && !shells[cmd])
-		if !isClaude {
+		// Match OpenAI Codex CLI
+		isCodex := cmd == "codex" ||
+			(!shells[cmd] && (strings.Contains(title, "Codex") || strings.Contains(title, "codex")))
+		if !isClaude && !isCodex {
 			continue
+		}
+		agent := "claude"
+		if isCodex && !isClaude {
+			agent = "codex"
 		}
 
 		// Dedup by session:window
@@ -214,6 +222,7 @@ func findClaudePanes() ([]claudePane, error) {
 			Dir:     dir,
 			DirName: dirName,
 			Branch:  branch,
+			Agent:   agent,
 		})
 	}
 	return panes, nil

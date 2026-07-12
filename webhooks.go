@@ -20,6 +20,10 @@ const (
 	WebhookDiscord  WebhookType = "discord"
 	WebhookGeneric  WebhookType = "generic"
 	WebhookTelegram WebhookType = "telegram"
+	// WebhookBridge is a structured, NON-debounced machine endpoint (e.g. the
+	// project-dashboard agent bridge). Unlike the others it fires per-session
+	// every time so the receiver can match Stop events to in-flight requests.
+	WebhookBridge WebhookType = "bridge"
 )
 
 // WebhookConfig holds the configuration for a single webhook endpoint
@@ -148,6 +152,61 @@ func (ws *webhookStore) sendWebhook(eventType string, message string) {
 	// Fire webhooks in background
 	for _, wh := range matching {
 		go fireWebhook(wh, eventType, message)
+	}
+}
+
+// sendBridge pushes a structured, NON-debounced event to every enabled
+// bridge-type webhook whose Events list includes eventType. Bridge receivers
+// (the dashboard agent bridge) need the raw per-session signal every time —
+// no debounce, no telegram-skip, no human-formatted message.
+func (ws *webhookStore) sendBridge(event hookEvent, eventType string) {
+	ws.mu.RLock()
+	var matching []*WebhookConfig
+	for _, wh := range ws.webhooks {
+		if !wh.Enabled || wh.Type != WebhookBridge {
+			continue
+		}
+		for _, ev := range wh.Events {
+			if ev == eventType {
+				matching = append(matching, wh)
+				break
+			}
+		}
+	}
+	ws.mu.RUnlock()
+	if len(matching) == 0 {
+		return
+	}
+
+	ctx := resolveAgentContext(event)
+	// On Stop, include the agent's actual reply from the transcript so receivers
+	// don't have to scrape the TUI.
+	reply := ""
+	if event.EventName == "Stop" {
+		reply = lastAssistantText(event.TranscriptPath)
+	}
+	payload, _ := json.Marshal(map[string]interface{}{
+		"event":    eventType,
+		"rawEvent": event.EventName,
+		"session":  ctx.Session,
+		"pane":     ctx.Pane,
+		"folder":   ctx.Folder,
+		"branch":   ctx.Branch,
+		"prompt":   ctx.LastPrompt,
+		"reply":    reply,
+		"source":   "claude-wall",
+		"time":     time.Now().UTC().Format(time.RFC3339),
+	})
+	for _, wh := range matching {
+		go func(rawURL string) {
+			client := &http.Client{Timeout: 10 * time.Second}
+			resp, err := client.Post(secrets.resolve(rawURL), "application/json", bytes.NewReader(payload))
+			if err != nil {
+				log.Printf("[webhook] bridge send failed: %v", err)
+				return
+			}
+			resp.Body.Close()
+		}(wh.URL)
 	}
 }
 
@@ -306,6 +365,57 @@ func lastUserPrompt(path string) string {
 	return last
 }
 
+// lastAssistantText reads the transcript JSONL and returns the text of the last
+// assistant turn — i.e. the agent's reply. Used by bridge webhooks so receivers
+// get the actual answer without scraping the TUI. Returns "" if unavailable.
+func lastAssistantText(path string) string {
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var last string
+	for _, line := range strings.Split(string(data), "\n") {
+		if line == "" || !strings.Contains(line, `"type":"assistant"`) {
+			continue
+		}
+		var entry struct {
+			Type    string `json:"type"`
+			Message struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal([]byte(line), &entry) != nil || entry.Type != "assistant" {
+			continue
+		}
+		// Assistant content is an array of blocks; collect the text blocks.
+		var parts []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(entry.Message.Content, &parts) == nil {
+			var sb strings.Builder
+			for _, p := range parts {
+				if p.Type == "text" && strings.TrimSpace(p.Text) != "" {
+					if sb.Len() > 0 {
+						sb.WriteString("\n")
+					}
+					sb.WriteString(p.Text)
+				}
+			}
+			if sb.Len() > 0 {
+				last = sb.String()
+			}
+		}
+	}
+	if len(last) > 8000 {
+		last = last[len(last)-8000:]
+	}
+	return last
+}
+
 // formatAgentBlock builds a multi-line context block with icons for webhook messages.
 func formatAgentBlock(ctx agentContext) string {
 	var lines []string
@@ -406,7 +516,7 @@ func handleWebhookCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	whType := WebhookType(req.Type)
-	if whType != WebhookSlack && whType != WebhookDiscord && whType != WebhookGeneric && whType != WebhookTelegram {
+	if whType != WebhookSlack && whType != WebhookDiscord && whType != WebhookGeneric && whType != WebhookTelegram && whType != WebhookBridge {
 		whType = WebhookGeneric
 	}
 

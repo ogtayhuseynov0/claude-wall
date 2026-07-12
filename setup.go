@@ -135,7 +135,8 @@ func runInit() {
 			httpHook := map[string]interface{}{
 				"type":           "http",
 				"url":            fmt.Sprintf("http://127.0.0.1:%s/api/hooks/event", port),
-				"timeout":        5,
+				"timeout":        2,
+				"async":          true,
 				"allowedEnvVars": []string{"TMUX_PANE"},
 				"headers": map[string]string{
 					"X-Tmux-Pane": "$TMUX_PANE",
@@ -175,7 +176,8 @@ func runInit() {
 			httpHook := map[string]interface{}{
 				"type":           "http",
 				"url":            fmt.Sprintf("http://127.0.0.1:%s/api/hooks/event", port),
-				"timeout":        5,
+				"timeout":        2,
+				"async":          true,
 				"allowedEnvVars": []string{"TMUX_PANE"},
 				"headers": map[string]string{
 					"X-Tmux-Pane": "$TMUX_PANE",

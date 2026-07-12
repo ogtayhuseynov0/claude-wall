@@ -134,6 +134,38 @@
   .hdr-toggle:hover { background: var(--bg-hover); color: var(--text); }
   .hdr-toggle input { margin: 0; accent-color: var(--accent); }
 
+  /* System metrics cluster */
+  .sys-metrics {
+    display: flex; align-items: center; gap: 12px;
+    margin-left: auto; padding: 3px 10px;
+    font-family: var(--font-mono); font-size: 11px;
+    background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); color: var(--text-secondary);
+  }
+  .sys-metrics + #search { margin-left: 10px; }
+  .sys-stat { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .sys-stat .sys-ic { font-size: 9px; color: var(--text-muted); letter-spacing: 0.5px; }
+  .sys-stat .sys-val { color: var(--text); font-variant-numeric: tabular-nums; min-width: 34px; }
+  .sys-stat.warn .sys-val { color: var(--amber); }
+  .sys-stat.crit .sys-val { color: #ef4444; }
+  .sys-bar {
+    width: 26px; height: 4px; border-radius: 2px;
+    background: var(--bg-deep); overflow: hidden; flex-shrink: 0;
+  }
+  .sys-bar > i {
+    display: block; height: 100%; width: 0%;
+    background: var(--accent); transition: width 0.4s ease, background 0.3s;
+  }
+  .sys-stat.warn .sys-bar > i { background: var(--amber); }
+  .sys-stat.crit .sys-bar > i { background: #ef4444; }
+  .sys-stat.sys-net .sys-val { color: var(--text-secondary); min-width: 0; }
+  .sys-metrics.offline { opacity: 0.4; }
+  @media (max-width: 1100px) {
+    .sys-stat .sys-ic, .sys-bar { display: none; }
+    .sys-metrics { gap: 8px; }
+  }
+  @media (max-width: 760px) { .sys-metrics { display: none; } }
+
   /* ── Main Layout ── */
   #main-container {
     flex: 1;
@@ -544,6 +576,20 @@
     flex-shrink: 0;
     font-family: var(--font-mono);
   }
+  .tile-header .agent-badge {
+    font-size: 10px; font-weight: 700; line-height: 1;
+    width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--font-ui);
+  }
+  .tile-header .agent-badge.claude {
+    color: #d97706; background: rgba(217,119,6,0.12);
+    border: 1px solid rgba(217,119,6,0.25);
+  }
+  .tile-header .agent-badge.codex {
+    color: #10a37f; background: rgba(16,163,127,0.12);
+    border: 1px solid rgba(16,163,127,0.25);
+  }
   .tile-header .session {
     color: var(--accent);
     font-weight: 600;
@@ -905,6 +951,50 @@
     font-family: var(--font-mono);
   }
 
+  /* Keyboard Shortcuts Help */
+  .kbd-modal { width: 480px; }
+  .kbd-title {
+    padding: 14px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .kbd-rows {
+    padding: 12px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+  .kbd-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    color: var(--text-secondary);
+    gap: 12px;
+  }
+  .kbd-row .kbd-keys { display: flex; gap: 4px; flex-shrink: 0; }
+  .kbd-row kbd {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 7px;
+    color: var(--text);
+  }
+  .kbd-sec {
+    margin-top: 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
   /* Mastermind Chat Drawer */
   .mm-drawer {
     position: fixed; top: 0; right: -400px; bottom: 0; width: 400px;
@@ -1078,6 +1168,12 @@
   <span class="count" id="count"></span>
   <span class="status-summary" id="status-summary"></span>
   <select id="group-filter"><option value="">All</option></select>
+  <div class="sys-metrics offline" id="sys-metrics" title="System usage — CPU / RAM / Storage / Network">
+    <span class="sys-stat" id="sys-cpu"><span class="sys-ic">CPU</span><span class="sys-bar"><i></i></span><span class="sys-val">–</span></span>
+    <span class="sys-stat" id="sys-mem"><span class="sys-ic">RAM</span><span class="sys-bar"><i></i></span><span class="sys-val">–</span></span>
+    <span class="sys-stat" id="sys-disk"><span class="sys-ic">SSD</span><span class="sys-bar"><i></i></span><span class="sys-val">–</span></span>
+    <span class="sys-stat sys-net" id="sys-net"><span class="sys-ic">NET</span><span class="sys-val">↓– ↑–</span></span>
+  </div>
   <input type="text" id="search" placeholder="Filter…">
   <button class="refresh-btn" id="notif-btn" onclick="toggleNotifs()">🔔</button>
   <a href="/finance.html" class="refresh-btn" style="text-decoration:none">💰</a>
@@ -1101,14 +1197,12 @@
   <div id="grid"></div>
   <div id="side-panel">
     <div class="panel-tabs">
-      <button class="panel-tab active" data-tab="feed">Activity</button>
-      <button class="panel-tab" data-tab="approvals">Approvals <span class="badge" id="approval-count" style="display:none">0</span></button>
+      <button class="panel-tab active" data-tab="approvals">Approvals <span class="badge" id="approval-count" style="display:none">0</span></button>
       <button class="panel-tab" data-tab="pm">PM <span class="badge" id="pm-count" style="display:none">0</span></button>
       <button class="panel-tab" data-tab="tasks">Sched <span class="badge" id="tasks-count" style="display:none">0</span></button>
       <button class="panel-tab" data-tab="webhooks">Webhooks</button>
     </div>
-    <div id="feed-panel" class="panel-content active"></div>
-    <div id="approvals-panel" class="panel-content"></div>
+    <div id="approvals-panel" class="panel-content active"></div>
     <div id="pm-panel" class="panel-content"></div>
     <div id="tasks-panel" class="panel-content"></div>
     <div id="webhooks-panel" class="panel-content"></div>
@@ -1143,6 +1237,42 @@
     <div class="cmd-footer">
       <span>↑↓ navigate</span>
       <span>↵ select</span>
+      <span>⌘↵ terminal</span>
+      <span>esc close</span>
+    </div>
+  </div>
+</div>
+
+<!-- Keyboard Shortcuts Help -->
+<div id="kbd-overlay" class="cmd-overlay">
+  <div class="cmd-modal kbd-modal">
+    <div class="kbd-title">⌨ Keyboard Shortcuts</div>
+    <div class="kbd-rows">
+      <div class="kbd-sec">Panes — work anywhere, even while typing in a pane</div>
+      <div class="kbd-row"><span>Focus pane 1–9</span><span class="kbd-keys"><kbd>⌃1</kbd><kbd>…</kbd><kbd>⌃9</kbd></span></div>
+      <div class="kbd-row"><span>Previous / next pane</span><span class="kbd-keys"><kbd>⌥←</kbd><kbd>⌥→</kbd></span></div>
+      <div class="kbd-row"><span>Pane above / below</span><span class="kbd-keys"><kbd>⌥↑</kbd><kbd>⌥↓</kbd></span></div>
+      <div class="kbd-row"><span>Open active pane in terminal</span><span class="kbd-keys"><kbd>⌃`</kbd></span></div>
+      <div class="kbd-row"><span>Expand / collapse active pane</span><span class="kbd-keys"><kbd>⌥Z</kbd></span></div>
+      <div class="kbd-row"><span>Minimize / restore active pane</span><span class="kbd-keys"><kbd>⌥M</kbd></span></div>
+      <div class="kbd-row"><span>Unfocus pane (enable plain keys)</span><span class="kbd-keys"><kbd>⇧Esc</kbd></span></div>
+      <div class="kbd-sec">Plain keys — when not typing in a pane or input</div>
+      <div class="kbd-row"><span>Focus pane 1–9</span><span class="kbd-keys"><kbd>1</kbd><kbd>…</kbd><kbd>9</kbd></span></div>
+      <div class="kbd-row"><span>Switch panes (incl. minimized)</span><span class="kbd-keys"><kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd></span></div>
+      <div class="kbd-row"><span>Open selected pane in terminal</span><span class="kbd-keys"><kbd>t</kbd></span></div>
+      <div class="kbd-row" style="opacity:.7"><span style="font-size:11px">…or <kbd style="font-size:10px">⌃`</kbd> while typing in a pane</span><span class="kbd-keys"></span></div>
+      <div class="kbd-row"><span>Focus selected pane (restores minimized)</span><span class="kbd-keys"><kbd>↵</kbd></span></div>
+      <div class="kbd-row"><span>This help</span><span class="kbd-keys"><kbd>?</kbd></span></div>
+      <div class="kbd-sec">Search (⌃F)</div>
+      <div class="kbd-row"><span>Select first match</span><span class="kbd-keys"><kbd>↵</kbd></span></div>
+      <div class="kbd-row"><span>Open first match in terminal</span><span class="kbd-keys"><kbd>⌘↵</kbd></span></div>
+      <div class="kbd-sec">Global</div>
+      <div class="kbd-row"><span>Command palette</span><span class="kbd-keys"><kbd>⌘K</kbd></span></div>
+      <div class="kbd-row"><span>Search panes</span><span class="kbd-keys"><kbd>⌃F</kbd></span></div>
+      <div class="kbd-row"><span>Mastermind chat</span><span class="kbd-keys"><kbd>⌘M</kbd></span></div>
+      <div class="kbd-row"><span>Keyboard shortcuts help</span><span class="kbd-keys"><kbd>⌃/</kbd></span></div>
+    </div>
+    <div class="cmd-footer">
       <span>esc close</span>
     </div>
   </div>
@@ -1340,6 +1470,7 @@ function createTile(pane) {
     <div class="tile-header">
       <span class="status-dot connecting"></span>
       <span class="tile-num">${index + 1}</span>
+      <span class="agent-badge ${pane.agent === 'codex' ? 'codex' : 'claude'}" title="${pane.agent === 'codex' ? 'Codex' : 'Claude'}">${pane.agent === 'codex' ? '◇' : '✳'}</span>
       <span class="session">🖥 ${pane.session || '?'}</span>
       <span class="sep">·</span>
       <span class="dir">📂 ${pane.dirName || '?'}</span>
@@ -1885,6 +2016,19 @@ document.addEventListener('keydown', (e) => {
 });
 searchInput.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { searchInput.value = ''; searchInput.dispatchEvent(new Event('input')); searchInput.blur(); }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const first = navTiles()[0];
+    if (!first) return;
+    if (e.metaKey || e.ctrlKey) {
+      // ⌘↵ — open first match in terminal directly
+      fetch(`/api/goto/${first.id.replace('tile-', '')}`);
+    } else {
+      // ↵ — select first match, leave search so plain keys (t, Enter, hjkl) work
+      selectTileEl(first, false);
+      searchInput.blur();
+    }
+  }
 });
 
 // Notify all tiles of focus/zoom/minimize changes so history mode stays in sync
@@ -1892,17 +2036,61 @@ function notifyAllHistoryModes() {
   for (const [, s] of tiles) s.sendHistoryMode();
 }
 
+// ── Keyboard navigation ──
+function selectTileEl(tile, focusBody = true) {
+  if (!tile) return;
+  // Only restore a minimized tile when we intend to type in it —
+  // plain-key browsing (focusBody=false) selects it in place without restoring
+  if (focusBody && tile.classList.contains('minimized')) tile.querySelector('.min-btn').click();
+  document.querySelectorAll('.tile').forEach(t => t.classList.remove('active'));
+  tile.classList.add('active');
+  if (focusBody) tile.querySelector('.tile-body').focus();
+  notifyAllHistoryModes();
+  tile.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
 let cycleIndex = -1;
-function focusTileByIndex(idx) {
+function focusTileByIndex(idx, focusBody = true) {
   const arr = Array.from(tiles.values());
   if (idx >= 0 && idx < arr.length) {
-    arr[idx].tile.querySelector('.tile-body').focus();
-    document.querySelectorAll('.tile').forEach(t => t.classList.remove('active'));
-    arr[idx].tile.classList.add('active');
+    selectTileEl(arr[idx].tile, focusBody);
     cycleIndex = idx;
-    notifyAllHistoryModes();
   }
 }
+
+// Visible tiles in visual (DOM) order — excludes minimized and search-hidden
+function visibleGridTiles() {
+  return Array.from(grid.querySelectorAll('.tile')).filter(t => t.style.display !== 'none');
+}
+
+// Navigation order: grid tiles first, then minimized-bar tiles (still selectable for `t`/Enter)
+function navTiles() {
+  const minimized = Array.from(document.getElementById('minimized-bar').querySelectorAll('.tile'))
+    .filter(t => t.style.display !== 'none');
+  return visibleGridTiles().concat(minimized);
+}
+
+function gridColCount() {
+  return Math.max(getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length, 1);
+}
+
+function moveFocus(delta, focusBody = true) {
+  // Typing-mode switch (⌥arrows) stays among open panes; plain-key browse includes minimized
+  const arr = focusBody ? visibleGridTiles() : navTiles();
+  if (!arr.length) return;
+  const active = document.querySelector('.tile.active');
+  let idx = arr.indexOf(active);
+  if (idx === -1) { selectTileEl(arr[0], focusBody); return; }
+  // Carry expand state across so you can flip through panes while expanded
+  const wasZoomed = active.classList.contains('zoomed');
+  const next = arr[(idx + (delta % arr.length) + arr.length) % arr.length];
+  if (wasZoomed && next !== active) {
+    active.classList.remove('zoomed');
+    next.classList.add('zoomed');
+  }
+  selectTileEl(next, focusBody);
+}
+
 document.addEventListener('keydown', (e) => {
   if (e.ctrlKey && !e.metaKey && e.key >= '1' && e.key <= '9') {
     e.preventDefault(); focusTileByIndex(parseInt(e.key) - 1); return;
@@ -1916,23 +2104,106 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+// ── Keyboard shortcuts (capture phase — work even while typing in a pane) ──
+const kbdOverlay = document.getElementById('kbd-overlay');
+kbdOverlay.addEventListener('click', (e) => { if (e.target === kbdOverlay) kbdOverlay.classList.remove('open'); });
+
+function isFormField(el) {
+  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+}
+
+document.addEventListener('keydown', (e) => {
+  // Esc closes help overlay
+  if (kbdOverlay.classList.contains('open') && e.key === 'Escape') {
+    e.preventDefault(); e.stopPropagation();
+    kbdOverlay.classList.remove('open');
+    return;
+  }
+  // Ctrl+/ toggles help anywhere
+  if (e.ctrlKey && !e.metaKey && !e.altKey && e.key === '/') {
+    e.preventDefault(); e.stopPropagation();
+    kbdOverlay.classList.toggle('open');
+    return;
+  }
+  // Don't steal keys from text inputs (⌥← is word-jump there)
+  if (isFormField(e.target)) return;
+
+  // ⌥+Arrows — switch pane, works while typing in a pane
+  if (e.altKey && !e.ctrlKey && !e.metaKey) {
+    switch (e.key) {
+      case 'ArrowLeft':  e.preventDefault(); e.stopPropagation(); moveFocus(-1); return;
+      case 'ArrowRight': e.preventDefault(); e.stopPropagation(); moveFocus(1); return;
+      case 'ArrowUp':    e.preventDefault(); e.stopPropagation(); moveFocus(-gridColCount()); return;
+      case 'ArrowDown':  e.preventDefault(); e.stopPropagation(); moveFocus(gridColCount()); return;
+    }
+    // Letters via e.code — on macOS ⌥+letter types a special char in e.key
+    const active = document.querySelector('.tile.active');
+    if (e.code === 'KeyZ') { // ⌥Z — expand/collapse active pane
+      e.preventDefault(); e.stopPropagation();
+      if (active) {
+        active.classList.toggle('zoomed');
+        notifyAllHistoryModes();
+        active.querySelector('.tile-body').focus();
+      }
+      return;
+    }
+    if (e.code === 'KeyM') { // ⌥M — minimize/restore active pane
+      e.preventDefault(); e.stopPropagation();
+      if (active) active.querySelector('.min-btn').click();
+      return;
+    }
+  }
+
+  // ⌃` — open active pane in terminal (VS Code's terminal key; AeroSpace ignores Ctrl)
+  if (e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'Backquote') {
+    e.preventDefault(); e.stopPropagation();
+    const active = document.querySelector('.tile.active');
+    if (active) fetch(`/api/goto/${active.id.replace('tile-', '')}`);
+    return;
+  }
+
+  // ⇧Esc — unfocus pane so plain-key navigation works
+  if (e.shiftKey && e.key === 'Escape') {
+    e.preventDefault(); e.stopPropagation();
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    return;
+  }
+
+  // ── Plain keys — only when NOT typing in a pane ──
+  if (e.target.closest && e.target.closest('.tile-body')) return;
+  if (e.key === '?') { e.preventDefault(); kbdOverlay.classList.toggle('open'); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (kbdOverlay.classList.contains('open')) return;
+  if (e.key >= '1' && e.key <= '9') { e.preventDefault(); focusTileByIndex(parseInt(e.key) - 1, false); return; }
+  switch (e.key) {
+    case 'h': e.preventDefault(); moveFocus(-1, false); return;
+    case 'l': e.preventDefault(); moveFocus(1, false); return;
+    case 'k': e.preventDefault(); moveFocus(-gridColCount(), false); return;
+    case 'j': e.preventDefault(); moveFocus(gridColCount(), false); return;
+    case 't': { // open selected pane in terminal
+      e.preventDefault();
+      const active = document.querySelector('.tile.active');
+      if (active) fetch(`/api/goto/${active.id.replace('tile-', '')}`);
+      return;
+    }
+    case 'Enter': { // focus selected pane to start typing (restores if minimized)
+      const active = document.querySelector('.tile.active');
+      if (active) {
+        e.preventDefault();
+        if (active.classList.contains('minimized')) active.querySelector('.min-btn').click();
+        active.querySelector('.tile-body').focus();
+      }
+      return;
+    }
+  }
+}, true);
+
 // ── Focus tile by target ──
 function focusTileByTarget(target) {
   if (!target) return;
   const state = tiles.get(target);
   if (!state) return;
-  // If minimized, restore it
-  if (state.tile.classList.contains('minimized')) {
-    state.tile.querySelector('.min-btn').click();
-  }
-  // Focus + highlight
-  const body = state.tile.querySelector('.tile-body');
-  body.focus();
-  document.querySelectorAll('.tile').forEach(t => t.classList.remove('active'));
-  state.tile.classList.add('active');
-  notifyAllHistoryModes();
-  // Scroll tile into view
-  state.tile.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  selectTileEl(state.tile);
 }
 
 // ── Side Panel: Tabs ──
@@ -1954,50 +2225,8 @@ panelToggle.addEventListener('click', () => {
 });
 
 // ── Activity Feed ──
-const feedPanel = document.getElementById('feed-panel');
 const approvalsPanel = document.getElementById('approvals-panel');
 const approvalCountBadge = document.getElementById('approval-count');
-
-function feedIcon(event, status) {
-  if (status === 'permission') return '⚠';
-  if (status === 'idle') return '✓';
-  const icons = { Bash: '$', Edit: '✎', Write: '✎', Read: '📖', Grep: '🔍', Glob: '📁', Agent: '🤖', WebSearch: '🌐' };
-  return icons[event] || '⚡';
-}
-
-function formatTime(t) {
-  const d = new Date(t);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-async function refreshFeed() {
-  try {
-    const res = await fetch('/api/feed');
-    const entries = await res.json();
-    if (!entries || !entries.length) return;
-
-    feedPanel.innerHTML = '';
-    // Show newest first
-    for (let i = entries.length - 1; i >= 0; i--) {
-      const e = entries[i];
-      // Skip PostToolUse (noise)
-      if (e.event === 'PostToolUse') continue;
-      const el = document.createElement('div');
-      el.className = 'feed-entry';
-      el.dataset.status = e.status;
-      el.innerHTML = `
-        <span class="feed-icon">${feedIcon(e.toolName, e.status)}</span>
-        <span class="feed-time">${formatTime(e.time)}</span>
-        <span class="feed-session">${e.session || '?'}</span>
-        <span class="feed-activity">${e.activity || e.event}</span>
-      `;
-      if (e.target) {
-        el.addEventListener('click', () => focusTileByTarget(e.target));
-      }
-      feedPanel.appendChild(el);
-    }
-  } catch(e) {}
-}
 
 async function refreshApprovals() {
   try {
@@ -2125,8 +2354,6 @@ async function refreshApprovals() {
   } catch(e) {}
 }
 
-// Poll feed + approvals every 2 seconds
-setInterval(refreshFeed, 2000);
 setInterval(refreshApprovals, 2000);
 
 
@@ -2568,7 +2795,8 @@ function getCommands(query) {
     if (!q || label.toLowerCase().includes(q)) {
       items.push({
         icon: '🖥', label, hint: s.pane.target, kbd: `⌃${i+1}`,
-        action: () => focusTileByIndex(i)
+        action: () => focusTileByIndex(i),
+        altAction: () => fetch(`/api/goto/${s.pane.target}`) // ⌘↵ — open in terminal
       });
     }
   });
@@ -2595,7 +2823,7 @@ function getCommands(query) {
 
   if (!q || 'goto terminal'.includes(q)) {
     items.push({
-      icon: '↗', label: 'Open focused tile in terminal',
+      icon: '↗', label: 'Open focused tile in terminal', kbd: '⌃`',
       action: () => {
         const active = document.querySelector('.tile.active');
         if (active) {
@@ -2617,6 +2845,13 @@ function getCommands(query) {
     items.push({
       icon: '↻', label: 'Refresh page',
       action: () => location.reload()
+    });
+  }
+
+  if (!q || 'keyboard shortcuts help'.includes(q)) {
+    items.push({
+      icon: '⌨', label: 'Keyboard shortcuts', kbd: '⌃/',
+      action: () => document.getElementById('kbd-overlay').classList.add('open')
     });
   }
 
@@ -2650,10 +2885,12 @@ function getCommands(query) {
   return items;
 }
 
+let cmdRendered = []; // items by actionIdx, for modifier-aware Enter
 function renderCommands(query) {
   const items = getCommands(query);
   cmdResults.innerHTML = '';
   cmdIndex = 0;
+  cmdRendered = [];
   let actionIdx = 0;
   items.forEach(item => {
     if (item.section) {
@@ -2672,19 +2909,21 @@ function renderCommands(query) {
       ${item.hint ? `<span class="cmd-hint">${item.hint}</span>` : ''}
       ${item.kbd ? `<span class="cmd-kbd">${item.kbd}</span>` : ''}
     `;
-    el.addEventListener('click', () => { execCmd(item); });
+    el.addEventListener('click', (ev) => { execCmd(item, ev.metaKey || ev.ctrlKey); });
     el.addEventListener('mouseenter', () => {
       cmdResults.querySelectorAll('.cmd-item').forEach(e => e.classList.remove('active'));
       el.classList.add('active');
       cmdIndex = parseInt(el.dataset.idx);
     });
     cmdResults.appendChild(el);
+    cmdRendered.push(item);
     actionIdx++;
   });
 }
 
-function execCmd(item) {
+function execCmd(item, alt = false) {
   closeCmd();
+  if (alt && item.altAction) { item.altAction(); return; }
   if (item.action) item.action();
 }
 
@@ -2715,8 +2954,8 @@ cmdInput.addEventListener('keydown', (e) => {
     items[cmdIndex]?.scrollIntoView({ block: 'nearest' });
   } else if (e.key === 'Enter') {
     e.preventDefault();
-    const active = items[cmdIndex];
-    if (active) active.click();
+    const item = cmdRendered[cmdIndex];
+    if (item) execCmd(item, e.metaKey || e.ctrlKey);
   } else if (e.key === 'Escape') {
     closeCmd();
   }
@@ -2734,6 +2973,58 @@ document.addEventListener('keydown', (e) => {
     else openCmd();
   }
 });
+
+// ── System metrics (header) ──
+(function sysMetrics() {
+  const wrap = document.getElementById('sys-metrics');
+  if (!wrap) return;
+  const els = {
+    cpu: document.getElementById('sys-cpu'),
+    mem: document.getElementById('sys-mem'),
+    disk: document.getElementById('sys-disk'),
+    net: document.getElementById('sys-net'),
+  };
+  const fmtBytes = (b) => {
+    if (b > 1e9) return (b / 1e9).toFixed(1) + 'G';
+    if (b > 1e6) return (b / 1e6).toFixed(0) + 'M';
+    return (b / 1024).toFixed(0) + 'K';
+  };
+  const fmtRate = (bps) => {
+    if (bps >= 1e6) return (bps / 1e6).toFixed(1) + 'M';
+    if (bps >= 1e3) return (bps / 1e3).toFixed(0) + 'K';
+    return Math.round(bps) + 'B';
+  };
+  const setPct = (el, pct, label, tip) => {
+    pct = Math.max(0, Math.min(100, pct || 0));
+    el.classList.toggle('warn', pct >= 70 && pct < 90);
+    el.classList.toggle('crit', pct >= 90);
+    el.querySelector('.sys-val').textContent = label;
+    const bar = el.querySelector('.sys-bar > i');
+    if (bar) bar.style.width = pct + '%';
+    if (tip) el.title = tip;
+  };
+  let ws = null, delay = 800;
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}/ws/system`);
+    ws.onopen = () => { delay = 800; wrap.classList.remove('offline'); };
+    ws.onmessage = (e) => {
+      let m; try { m = JSON.parse(e.data); } catch { return; }
+      setPct(els.cpu, m.cpu, Math.round(m.cpu) + '%', `CPU ${Math.round(m.cpu)}% · ${m.ncpu} cores`);
+      setPct(els.mem, m.mem, Math.round(m.mem) + '%', `RAM ${fmtBytes(m.memUsed)}B / ${fmtBytes(m.memTotal)}B`);
+      setPct(els.disk, m.disk, Math.round(m.disk) + '%', `Disk ${fmtBytes(m.diskUsed)}B / ${fmtBytes(m.diskTotal)}B`);
+      els.net.querySelector('.sys-val').textContent = `↓${fmtRate(m.netDown)} ↑${fmtRate(m.netUp)}`;
+      els.net.title = `Network ↓${fmtRate(m.netDown)}/s ↑${fmtRate(m.netUp)}/s`;
+    };
+    ws.onclose = () => {
+      wrap.classList.add('offline');
+      setTimeout(connect, delay);
+      delay = Math.min(delay * 1.5, 10000);
+    };
+    ws.onerror = () => ws.close();
+  }
+  connect();
+})();
 
 // ── UI Commands (SSE from backend) ──
 const uiEvents = new EventSource('/api/ui/events');

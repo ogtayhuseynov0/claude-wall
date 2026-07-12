@@ -44,10 +44,10 @@ func runWeb(port int) {
 		fatal("detection failed: %v", err)
 	}
 	if len(panes) == 0 {
-		fatal("no Claude Code panes found")
+		fatal("no Claude Code or Codex panes found")
 	}
 
-	fmt.Printf("▸ Found %d Claude Code instance(s)\n", len(panes))
+	fmt.Printf("▸ Found %d agent instance(s)\n", len(panes))
 
 	// Register pane directories for hook matching
 	for _, p := range panes {
@@ -70,6 +70,7 @@ func runWeb(port int) {
 		}
 	}()
 	tgBot.start()
+	go startMetrics()
 
 	// Claude Code tasks (PM view)
 	http.HandleFunc("/api/tasks", handleTasksAPI)
@@ -222,6 +223,8 @@ func runWeb(port int) {
 		// Fire webhooks for matching events (in background, debounced)
 		if whEvent, whMsg := mapEventToWebhook(event); whEvent != "" {
 			go webhooks.sendWebhook(whEvent, whMsg)
+			// Structured per-session push to bridge receivers (no debounce).
+			go webhooks.sendBridge(event, whEvent)
 			// Telegram interactive: send buttons for permissions
 			go tgBot.handleHookEvent(event, whEvent, whMsg)
 		}
@@ -293,14 +296,25 @@ func runWeb(port int) {
 			return
 		}
 
-		// Send text + Enter to the pane
-		hexes := make([]string, 0, len(body.Text)+1)
-		for _, b := range []byte(body.Text + "\n") {
+		// Send the text, then submit with a SEPARATE Enter key.
+		//
+		// Why two steps: Claude Code's TUI submits on Return (\r) and treats a
+		// pasted \n (0x0a) as insert-newline. Appending "\n" to the hex paste
+		// left the message sitting unsent in the input box. So we (1) paste the
+		// text with no trailing newline, (2) pause briefly so the TUI finishes
+		// processing the paste, (3) press Enter (tmux maps "Enter" → \r → submit).
+		hexes := make([]string, 0, len(body.Text))
+		for _, b := range []byte(body.Text) {
 			hexes = append(hexes, fmt.Sprintf("%02x", b))
 		}
-		args := append([]string{"send-keys", "-t", target, "-H"}, hexes...)
-		if err := exec.Command("tmux", args...).Run(); err != nil {
+		pasteArgs := append([]string{"send-keys", "-t", target, "-H"}, hexes...)
+		if err := exec.Command("tmux", pasteArgs...).Run(); err != nil {
 			http.Error(w, "send failed", 500)
+			return
+		}
+		time.Sleep(150 * time.Millisecond)
+		if err := exec.Command("tmux", "send-keys", "-t", target, "Enter").Run(); err != nil {
+			http.Error(w, "enter failed", 500)
 			return
 		}
 
@@ -429,6 +443,9 @@ func runWeb(port int) {
 
 	// Mastermind: orchestrator AI chat
 	http.HandleFunc("/ws/mastermind", handleMastermind)
+
+	// System metrics: CPU / RAM / storage / network in header
+	http.HandleFunc("/ws/system", handleSystemWS)
 
 	// UI commands: backend → frontend control
 	http.HandleFunc("/api/ui/events", handleUIEvents)
