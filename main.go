@@ -201,16 +201,17 @@ func findClaudePanes() ([]claudePane, error) {
 			agent = "codex"
 		}
 
-		// Dedup by session:window
 		dotIdx := strings.LastIndex(target, ".")
 		if dotIdx < 0 {
 			continue
 		}
 		sessWin := target[:dotIdx]
-		if seen[sessWin] {
+		// Dedup by pane (target), not window — a window may hold multiple
+		// agents (e.g. Claude + Codex side by side), each is its own tile.
+		if seen[target] {
 			continue
 		}
-		seen[sessWin] = true
+		seen[target] = true
 
 		branch := gitBranch(dir)
 		dirName := baseName(dir)

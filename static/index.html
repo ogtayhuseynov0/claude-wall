@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Claude Wall</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -70,6 +71,14 @@
     color: var(--accent);
     letter-spacing: 1.5px;
     text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  header h1 .logo {
+    width: 20px; height: 20px;
+    flex-shrink: 0;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
   }
   header .count {
     font-size: 11px;
@@ -1164,7 +1173,7 @@
 </head>
 <body>
 <header>
-  <h1>Claude Wall</h1>
+  <h1><img class="logo" src="/favicon.svg" alt="">Claude Wall</h1>
   <span class="count" id="count"></span>
   <span class="status-summary" id="status-summary"></span>
   <select id="group-filter"><option value="">All</option></select>
