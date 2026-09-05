@@ -442,15 +442,46 @@
   #side-panel:not(.collapsed) ~ .panel-toggle { right: 320px; }
 
   /* ── Minimized Bar ── */
-  #minimized-bar {
+  #min-strip {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+    align-items: flex-start;
+    gap: 8px;
     padding: 6px 12px;
     flex-shrink: 0;
     background: var(--bg-surface);
   }
-  #minimized-bar:empty { display: none; }
+  #min-strip.hidden { display: none; }
+  #min-toggle {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    white-space: nowrap;
+    align-self: center;
+  }
+  #min-toggle:hover { color: var(--text); border-color: var(--accent); }
+  #min-toggle #min-caret { font-size: 9px; transition: transform .12s; }
+  #min-strip.expanded #min-toggle #min-caret { transform: rotate(90deg); }
+  #min-toggle #min-count { color: var(--accent); font-weight: 600; }
+  #minimized-bar {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 6px;
+    flex: 1 1 auto;
+    min-width: 0;
+    scrollbar-width: thin;
+  }
+  #min-strip.expanded #minimized-bar { flex-wrap: wrap; overflow-x: visible; }
   #minimized-bar .tile {
     flex: 0 0 auto;
     height: auto;
@@ -1201,7 +1232,12 @@
   </div>
   <button class="refresh-btn" onclick="location.reload()">↻</button>
 </header>
-<div id="minimized-bar"></div>
+<div id="min-strip" class="hidden">
+  <button id="min-toggle" title="Show/hide minimized panes">
+    <span id="min-caret">▸</span><span id="min-count">0</span> minimized
+  </button>
+  <div id="minimized-bar"></div>
+</div>
 <div id="main-container">
   <div id="grid"></div>
   <div id="side-panel">
@@ -1738,7 +1774,7 @@ function createTile(pane) {
     tile.classList.toggle('minimized', isMin);
     minBtn.textContent = isMin ? '▔' : '▁';
     if (isMin) {
-      minBar.appendChild(tile);
+      minBar.insertBefore(tile, minBar.firstChild); // recent-closed first
     } else {
       grid.appendChild(tile);
       // Flush pending render on un-minimize
@@ -1749,6 +1785,7 @@ function createTile(pane) {
       setTimeout(() => { body.scrollTop = body.scrollHeight; }, 100);
     }
     updateGrid();
+    updateMinStrip();
     localStorage.setItem('cw-tile-' + pane.target, JSON.stringify({ minimized: isMin }));
   }
   minBtn.addEventListener('click', (e) => {
@@ -2044,6 +2081,23 @@ searchInput.addEventListener('keydown', (e) => {
 function notifyAllHistoryModes() {
   for (const [, s] of tiles) s.sendHistoryMode();
 }
+
+// ── Minimized-pane strip (collapse / expand) ──
+function updateMinStrip() {
+  const strip = document.getElementById('min-strip');
+  const bar = document.getElementById('minimized-bar');
+  const n = bar.children.length;
+  document.getElementById('min-count').textContent = n;
+  strip.classList.toggle('hidden', n === 0);
+}
+(function () {
+  const strip = document.getElementById('min-strip');
+  if (localStorage.getItem('cw-min-expanded') === '1') strip.classList.add('expanded');
+  document.getElementById('min-toggle').addEventListener('click', () => {
+    const exp = strip.classList.toggle('expanded');
+    localStorage.setItem('cw-min-expanded', exp ? '1' : '0');
+  });
+})();
 
 // ── Keyboard navigation ──
 function selectTileEl(tile, focusBody = true) {
