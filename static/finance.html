@@ -65,11 +65,65 @@
   .mm-section { display: flex; gap: 12px; margin-bottom: 24px; }
   .mm-card { flex: 1; }
 
+  .st-note { font-size: 10px; font-weight: 500; color: var(--text-muted); text-transform: none; letter-spacing: 0; margin-left: 8px; }
+
+  /* Heatmap (GitHub-style contribution graph) */
+  .heatmap-wrap, .bars-wrap { padding: 14px 16px; }
+  .hm-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 11px; color: var(--text-secondary); font-weight: 600; }
+  .hm-legend { display: flex; align-items: center; gap: 3px; font-size: 10px; color: var(--text-muted); font-weight: 500; }
+  .hm-legend i { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+  .hm-scroll { overflow-x: auto; padding-bottom: 4px; }
+  .hm-grid { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 12px); gap: 3px; width: max-content; }
+  .hm-cell, .hm-legend i.l0 { background: var(--bg-raised); }
+  .hm-cell { width: 12px; height: 12px; border-radius: 2px; background: var(--bg-raised); }
+  .hm-cell.l1, .hm-legend i.l1 { background: #1e3a57; }
+  .hm-cell.l2, .hm-legend i.l2 { background: #2f5f92; }
+  .hm-cell.l3, .hm-legend i.l3 { background: #4b83d4; }
+  .hm-cell.l4, .hm-legend i.l4 { background: #6ea1f7; }
+  .hm-cell.future { background: transparent; }
+  .hm-cell.hm-hit { cursor: pointer; }
+  .hm-cell.hm-hit:hover { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+  /* Day-detail modal */
+  .day-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: flex-start; justify-content: center; z-index: 1000; padding: 60px 16px; overflow-y: auto; }
+  .day-modal-overlay.show { display: flex; }
+  .day-modal { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 520px; box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
+  .dm-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--border-subtle); }
+  .dm-head h3 { font-size: 15px; font-family: var(--font-mono); font-weight: 600; }
+  .dm-close { cursor: pointer; color: var(--text-muted); font-size: 20px; line-height: 1; background: none; border: none; }
+  .dm-close:hover { color: var(--text); }
+  .dm-body { padding: 16px 4px 10px; }
+  .day-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; padding: 0 16px 14px; }
+  .day-stats > div { display: flex; flex-direction: column; gap: 2px; }
+  .ds-l { font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); font-weight: 600; }
+  .ds-v { font-size: 15px; font-family: var(--font-mono); font-weight: 700; }
+  .ds-v.cost { color: var(--accent); }
+  @media (max-width: 520px) { .day-stats { grid-template-columns: repeat(3, 1fr); } }
+
+  /* Daily bar chart */
+  .bars { display: flex; align-items: flex-end; gap: 3px; height: 120px; }
+  .bar-col { flex: 1; display: flex; align-items: flex-end; height: 100%; min-width: 4px; }
+  .bar { width: 100%; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 2px; opacity: 0.85; transition: opacity .1s; }
+  .bar-col:hover .bar { opacity: 1; }
+  .bars-range { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 6px; }
+
+  /* Model / project breakdown */
+  .bd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+  .bd-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); font-weight: 600; padding: 12px 16px 8px; }
+  .bd-list { padding: 0 16px 14px; }
+  .bd-row { display: grid; grid-template-columns: 92px 1fr auto; align-items: center; gap: 10px; padding: 5px 0; }
+  .bd-name { font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bd-track { height: 8px; background: var(--bg-raised); border-radius: 4px; overflow: hidden; }
+  .bd-fill { height: 100%; background: var(--accent); border-radius: 4px; }
+  .bd-cost { font-size: 11px; font-family: var(--font-mono); color: var(--accent); font-weight: 600; }
+  .bd-sub { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
+
   @media (max-width: 768px) {
     .summary { grid-template-columns: repeat(2, 1fr); }
     .card .value { font-size: 20px; }
     table { font-size: 11px; }
     thead th, tbody td { padding: 8px 10px; }
+    .bd-grid { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -82,6 +136,28 @@
   </div>
 
   <div class="summary" id="summary"></div>
+
+  <div class="section-title">Daily Usage <span class="st-note" id="daily-note"></span></div>
+  <div class="summary" id="daily-cards"></div>
+
+  <div class="table-wrap heatmap-wrap">
+    <div class="hm-head">
+      <span>Cost per day — past year</span>
+      <span class="hm-legend">Less <i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i> More</span>
+    </div>
+    <div class="hm-scroll"><div class="hm-grid" id="heatmap"></div></div>
+  </div>
+
+  <div class="table-wrap bars-wrap">
+    <div class="hm-head"><span>Last 30 days</span></div>
+    <div class="bars" id="daily-bars"></div>
+    <div class="bars-range" id="bars-range"></div>
+  </div>
+
+  <div class="bd-grid">
+    <div class="table-wrap"><div class="bd-title">By Model</div><div class="bd-list" id="by-model"></div></div>
+    <div class="table-wrap"><div class="bd-title">By Project</div><div class="bd-list" id="by-project"></div></div>
+  </div>
 
   <div class="section-title">Mastermind</div>
   <div class="mm-section" id="mm-summary"></div>
@@ -103,6 +179,16 @@
       </thead>
       <tbody id="sessions"></tbody>
     </table>
+  </div>
+</div>
+
+<div class="day-modal-overlay" id="day-modal">
+  <div class="day-modal">
+    <div class="dm-head">
+      <h3 id="day-modal-title"></h3>
+      <button class="dm-close" onclick="closeDayModal()">✕</button>
+    </div>
+    <div class="dm-body" id="day-modal-body"></div>
   </div>
 </div>
 
@@ -193,8 +279,146 @@ async function refresh() {
   }
 }
 
+// ─── Daily usage ────────────────────────────────────────────
+function isoDate(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function prettyModel(m) {
+  const t = m.replace(/^claude-/, '').replace(/-\d{8}$/, '');
+  const parts = t.split('-');
+  const fam = parts.shift() || m;
+  const ver = parts.join('.');
+  const cap = fam.charAt(0).toUpperCase() + fam.slice(1);
+  return ver ? cap + ' ' + ver : cap;
+}
+
+function buildHeatmap(days) {
+  const map = {};
+  let max = 0;
+  days.forEach(d => { map[d.date] = d; if (d.cost > max) max = d.cost; });
+  const level = c => {
+    if (!c || c <= 0 || max <= 0) return 0;
+    const r = c / max;
+    if (r > 0.55) return 4;
+    if (r > 0.28) return 3;
+    if (r > 0.08) return 2;
+    return 1;
+  };
+  const today = new Date(); today.setHours(0,0,0,0);
+  const start = new Date(today);
+  start.setDate(start.getDate() - (53*7 - 1));
+  start.setDate(start.getDate() - start.getDay()); // align to Sunday
+  const cur = new Date(start);
+  const cells = [];
+  while (cur <= today) {
+    const ds = isoDate(cur);
+    const d = map[ds];
+    const c = d ? d.cost : 0;
+    cells.push(`<div class="hm-cell l${level(c)}${c > 0 ? ' hm-hit' : ''}" data-date="${ds}" title="${ds} · ${fmtCost(c)}"></div>`);
+    cur.setDate(cur.getDate() + 1);
+  }
+  document.getElementById('heatmap').innerHTML = cells.join('');
+}
+
+function buildBars(days) {
+  const last = days.slice(-30);
+  let max = 0;
+  last.forEach(d => { if (d.cost > max) max = d.cost; });
+  document.getElementById('daily-bars').innerHTML = last.map(d => {
+    const h = max > 0 ? Math.max(2, Math.round(d.cost/max * 100)) : 2;
+    return `<div class="bar-col" title="${d.date} · ${fmtCost(d.cost)}"><div class="bar" style="height:${h}%"></div></div>`;
+  }).join('');
+  const range = document.getElementById('bars-range');
+  if (last.length) {
+    range.innerHTML = `<span>${last[0].date}</span><span>${last[last.length-1].date}</span>`;
+  }
+}
+
+function buildBreakdown(elId, list, totalCost, pretty) {
+  const el = document.getElementById(elId);
+  if (!list || !list.length) { el.innerHTML = '<div class="bd-sub">No data</div>'; return; }
+  el.innerHTML = list.slice(0, 8).map(m => {
+    const pct = totalCost > 0 ? (m.cost / totalCost * 100) : 0;
+    const name = pretty ? prettyModel(m.name) : m.name;
+    return `<div class="bd-row">
+      <div class="bd-name" title="${m.name}">${name}</div>
+      <div class="bd-track"><div class="bd-fill" style="width:${pct.toFixed(1)}%"></div></div>
+      <div class="bd-cost">${fmtCost(m.cost)}</div>
+    </div>`;
+  }).join('');
+}
+
+async function refreshDaily() {
+  try {
+    const res = await fetch('/api/finance/daily');
+    const data = await res.json();
+    const days = data.days || [];
+    const totals = data.totals || {};
+
+    document.getElementById('daily-note').textContent =
+      `estimated API-equivalent cost · ${data.numDays || 0} active days`;
+
+    document.getElementById('daily-cards').innerHTML = `
+      <div class="card"><div class="label">Today</div><div class="value cost">${fmtCost(data.todayCost || 0)}</div><div class="sub">${data.today || ''}</div></div>
+      <div class="card"><div class="label">Last 30 Days</div><div class="value cost">${fmtCost(data.cost30d || 0)}</div><div class="sub">rolling</div></div>
+      <div class="card"><div class="label">This Month</div><div class="value cost">${fmtCost(data.monthCost || 0)}</div></div>
+      <div class="card"><div class="label">All-Time</div><div class="value cost">${fmtCost(totals.cost || 0)}</div><div class="sub">${fmt(totals.msgs || 0)} messages</div></div>
+    `;
+
+    buildHeatmap(days);
+    buildBars(days);
+    buildBreakdown('by-model', data.byModel, totals.cost || 0, true);
+    buildBreakdown('by-project', data.byProject, totals.cost || 0, false);
+  } catch (e) {
+    document.getElementById('daily-note').textContent = 'error loading daily usage';
+  }
+}
+
+// ─── Day-detail modal ───────────────────────────────────────
+async function openDayModal(date) {
+  const overlay = document.getElementById('day-modal');
+  const body = document.getElementById('day-modal-body');
+  document.getElementById('day-modal-title').textContent = date;
+  body.innerHTML = '<div class="bd-sub" style="padding:20px 16px">Loading…</div>';
+  overlay.classList.add('show');
+  try {
+    const res = await fetch('/api/finance/day?date=' + encodeURIComponent(date));
+    const d = await res.json();
+    const t = d.total || {};
+    const cacheT = (t.cacheRead || 0) + (t.cacheCreate || 0);
+    body.innerHTML = `
+      <div class="day-stats">
+        <div><span class="ds-l">Cost</span><span class="ds-v cost">${fmtCost(t.cost || 0)}</span></div>
+        <div><span class="ds-l">Msgs</span><span class="ds-v">${fmt(t.msgs || 0)}</span></div>
+        <div><span class="ds-l">Input</span><span class="ds-v">${fmt(t.input || 0)}</span></div>
+        <div><span class="ds-l">Output</span><span class="ds-v">${fmt(t.output || 0)}</span></div>
+        <div><span class="ds-l">Cache</span><span class="ds-v">${fmt(cacheT)}</span></div>
+      </div>
+      <div class="bd-title">By Model</div><div class="bd-list" id="dm-model"></div>
+      <div class="bd-title">By Project</div><div class="bd-list" id="dm-project"></div>
+    `;
+    buildBreakdown('dm-model', d.byModel, t.cost || 0, true);
+    buildBreakdown('dm-project', d.byProject, t.cost || 0, false);
+  } catch (e) {
+    body.innerHTML = '<div class="bd-sub" style="padding:20px 16px">Error loading day</div>';
+  }
+}
+function closeDayModal() { document.getElementById('day-modal').classList.remove('show'); }
+
+document.getElementById('heatmap').addEventListener('click', e => {
+  const cell = e.target.closest('.hm-cell.hm-hit');
+  if (cell && cell.dataset.date) openDayModal(cell.dataset.date);
+});
+document.getElementById('day-modal').addEventListener('click', e => {
+  if (e.target.id === 'day-modal') closeDayModal();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDayModal(); });
+
 refresh();
 setInterval(refresh, 5000);
+refreshDaily();
+setInterval(refreshDaily, 60000);
 </script>
 </body>
 </html>

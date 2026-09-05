@@ -71,6 +71,7 @@ func runWeb(port int) {
 	}()
 	tgBot.start()
 	go startMetrics()
+	go dailyUsage.compute() // warm the transcript scan so first finance load is fast
 
 	// Claude Code tasks (PM view)
 	http.HandleFunc("/api/tasks", handleTasksAPI)
@@ -428,6 +429,8 @@ func runWeb(port int) {
 
 	// Finance / cost tracking
 	http.HandleFunc("/api/finance", handleFinanceAPI)
+	http.HandleFunc("/api/finance/daily", handleFinanceDaily)
+	http.HandleFunc("/api/finance/day", handleFinanceDay)
 
 	// Health check
 	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
