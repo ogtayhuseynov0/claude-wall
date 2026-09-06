@@ -1,0 +1,145 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PiP</title>
+<script src="/ansi_up.min.js"></script>
+<style>
+  :root { --bg:rgba(16,18,24,0.58); --bar:rgba(24,27,36,0.55); --fg:#f0f2f6; --muted:#9aa0b0; --accent:#6ea1f7; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family:"SFMono-Regular",Menlo,Consolas,"Liberation Mono",monospace; }
+  body { display:flex; flex-direction:column; outline:none; }
+  #bar { flex:0 0 auto; display:flex; align-items:center; gap:8px; padding:5px 10px;
+    background:var(--bar); border-bottom:1px solid rgba(80,86,104,0.35); font-size:12px; user-select:none; -webkit-app-region:drag; }
+  #dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:0 0 auto; }
+  #dot.idle { background:#57d977; } #dot.working { background:#f5a742; }
+  #dot.error { background:#e5566a; } #dot.connecting,#dot.disconnected { background:var(--muted); }
+  #title { font-weight:600; color:var(--fg); }
+  #sub { color:var(--muted); }
+  #spacer { flex:1; }
+  .btn { -webkit-app-region:no-drag; cursor:pointer; color:var(--muted); padding:2px 6px; border-radius:4px; }
+  .btn:hover { color:var(--fg); background:#2a2e3a; }
+  #term { flex:1; overflow-y:auto; overflow-x:hidden; padding:8px 10px; }
+  pre { margin:0; white-space:pre-wrap; word-break:break-word; font-size:12.5px; line-height:1.35; }
+  #history { opacity:.72; }
+  .hrule { display:block; border-top:1px solid #2a2e3a; margin:3px 0; }
+  #term::-webkit-scrollbar { width:9px; } #term::-webkit-scrollbar-thumb { background:#2f3340; border-radius:5px; }
+</style>
+</head>
+<body tabindex="0">
+  <div id="bar">
+    <span id="dot" class="connecting"></span>
+    <span id="title">…</span><span id="sub"></span>
+    <span id="spacer"></span>
+    <span class="btn" id="goto" title="Focus this pane in the terminal">⤢</span>
+    <span class="btn" id="close" title="Close">✕</span>
+  </div>
+  <div id="term"><pre id="history"></pre><pre id="live"></pre></div>
+<script>
+  const params = new URLSearchParams(location.search);
+  const target = params.get('target') || '';
+  // background-only translucency (text stays fully opaque). Driven by the native slider.
+  window.setBgAlpha = (a) => {
+    a = Math.max(0, Math.min(1, a));
+    const root = document.documentElement.style;
+    root.setProperty('--bg', `rgba(16,18,24,${a})`);
+    root.setProperty('--bar', `rgba(24,27,36,${Math.max(0, a - 0.03)})`);
+  };
+  { const bgA = parseFloat(params.get('bg')); if (!isNaN(bgA)) window.setBgAlpha(bgA); }
+  const ansi = new AnsiUp();
+  const stripOSC = (t) => t.replace(/\x1b\]8;[^]*?(?:\x1b\\|\x07)(.*?)\x1b\]8;[^]*?(?:\x1b\\|\x07)/g,'$1').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g,'');
+  const renderAnsi = (t) => ansi.ansi_to_html(stripOSC(t)).replace(/^@@HRULE@@$/gm,'<span class="hrule"></span>');
+
+  const term = document.getElementById('term');
+  const historyPre = document.getElementById('history');
+  const livePre = document.getElementById('live');
+  const dot = document.getElementById('dot');
+  const titleEl = document.getElementById('title');
+  const subEl = document.getElementById('sub');
+  document.title = 'PiP · ' + target;
+  titleEl.textContent = target.split(':')[0] || target;
+  subEl.textContent = target ? '· ' + target : '';
+
+  let ws, reconnectDelay = 500, lastContent = '';
+  const atBottom = () => (term.scrollHeight - term.scrollTop - term.clientHeight) < 40;
+  const toBottom = () => { term.scrollTop = term.scrollHeight; };
+  const setStatus = (s) => { dot.className = s || 'connecting'; };
+
+  function connect() {
+    setStatus('connecting');
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}/ws/${target}`);
+    ws.onopen = () => { setStatus('idle'); reconnectDelay = 500; ws.send(JSON.stringify({type:'history-mode',data:'on'})); };
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'history') {
+        const stick = atBottom();
+        historyPre.innerHTML = renderAnsi(msg.data);
+        if (stick) toBottom();
+        if (msg.status) setStatus(msg.status);
+      } else if (msg.type === 'content') {
+        if (msg.data === lastContent) { if (msg.status) setStatus(msg.status); return; }
+        lastContent = msg.data;
+        const stick = atBottom();
+        livePre.innerHTML = renderAnsi(msg.data);
+        if (msg.status) setStatus(msg.status);
+        if (stick) toBottom();
+      } else if (msg.type === 'status-update') {
+        if (msg.status) setStatus(msg.status);
+      } else if (msg.type === 'status' && msg.data === 'disconnected') {
+        setStatus('disconnected');
+      }
+    };
+    ws.onclose = () => { setStatus('disconnected'); setTimeout(() => { reconnectDelay = Math.min(reconnectDelay*1.5, 8000); connect(); }, reconnectDelay); };
+    ws.onerror = () => ws.close();
+  }
+
+  // keystrokes → tmux (same mapping as the dashboard)
+  document.addEventListener('keydown', (e) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    let data = '';
+    if (e.ctrlKey && !e.metaKey && e.key.length === 1) {
+      const code = e.key.toLowerCase().charCodeAt(0) - 96;
+      if (code > 0 && code < 27) { data = String.fromCharCode(code); e.preventDefault(); }
+    } else if (e.key.length === 1 && !e.metaKey) {
+      data = e.key; e.preventDefault();
+    } else {
+      switch (e.key) {
+        case 'Enter': data = '\r'; break;
+        case 'Backspace': data = '\x7f'; break;
+        case 'Tab': data = e.shiftKey ? '\x1b[Z' : '\t'; e.preventDefault(); break;
+        case 'Escape': data = '\x1b'; break;
+        case 'ArrowUp': data = '\x1b[A'; break;
+        case 'ArrowDown': data = '\x1b[B'; break;
+        case 'ArrowRight': data = '\x1b[C'; break;
+        case 'ArrowLeft': data = '\x1b[D'; break;
+        case 'PageUp': data = '\x1b[5~'; break;
+        case 'PageDown': data = '\x1b[6~'; break;
+        case 'Home': data = '\x1b[H'; break;
+        case 'End': data = '\x1b[F'; break;
+        case 'Delete': data = '\x1b[3~'; break;
+      }
+      if (data) e.preventDefault();
+    }
+    if (data) ws.send(JSON.stringify({ type: 'input', data }));
+  });
+  document.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData('text');
+    if (text && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data: text }));
+  });
+
+  document.getElementById('close').onclick = () => { try { ws && ws.close(); } catch(_){} window.close(); };
+  document.getElementById('goto').onclick = () => { fetch('/api/goto/' + encodeURIComponent(target)).catch(()=>{}); };
+  // keep the page focused so keystrokes are captured
+  const refocus = () => document.body.focus();
+  window.addEventListener('load', refocus);
+  window.addEventListener('focus', refocus);
+  term.addEventListener('mousedown', () => setTimeout(refocus, 0));
+
+  if (!target) { livePre.textContent = 'no ?target= given'; } else { connect(); }
+</script>
+</body>
+</html>

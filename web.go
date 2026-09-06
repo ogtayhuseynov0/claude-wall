@@ -126,6 +126,42 @@ func runWeb(port int) {
 		json.NewEncoder(w).Encode(current)
 	})
 
+	// Lightweight status summary for external UIs (ClaudePiP menubar/button).
+	// Counts working agents + pending permission requests without a heavy capture.
+	http.HandleFunc("/api/summary", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		panes, _ := findClaudePanes()
+		type paneStatus struct {
+			Target  string `json:"target"`
+			DirName string `json:"dirName"`
+			Status  string `json:"status"`
+		}
+		out := struct {
+			Total   int          `json:"total"`
+			Working int          `json:"working"`
+			Pending int          `json:"pending"`
+			Panes   []paneStatus `json:"panes"`
+		}{Panes: []paneStatus{}}
+		for _, p := range panes {
+			status := "idle"
+			if hooks != nil {
+				if hs := hooks.getStateForPane(p.Target, p.Dir); hs != nil && hs.Status != "" {
+					status = hs.Status
+				}
+			}
+			if status == "working" {
+				out.Working++
+			}
+			out.Panes = append(out.Panes, paneStatus{Target: p.Target, DirName: p.DirName, Status: status})
+		}
+		out.Total = len(panes)
+		if feed != nil {
+			out.Pending = len(feed.getPending())
+		}
+		json.NewEncoder(w).Encode(out)
+	})
+
 	// Go to pane: switch tmux session/window/pane and activate the terminal
 	http.HandleFunc("/api/goto/", func(w http.ResponseWriter, r *http.Request) {
 		target := strings.TrimPrefix(r.URL.Path, "/api/goto/")
