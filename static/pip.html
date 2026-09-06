@@ -6,7 +6,7 @@
 <title>PiP</title>
 <script src="/ansi_up.min.js"></script>
 <style>
-  :root { --bg:rgba(16,18,24,0.58); --bar:rgba(24,27,36,0.55); --fg:#f0f2f6; --muted:#9aa0b0; --accent:#6ea1f7; }
+  :root { --bg:transparent; --bar:rgba(24,27,36,0.35); --fg:#f0f2f6; --muted:#9aa0b0; --accent:#6ea1f7; }
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
     font-family:"SFMono-Regular",Menlo,Consolas,"Liberation Mono",monospace; }
@@ -40,14 +40,7 @@
 <script>
   const params = new URLSearchParams(location.search);
   const target = params.get('target') || '';
-  // background-only translucency (text stays fully opaque). Driven by the native slider.
-  window.setBgAlpha = (a) => {
-    a = Math.max(0, Math.min(1, a));
-    const root = document.documentElement.style;
-    root.setProperty('--bg', `rgba(16,18,24,${a})`);
-    root.setProperty('--bar', `rgba(24,27,36,${Math.max(0, a - 0.03)})`);
-  };
-  { const bgA = parseFloat(params.get('bg')); if (!isNaN(bgA)) window.setBgAlpha(bgA); }
+  // page background is transparent; the native app draws an adjustable dark layer behind.
   const ansi = new AnsiUp();
   const stripOSC = (t) => t.replace(/\x1b\]8;[^]*?(?:\x1b\\|\x07)(.*?)\x1b\]8;[^]*?(?:\x1b\\|\x07)/g,'$1').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g,'');
   const renderAnsi = (t) => ansi.ansi_to_html(stripOSC(t)).replace(/^@@HRULE@@$/gm,'<span class="hrule"></span>');
