@@ -89,9 +89,24 @@ struct Usage: Decodable {
 }
 
 // real subscription usage from Claude's /api/oauth/usage (utilization 0..1 or 0..100)
-struct LimWin: Decodable { let utilization: Double }
+struct LimWin: Decodable { let utilization: Double; let resets_at: String? }
 struct AccountLimits: Decodable { let five_hour: LimWin; let seven_day: LimWin }
 struct Limits: Decodable { let personal: AccountLimits?; let work: AccountLimits? }
+
+// parse Claude's ISO8601 reset timestamps → short local labels
+func parseISO(_ s: String?) -> Date? {
+    guard let s = s else { return nil }
+    let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let d = f.date(from: s) { return d }
+    let f2 = ISO8601DateFormatter(); f2.formatOptions = [.withInternetDateTime]
+    return f2.date(from: s)
+}
+func shortTime(_ d: Date) -> String {
+    let f = DateFormatter(); f.dateFormat = "h:mm a"; return f.string(from: d)
+}
+func shortWeekReset(_ d: Date) -> String {
+    let f = DateFormatter(); f.dateFormat = "EEE h a"; return f.string(from: d)
+}
 
 // tint a template image a solid color
 func tinted(_ image: NSImage, _ color: NSColor) -> NSImage {
@@ -576,7 +591,7 @@ final class StatusPanel: NSViewController {
 
     override func loadView() {
         let W: CGFloat = 320, cw: CGFloat = 292
-        let bg = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: W, height: 552))
+        let bg = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: W, height: 586))
         bg.material = .popover; bg.blendingMode = .behindWindow; bg.state = .active
 
         // header
@@ -730,12 +745,32 @@ final class StatusPanel: NSViewController {
         v.alignment = .right
         v.textColor = (p5 >= 90 || pw >= 90) ? statusColor("permission") : .labelColor
         v.setContentHuggingPriority(.required, for: .horizontal)
-        let r = NSStackView(views: [n, NSView(), v])
-        r.alignment = .centerY
-        r.toolTip = tip
-        r.translatesAutoresizingMaskIntoConstraints = false
-        r.widthAnchor.constraint(equalToConstant: 292).isActive = true
-        return r
+        let top = NSStackView(views: [n, NSView(), v])
+        top.alignment = .centerY
+
+        // reset-times subline (only when we have live data)
+        var subline: NSTextField?
+        if let real = real {
+            var parts: [String] = []
+            if let d = parseISO(real.five_hour.resets_at) { parts.append("5h→\(shortTime(d))") }
+            if let d = parseISO(real.seven_day.resets_at) { parts.append("wk→\(shortWeekReset(d))") }
+            if !parts.isEmpty {
+                let s = NSTextField(labelWithString: parts.joined(separator: "  ·  "))
+                s.font = NSFont.systemFont(ofSize: 10)
+                s.textColor = .secondaryLabelColor
+                subline = s
+            }
+        }
+
+        let col = NSStackView(views: subline != nil ? [top, subline!] : [top])
+        col.orientation = .vertical
+        col.spacing = 1
+        col.alignment = .leading
+        col.toolTip = tip
+        col.translatesAutoresizingMaskIntoConstraints = false
+        col.widthAnchor.constraint(equalToConstant: 292).isActive = true
+        top.widthAnchor.constraint(equalToConstant: 292).isActive = true
+        return col
     }
 
     func setUsage(_ u: Usage, _ limits: Limits?) {
@@ -828,7 +863,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         popover.behavior = .transient
         popover.animates = true
         popover.contentViewController = statusPanel
-        popover.contentSize = NSSize(width: 320, height: 552)
+        popover.contentSize = NSSize(width: 320, height: 586)
         statusPanel.onOpen = { [weak self] in self?.popover.performClose(nil); self?.showPicker() }
         statusPanel.onOpenActive = { [weak self] in self?.popover.performClose(nil); self?.openActive() }
         statusPanel.onOpenDashboard = { [weak self] in
