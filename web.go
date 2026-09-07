@@ -143,12 +143,40 @@ func runWeb(port int) {
 			Pending int          `json:"pending"`
 			Panes   []paneStatus `json:"panes"`
 		}{Panes: []paneStatus{}}
+		var snap map[string]string
+		if hub != nil {
+			snap = hub.statusSnapshot()
+		}
+		statuses := make(map[string]string, len(panes))
+		var missing []string
 		for _, p := range panes {
-			status := "idle"
-			if hooks != nil {
+			status := ""
+			if snap != nil {
+				status = snap[p.Target] // live status (matches dashboard) when pane is being captured
+			}
+			if status == "" && hooks != nil {
 				if hs := hooks.getStateForPane(p.Target, p.Dir); hs != nil && hs.Status != "" {
 					status = hs.Status
 				}
+			}
+			statuses[p.Target] = status
+			if status == "" {
+				missing = append(missing, p.Target)
+			}
+		}
+		// on-demand capture for panes with no live/hook status (works without the dashboard open)
+		if len(missing) > 0 {
+			caps := batchCapture(missing)
+			for _, t := range missing {
+				if s, _ := parseTerminalStatus(caps[t]); s != "" {
+					statuses[t] = s
+				}
+			}
+		}
+		for _, p := range panes {
+			status := statuses[p.Target]
+			if status == "" {
+				status = "idle"
 			}
 			if status == "working" {
 				out.Working++

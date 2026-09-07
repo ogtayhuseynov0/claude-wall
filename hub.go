@@ -55,6 +55,20 @@ func newCaptureHub() *captureHub {
 	}
 }
 
+// statusSnapshot returns the last known live status per subscribed target
+// (same resolution the dashboard sees). Empty for panes with no capture yet.
+func (h *captureHub) statusSnapshot() map[string]string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	m := make(map[string]string, len(h.latest))
+	for t, u := range h.latest {
+		if u.Status != "" && u.Status != "disconnected" {
+			m[t] = u.Status
+		}
+	}
+	return m
+}
+
 func (h *captureHub) subscribe(target string) chan paneUpdate {
 	ch := make(chan paneUpdate, 4)
 	h.mu.Lock()
