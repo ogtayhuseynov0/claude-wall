@@ -687,6 +687,25 @@ final class StatusPanel: NSViewController {
     }
     func setAlpha(_ v: Double) { slider.doubleValue = v; pctLabel.stringValue = "\(Int(v * 100))%" }
 
+    private func skelBar(_ w: CGFloat) -> NSView {
+        let v = NSView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.wantsLayer = true
+        v.layer?.cornerRadius = 4
+        v.layer?.backgroundColor = NSColor.secondaryLabelColor.withAlphaComponent(0.16).cgColor
+        v.heightAnchor.constraint(equalToConstant: 14).isActive = true
+        v.widthAnchor.constraint(equalToConstant: w).isActive = true
+        return v
+    }
+
+    // skeleton placeholders while usage/repos load (shown until data arrives)
+    func showLoading() {
+        usageBox.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for _ in 0..<2 { usageBox.addArrangedSubview(skelBar(250)) }
+        spendersBox.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for w in [230, 185, 205, 165] as [CGFloat] { spendersBox.addArrangedSubview(skelBar(w)) }
+    }
+
     private func pct(_ cost: Double, _ cap: Double) -> Int {
         guard cap > 0 else { return 0 }
         return min(999, Int((cost / cap * 100).rounded()))
@@ -950,6 +969,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if popover.isShown { popover.performClose(nil); return }
         statusPanel.setAlpha(Double(pipAlpha))
         refreshPopoverCounts()
+        statusPanel.showLoading()        // skeleton until data lands
+        if lastUsage != nil { renderUsage() }  // cached data paints instantly, skipping skeleton
         fetchStats()
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: view.bounds, of: view, preferredEdge: edge)
