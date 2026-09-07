@@ -896,6 +896,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             self?.pollSummary()
         }
         registerHotkey()
+
+        // ⌘W closes the focused PiP (caught before the webview swallows it)
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            if e.modifierFlags.contains(.command),
+               e.charactersIgnoringModifiers?.lowercased() == "w",
+               let w = NSApp.keyWindow, w is PipPanel {
+                w.close()
+                return nil
+            }
+            return e
+        }
     }
 
     // global ⌘⌥P → open picker (Carbon hotkey; no Accessibility permission needed)
