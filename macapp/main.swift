@@ -1103,6 +1103,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }.resume()
     }
 
+    // First grid slot (top-right, going left then down) that no open PiP occupies.
+    func freeOrigin(width w: CGFloat, height h: CGFloat) -> NSPoint {
+        guard let scr = NSScreen.main else { return NSPoint(x: 100, y: 100) }
+        let f = scr.visibleFrame
+        let gap: CGFloat = 12
+        let existing = pips.values.map { $0.frame }
+        var y = f.maxY - h - gap
+        while y >= f.minY {
+            var x = f.maxX - w - gap
+            while x >= f.minX {
+                let rect = NSRect(x: x, y: y, width: w, height: h).insetBy(dx: -4, dy: -4)
+                if !existing.contains(where: { $0.intersects(rect) }) {
+                    return NSPoint(x: x, y: y)
+                }
+                x -= (w + gap)
+            }
+            y -= (h + gap)
+        }
+        // screen full — stagger from top-right so it's at least reachable
+        let off = CGFloat(pips.count % 8) * 28
+        return NSPoint(x: f.maxX - w - gap - off, y: f.maxY - h - gap - off)
+    }
+
     // Lay out all open PiP windows in a grid on the main screen.
     func tileOpenPips() {
         guard let scr = NSScreen.main else { return }
@@ -1187,10 +1210,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let enc = target.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? target
         if let u = URL(string: "\(WALL)/pip.html?target=\(enc)") { wv.load(URLRequest(url: u)) }
 
-        if tile, let scr = NSScreen.main {
-            let f = scr.visibleFrame
-            let off = CGFloat(pips.count) * 28
-            win.setFrameOrigin(NSPoint(x: f.maxX - 560 - 24 - off, y: f.maxY - 440 - off))
+        if tile {
+            win.setFrameOrigin(freeOrigin(width: size.width, height: size.height))
         }
         pips[target] = win
         win.makeKeyAndOrderFront(nil)
