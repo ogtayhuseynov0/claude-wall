@@ -4,24 +4,56 @@ import Carbon.HIToolbox
 
 let WALL = "http://127.0.0.1:7685"
 
-// 18pt template image of the PiP glyph — drawn (not SF Symbol) so the menubar
-// icon always renders regardless of symbol availability.
-func menubarGlyph() -> NSImage {
-    let s: CGFloat = 18
-    let img = NSImage(size: NSSize(width: s, height: s))
+// The claude-wall logo (matches static/favicon.svg): a rounded dark card with a
+// 2×2 grid of panes — three idle (gray) + one live (Claude orange) with a sparkle.
+// Colored (not a template) so it reads the same in the menubar, popover, and dock.
+func wallLogo(_ px: CGFloat) -> NSImage {
+    let s = px / 32.0
+    // svg coords are top-left origin; AppKit is bottom-up — flip y.
+    func R(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> NSRect {
+        NSRect(x: x * s, y: px - (y + h) * s, width: w * s, height: h * s)
+    }
+    let img = NSImage(size: NSSize(width: px, height: px))
     img.lockFocus()
-    let outer = NSRect(x: 1, y: 3, width: 16, height: 12)
-    let path = NSBezierPath(roundedRect: outer, xRadius: 2.6, yRadius: 2.6)
-    // punch a small "pip" window out of the bottom-right (even-odd fill)
-    let pip = NSRect(x: outer.maxX - 6, y: outer.minY + 2, width: 4.5, height: 3.5)
-    path.append(NSBezierPath(roundedRect: pip, xRadius: 1, yRadius: 1).reversed)
-    path.windingRule = .evenOdd
-    NSColor.black.setFill()
-    path.fill()
+
+    // card body with vertical gradient
+    let card = NSBezierPath(roundedRect: R(1, 1, 30, 30), xRadius: 7 * s, yRadius: 7 * s)
+    NSGradient(starting: NSColor(srgbRed: 0.157, green: 0.169, blue: 0.212, alpha: 1),
+               ending: NSColor(srgbRed: 0.102, green: 0.110, blue: 0.137, alpha: 1))?
+        .draw(in: card, angle: -90)
+    NSColor(srgbRed: 0.227, green: 0.247, blue: 0.302, alpha: 1).setStroke()
+    card.lineWidth = 1 * s; card.stroke()
+
+    let idle = NSColor(srgbRed: 0.184, green: 0.200, blue: 0.251, alpha: 1)
+    for (x, y) in [(17.2, 5.6), (5.6, 17.2), (17.2, 17.2)] {
+        idle.setFill()
+        NSBezierPath(roundedRect: R(CGFloat(x), CGFloat(y), 9.2, 9.2), xRadius: 2.2 * s, yRadius: 2.2 * s).fill()
+    }
+    // live pane (orange gradient)
+    let live = NSBezierPath(roundedRect: R(5.6, 5.6, 9.2, 9.2), xRadius: 2.2 * s, yRadius: 2.2 * s)
+    NSGradient(starting: NSColor(srgbRed: 0.961, green: 0.620, blue: 0.259, alpha: 1),
+               ending: NSColor(srgbRed: 0.851, green: 0.463, blue: 0.024, alpha: 1))?
+        .draw(in: live, angle: -45)
+    // sparkle on the live pane (only legible at larger sizes)
+    if px >= 24 {
+        let cx = 10.2 * s, cy = px - 10.2 * s, a = 3.7 * s, b = 1.0 * s
+        let star = NSBezierPath()
+        star.move(to: NSPoint(x: cx, y: cy + a))
+        star.line(to: NSPoint(x: cx + b, y: cy + b))
+        star.line(to: NSPoint(x: cx + a, y: cy))
+        star.line(to: NSPoint(x: cx + b, y: cy - b))
+        star.line(to: NSPoint(x: cx, y: cy - a))
+        star.line(to: NSPoint(x: cx - b, y: cy - b))
+        star.line(to: NSPoint(x: cx - a, y: cy))
+        star.line(to: NSPoint(x: cx - b, y: cy + b))
+        star.close()
+        NSColor(srgbRed: 1, green: 0.965, blue: 0.925, alpha: 1).setFill(); star.fill()
+    }
+
     img.unlockFocus()
-    img.isTemplate = true
     return img
 }
+func menubarGlyph() -> NSImage { wallLogo(18) }
 
 struct Pane: Decodable {
     let target: String
@@ -44,7 +76,13 @@ struct Summary: Decodable {
 struct FinBucket: Decodable { let name: String; let cost: Double }
 struct DayFinance: Decodable { let byProject: [FinBucket] }
 struct UsageWindow: Decodable { let today: Double; let week: Double; let window5h: Double }
-struct Usage: Decodable { let personal: UsageWindow; let work: UsageWindow? }
+struct UsageCaps: Decodable { let window5h: Double; let week: Double }
+struct Usage: Decodable {
+    let personal: UsageWindow
+    let work: UsageWindow?
+    let caps: UsageCaps
+    let workCaps: UsageCaps?
+}
 
 // tint a template image a solid color
 func tinted(_ image: NSImage, _ color: NSColor) -> NSImage {
@@ -77,11 +115,7 @@ final class ButtonView: NSView {
     private var moved = false
 
     var idle = 0, working = 0, pending = 0, stale = 0
-    private lazy var glyph: NSImage? = {
-        guard let img = NSImage(systemSymbolName: "pip.fill", accessibilityDescription: nil) else { return nil }
-        let cfg = NSImage.SymbolConfiguration(pointSize: 21, weight: .semibold)
-        return tinted(img.withSymbolConfiguration(cfg) ?? img, .white)
-    }()
+    private lazy var logo: NSImage = wallLogo(48)
 
     func setStatus(idle: Int, working: Int, pending: Int, stale: Int) {
         if self.idle == idle && self.working == working && self.pending == pending && self.stale == stale { return }
@@ -106,20 +140,8 @@ final class ButtonView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let r = bounds.insetBy(dx: 5, dy: 5)
-        let path = NSBezierPath(roundedRect: r, xRadius: r.width / 2, yRadius: r.height / 2)
-        // base circle tints toward the most urgent state
-        let fill: NSColor
-        if pending > 0 { fill = NSColor(calibratedRed: 0.86, green: 0.30, blue: 0.33, alpha: 0.96) }
-        else if working > 0 { fill = NSColor(calibratedRed: 0.26, green: 0.68, blue: 0.42, alpha: 0.96) }
-        else { fill = NSColor(calibratedRed: 0.40, green: 0.55, blue: 0.95, alpha: 0.95) }
-        fill.setFill(); path.fill()
-
-        if let g = glyph {
-            let gs = g.size
-            g.draw(at: NSPoint(x: (bounds.width - gs.width) / 2, y: (bounds.height - gs.height) / 2),
-                   from: .zero, operation: .sourceOver, fraction: 1)
-        }
+        // the claude-wall logo IS the button face
+        logo.draw(in: bounds.insetBy(dx: 3, dy: 3), from: .zero, operation: .sourceOver, fraction: 1)
 
         let d: CGFloat = 19, pad: CGFloat = 1
         // idle → top-left, working → top-right, permission → bottom-right, stale(>30m) → bottom-left
@@ -180,6 +202,7 @@ final class PickerController: NSObject, NSTableViewDataSource, NSTableViewDelega
     var all: [(pane: Pane, status: String)] = []
     var rows: [(pane: Pane, status: String)] = []
     var onPick: ((String, String) -> Void)?
+    var onOpenAll: (([(target: String, name: String)]) -> Void)?
     var clickMonitor: Any?
 
     private var statusFilter: String? {
@@ -256,9 +279,18 @@ final class PickerController: NSObject, NSTableViewDataSource, NSTableViewDelega
         sep2.autoresizingMask = [.width]
         bg.addSubview(sep2)
 
+        // footer: open everything currently listed, tiled (⌘↩)
+        let footer = NSButton(title: "Open all listed  (⌘↩)", target: self, action: #selector(openAllListed))
+        footer.bezelStyle = .rounded
+        footer.keyEquivalent = "\r"
+        footer.keyEquivalentModifierMask = .command
+        footer.frame = NSRect(x: 10, y: 10, width: W - 20, height: 28)
+        footer.autoresizingMask = [.width]
+        bg.addSubview(footer)
+
         // table in scroll view — inset from the rounded panel edges so rows never
         // bleed under the corners / header separator
-        let scroll = NSScrollView(frame: NSRect(x: 8, y: 12, width: W - 16, height: H - 142))
+        let scroll = NSScrollView(frame: NSRect(x: 8, y: 46, width: W - 16, height: H - 176))
         scroll.autoresizingMask = [.width, .height]
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
@@ -383,6 +415,13 @@ final class PickerController: NSObject, NSTableViewDataSource, NSTableViewDelega
         let name = p.dirName.isEmpty ? p.session : p.dirName
         hide()
         onPick?(p.target, name)
+    }
+
+    @objc func openAllListed() {
+        let items = rows.map { (target: $0.pane.target, name: $0.pane.dirName.isEmpty ? $0.pane.session : $0.pane.dirName) }
+        guard !items.isEmpty else { return }
+        hide()
+        onOpenAll?(items)
     }
 
     // NSTableView
@@ -518,10 +557,10 @@ final class StatusPanel: NSViewController {
 
         // header
         let logo = NSImageView()
-        logo.image = tinted(menubarGlyph(), NSColor(calibratedRed: 0.45, green: 0.55, blue: 0.97, alpha: 1))
+        logo.image = wallLogo(20)
         logo.translatesAutoresizingMaskIntoConstraints = false
-        logo.widthAnchor.constraint(equalToConstant: 18).isActive = true
-        logo.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        logo.widthAnchor.constraint(equalToConstant: 20).isActive = true
+        logo.heightAnchor.constraint(equalToConstant: 20).isActive = true
         let titleL = NSTextField(labelWithString: "Claude Wall")
         titleL.font = NSFont.systemFont(ofSize: 14, weight: .bold)
         let header = NSStackView(views: [logo, titleL, NSView(), totalLabel])
@@ -622,15 +661,23 @@ final class StatusPanel: NSViewController {
     }
     func setAlpha(_ v: Double) { slider.doubleValue = v; pctLabel.stringValue = "\(Int(v * 100))%" }
 
-    private func usageRow(_ name: String, _ u: UsageWindow) -> NSView {
+    private func pct(_ cost: Double, _ cap: Double) -> Int {
+        guard cap > 0 else { return 0 }
+        return min(999, Int((cost / cap * 100).rounded()))
+    }
+
+    private func usageRow(_ name: String, _ u: UsageWindow, _ caps: UsageCaps) -> NSView {
         let n = NSTextField(labelWithString: name)
         n.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        let v = NSTextField(labelWithString: "\(fmtMoney(u.window5h))  ·  \(fmtMoney(u.week))")
-        v.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        let p5 = pct(u.window5h, caps.window5h), pw = pct(u.week, caps.week)
+        let v = NSTextField(labelWithString: "\(p5)%  ·  \(pw)%")
+        v.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         v.alignment = .right
+        v.textColor = (p5 >= 90 || pw >= 90) ? statusColor("permission") : .labelColor
         v.setContentHuggingPriority(.required, for: .horizontal)
         let r = NSStackView(views: [n, NSView(), v])
         r.alignment = .centerY
+        r.toolTip = "5h \(fmtMoney(u.window5h)) of \(fmtMoney(caps.window5h))  ·  week \(fmtMoney(u.week)) of \(fmtMoney(caps.week))"
         r.translatesAutoresizingMaskIntoConstraints = false
         r.widthAnchor.constraint(equalToConstant: 292).isActive = true
         return r
@@ -638,8 +685,8 @@ final class StatusPanel: NSViewController {
 
     func setUsage(_ u: Usage) {
         usageBox.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        usageBox.addArrangedSubview(usageRow("Personal", u.personal))
-        if let w = u.work { usageBox.addArrangedSubview(usageRow("Work", w)) }
+        usageBox.addArrangedSubview(usageRow("Personal", u.personal, u.caps))
+        if let w = u.work { usageBox.addArrangedSubview(usageRow("Work", w, u.workCaps ?? u.caps)) }
     }
 
     func setSpenders(_ spenders: [(name: String, cost: Double)]) {
@@ -717,6 +764,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         statusPanel.onCloseAll = { [weak self] in self?.closeAll() }
         statusPanel.onQuit = { [weak self] in self?.quit() }
         statusPanel.onAlpha = { [weak self] v in self?.setPipAlpha(CGFloat(v)) }
+
+        picker.onOpenAll = { [weak self] items in
+            guard let self = self else { return }
+            for it in items { self.openPip(target: it.target, title: it.name, tile: false) }
+            self.tileOpenPips()
+        }
 
         buttonWindow = ButtonWindow()
         buttonWindow.buttonView.onClick = { [weak self] in self?.showPicker() }

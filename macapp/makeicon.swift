@@ -1,7 +1,7 @@
 import Cocoa
 
-// Renders the ClaudePiP app icon (blue→indigo rounded card + white picture-in-picture
-// glyph) into ./AppIcon.iconset at every size iconutil needs.
+// Renders the Claude Wall app icon (matches static/favicon.svg: dark rounded card
+// with a 2×2 grid of panes, one live/orange with a sparkle) into ./AppIcon.iconset.
 
 func drawLogo(_ px: CGFloat) -> NSBitmapImageRep {
     let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(px), pixelsHigh: Int(px),
@@ -10,28 +10,37 @@ func drawLogo(_ px: CGFloat) -> NSBitmapImageRep {
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
 
-    let full = NSRect(x: 0, y: 0, width: px, height: px)
-    let inset = px * 0.09
-    let card = full.insetBy(dx: inset, dy: inset)
-    let radius = px * 0.225
-    let cardPath = NSBezierPath(roundedRect: card, xRadius: radius, yRadius: radius)
-    let grad = NSGradient(starting: NSColor(srgbRed: 0.29, green: 0.48, blue: 0.98, alpha: 1),
-                          ending:   NSColor(srgbRed: 0.44, green: 0.36, blue: 0.96, alpha: 1))
-    grad?.draw(in: cardPath, angle: -60)
+    // scale from the 32-unit favicon grid; icon fills a little more of the canvas
+    let pad: CGFloat = px * 0.06
+    let g = (px - 2 * pad) / 32.0
+    func R(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> NSRect {
+        NSRect(x: pad + x * g, y: pad + (32 - (y + h)) * g, width: w * g, height: h * g) // flip y
+    }
 
-    // PiP glyph: outer rounded-rect "screen" outline + filled inner window bottom-right
-    let g = card.insetBy(dx: card.width * 0.22, dy: card.height * 0.24)
-    let outer = NSBezierPath(roundedRect: g, xRadius: px * 0.045, yRadius: px * 0.045)
-    outer.lineWidth = px * 0.036
-    NSColor.white.setStroke()
-    outer.stroke()
+    let card = NSBezierPath(roundedRect: R(1, 1, 30, 30), xRadius: 7 * g, yRadius: 7 * g)
+    NSGradient(starting: NSColor(srgbRed: 0.157, green: 0.169, blue: 0.212, alpha: 1),
+               ending: NSColor(srgbRed: 0.102, green: 0.110, blue: 0.137, alpha: 1))?.draw(in: card, angle: -90)
+    NSColor(srgbRed: 0.227, green: 0.247, blue: 0.302, alpha: 1).setStroke()
+    card.lineWidth = 1 * g; card.stroke()
 
-    let pw = g.width * 0.44, ph = g.height * 0.44
-    let pip = NSRect(x: g.maxX - pw - g.width * 0.055,
-                     y: g.minY + g.height * 0.055, width: pw, height: ph)
-    let pipPath = NSBezierPath(roundedRect: pip, xRadius: px * 0.028, yRadius: px * 0.028)
-    NSColor.white.setFill()
-    pipPath.fill()
+    let idle = NSColor(srgbRed: 0.184, green: 0.200, blue: 0.251, alpha: 1)
+    for (x, y) in [(17.2, 5.6), (5.6, 17.2), (17.2, 17.2)] {
+        idle.setFill()
+        NSBezierPath(roundedRect: R(CGFloat(x), CGFloat(y), 9.2, 9.2), xRadius: 2.2 * g, yRadius: 2.2 * g).fill()
+    }
+    let live = NSBezierPath(roundedRect: R(5.6, 5.6, 9.2, 9.2), xRadius: 2.2 * g, yRadius: 2.2 * g)
+    NSGradient(starting: NSColor(srgbRed: 0.961, green: 0.620, blue: 0.259, alpha: 1),
+               ending: NSColor(srgbRed: 0.851, green: 0.463, blue: 0.024, alpha: 1))?.draw(in: live, angle: -45)
+
+    // sparkle centered on the live pane
+    let cx = pad + 10.2 * g, cy = pad + (32 - 10.2) * g, a = 3.7 * g, b = 1.0 * g
+    let star = NSBezierPath()
+    star.move(to: NSPoint(x: cx, y: cy + a))
+    star.line(to: NSPoint(x: cx + b, y: cy + b)); star.line(to: NSPoint(x: cx + a, y: cy))
+    star.line(to: NSPoint(x: cx + b, y: cy - b)); star.line(to: NSPoint(x: cx, y: cy - a))
+    star.line(to: NSPoint(x: cx - b, y: cy - b)); star.line(to: NSPoint(x: cx - a, y: cy))
+    star.line(to: NSPoint(x: cx - b, y: cy + b)); star.close()
+    NSColor(srgbRed: 1, green: 0.965, blue: 0.925, alpha: 1).setFill(); star.fill()
 
     NSGraphicsContext.restoreGraphicsState()
     return rep

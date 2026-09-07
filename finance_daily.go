@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -360,16 +361,37 @@ func (d *dailyStore) computeWindows() map[string]interface{} {
 
 var dailyWork *dailyStore
 
+func envFloat(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			return f
+		}
+	}
+	return def
+}
+
 // handleUsage reports rolling usage spend for the personal (~/.claude) and, when
-// present, work (~/.claude-ts) Claude accounts.
+// present, work (~/.claude-ts) Claude accounts, plus configurable caps so the UI
+// can render a percentage. Caps are USD budgets for the 5h/weekly windows
+// (env: CLAUDE_WALL_{5H,WEEK}_USD and CLAUDE_WALL_WORK_{5H,WEEK}_USD).
 func handleUsage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	out := map[string]interface{}{"personal": dailyUsage.computeWindows()}
+	out := map[string]interface{}{
+		"personal": dailyUsage.computeWindows(),
+		"caps": map[string]float64{
+			"window5h": envFloat("CLAUDE_WALL_5H_USD", 100),
+			"week":     envFloat("CLAUDE_WALL_WEEK_USD", 2500),
+		},
+	}
 	if wd := workProjectsDir(); wd != "" {
 		if dailyWork == nil || dailyWork.dir != wd {
 			dailyWork = &dailyStore{files: map[string]*fileStats{}, dir: wd}
 		}
 		out["work"] = dailyWork.computeWindows()
+		out["workCaps"] = map[string]float64{
+			"window5h": envFloat("CLAUDE_WALL_WORK_5H_USD", envFloat("CLAUDE_WALL_5H_USD", 100)),
+			"week":     envFloat("CLAUDE_WALL_WORK_WEEK_USD", envFloat("CLAUDE_WALL_WEEK_USD", 2500)),
+		}
 	}
 	json.NewEncoder(w).Encode(out)
 }
