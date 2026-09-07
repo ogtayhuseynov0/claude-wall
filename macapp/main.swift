@@ -514,6 +514,7 @@ final class StatusPanel: NSViewController {
     var onOpen: (() -> Void)?
     var onOpenActive: (() -> Void)?
     var onOpenDashboard: (() -> Void)?
+    var onRestart: (() -> Void)?
     var onToggleButton: (() -> Void)?
     var onCloseAll: (() -> Void)?
     var onQuit: (() -> Void)?
@@ -563,7 +564,7 @@ final class StatusPanel: NSViewController {
 
     override func loadView() {
         let W: CGFloat = 320, cw: CGFloat = 292
-        let bg = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: W, height: 520))
+        let bg = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: W, height: 552))
         bg.material = .popover; bg.blendingMode = .behindWindow; bg.state = .active
 
         // header
@@ -610,13 +611,14 @@ final class StatusPanel: NSViewController {
         let open = row("Open PiP…", "⌘⌥P", #selector(tapOpen))
         let active = row("Open working + waiting (tiled)", "", #selector(tapActive))
         let dash = row("Open dashboard", "", #selector(tapDashboard))
+        let restart = row("Restart server", "", #selector(tapRestart))
         let toggle = row("Show / Hide floating button", "", #selector(tapToggle))
         let closeAll = row("Close all PiPs", "", #selector(tapClose))
         let quit = row("Quit Claude Wall", "⌘Q", #selector(tapQuit))
 
         let stack = NSStackView(views: [
             header, sep(), usageCol, sep(), spendersCol, sep(), counts, sep(),
-            transHdr, slider, sep(), open, active, dash, toggle, closeAll, quit,
+            transHdr, slider, sep(), open, active, dash, restart, toggle, closeAll, quit,
         ])
         stack.orientation = .vertical
         stack.spacing = 9
@@ -630,7 +632,7 @@ final class StatusPanel: NSViewController {
             stack.topAnchor.constraint(equalTo: bg.topAnchor),
             stack.bottomAnchor.constraint(equalTo: bg.bottomAnchor),
         ])
-        for v in [header, usageCol, spendersCol, spendersBox, counts, transHdr, slider, open, active, dash, toggle, closeAll, quit] {
+        for v in [header, usageCol, spendersCol, spendersBox, counts, transHdr, slider, open, active, dash, restart, toggle, closeAll, quit] {
             v.translatesAutoresizingMaskIntoConstraints = false
             v.widthAnchor.constraint(equalToConstant: cw).isActive = true
         }
@@ -659,6 +661,7 @@ final class StatusPanel: NSViewController {
     @objc private func tapOpen() { onOpen?() }
     @objc private func tapActive() { onOpenActive?() }
     @objc private func tapDashboard() { onOpenDashboard?() }
+    @objc private func tapRestart() { onRestart?() }
     @objc private func tapToggle() { onToggleButton?() }
     @objc private func tapClose() { onCloseAll?() }
     @objc private func tapQuit() { onQuit?() }
@@ -776,13 +779,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         popover.behavior = .transient
         popover.animates = true
         popover.contentViewController = statusPanel
-        popover.contentSize = NSSize(width: 320, height: 520)
+        popover.contentSize = NSSize(width: 320, height: 552)
         statusPanel.onOpen = { [weak self] in self?.popover.performClose(nil); self?.showPicker() }
         statusPanel.onOpenActive = { [weak self] in self?.popover.performClose(nil); self?.openActive() }
         statusPanel.onOpenDashboard = { [weak self] in
             self?.popover.performClose(nil)
             if let u = URL(string: WALL) { NSWorkspace.shared.open(u) }
         }
+        statusPanel.onRestart = { [weak self] in self?.popover.performClose(nil); self?.restartServer() }
         statusPanel.onToggleButton = { [weak self] in self?.toggleButton() }
         statusPanel.onCloseAll = { [weak self] in self?.closeAll() }
         statusPanel.onQuit = { [weak self] in self?.quit() }
@@ -861,6 +865,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     func applicationWillTerminate(_ note: Notification) {
         if let p = serverProcess { serverProcess = nil; p.terminate() } // only kill the one we spawned
+    }
+
+    // Restart the claude-wall server and take ownership of the fresh instance.
+    func restartServer() {
+        if let p = serverProcess {
+            serverProcess = nil          // stop terminationHandler from auto-respawning
+            p.terminate()
+        } else {
+            // reused an external server (e.g. tmux) — free the port so we can own it
+            let kill = Process()
+            kill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+            kill.arguments = ["-f", "claude-wall --serve"]
+            try? kill.run()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in self?.spawnServer() }
     }
 
     // ── finance stats for the popover ────────────────────────────────────────
