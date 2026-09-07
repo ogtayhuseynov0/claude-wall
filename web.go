@@ -36,6 +36,11 @@ var hub *captureHub
 var hooks *hookStore
 var feed *feedStore
 
+// idle-duration tracking for the "stale" (idle >= 30m) status in /api/summary
+var idleMu sync.Mutex
+var idleSince = map[string]time.Time{}
+var everWorked = map[string]bool{}
+
 var publicMode bool
 
 func runWeb(port int) {
@@ -174,19 +179,44 @@ func runWeb(port int) {
 				}
 			}
 		}
+		now := time.Now()
+		idleMu.Lock()
+		present := make(map[string]bool, len(panes))
 		for _, p := range panes {
 			status := statuses[p.Target]
 			if status == "" {
 				status = "idle"
 			}
-			// "stale": an agent that worked, then has sat idle >= 30 min (maybe waiting on you)
-			if status == "idle" && hooks != nil {
-				if hs := hooks.getStateForPane(p.Target, p.Dir); hs != nil &&
-					hs.Status == "idle" && !hs.LastWorkingAt.IsZero() &&
-					time.Since(hs.UpdatedAt) >= 30*time.Minute {
+			present[p.Target] = true
+
+			// Track idle duration by observing status over time (works for every
+			// pane, hook or not). Only panes seen working (or with a hook working
+			// timestamp) can go "stale", so never-active idle panes don't flag.
+			switch status {
+			case "working":
+				everWorked[p.Target] = true
+				delete(idleSince, p.Target)
+			case "idle":
+				if idleSince[p.Target].IsZero() {
+					idleSince[p.Target] = now
+				}
+			default: // permission, error, disconnected — not idle
+				delete(idleSince, p.Target)
+			}
+			if hooks != nil {
+				if hs := hooks.getStateForPane(p.Target, p.Dir); hs != nil && !hs.LastWorkingAt.IsZero() {
+					everWorked[p.Target] = true
+				}
+			}
+
+			// promote to "stale" when idle >= 30 min and it had worked before
+			if status == "idle" && everWorked[p.Target] {
+				since := idleSince[p.Target]
+				if !since.IsZero() && now.Sub(since) >= 30*time.Minute {
 					status = "stale"
 				}
 			}
+
 			switch status {
 			case "working":
 				out.Working++
@@ -195,6 +225,18 @@ func runWeb(port int) {
 			}
 			out.Panes = append(out.Panes, paneStatus{Target: p.Target, DirName: p.DirName, Status: status})
 		}
+		// prune trackers for panes that no longer exist
+		for t := range idleSince {
+			if !present[t] {
+				delete(idleSince, t)
+			}
+		}
+		for t := range everWorked {
+			if !present[t] {
+				delete(everWorked, t)
+			}
+		}
+		idleMu.Unlock()
 		out.Total = len(panes)
 		if feed != nil {
 			out.Pending = len(feed.getPending())
