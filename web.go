@@ -141,6 +141,7 @@ func runWeb(port int) {
 			Total   int          `json:"total"`
 			Working int          `json:"working"`
 			Pending int          `json:"pending"`
+			Stale   int          `json:"stale"`
 			Panes   []paneStatus `json:"panes"`
 		}{Panes: []paneStatus{}}
 		var snap map[string]string
@@ -178,8 +179,19 @@ func runWeb(port int) {
 			if status == "" {
 				status = "idle"
 			}
-			if status == "working" {
+			// "stale": an agent that worked, then has sat idle >= 30 min (maybe waiting on you)
+			if status == "idle" && hooks != nil {
+				if hs := hooks.getStateForPane(p.Target, p.Dir); hs != nil &&
+					hs.Status == "idle" && !hs.LastWorkingAt.IsZero() &&
+					time.Since(hs.UpdatedAt) >= 30*time.Minute {
+					status = "stale"
+				}
+			}
+			switch status {
+			case "working":
 				out.Working++
+			case "stale":
+				out.Stale++
 			}
 			out.Panes = append(out.Panes, paneStatus{Target: p.Target, DirName: p.DirName, Status: status})
 		}
@@ -495,6 +507,7 @@ func runWeb(port int) {
 	http.HandleFunc("/api/finance", handleFinanceAPI)
 	http.HandleFunc("/api/finance/daily", handleFinanceDaily)
 	http.HandleFunc("/api/finance/day", handleFinanceDay)
+	http.HandleFunc("/api/usage", handleUsage)
 
 	// Health check
 	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {

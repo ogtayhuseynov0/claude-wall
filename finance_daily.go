@@ -76,6 +76,7 @@ type fileStats struct {
 	days     map[string]usageBucket
 	models   map[string]usageBucket
 	projects map[string]usageBucket
+	hours    map[string]usageBucket // hourKey "2006-01-02T15" -> bucket (for rolling windows)
 	// per-day breakdowns for the day-detail view: day -> key -> bucket
 	dayModels   map[string]map[string]usageBucket
 	dayProjects map[string]map[string]usageBucket
@@ -84,6 +85,7 @@ type fileStats struct {
 type dailyStore struct {
 	mu    sync.Mutex
 	files map[string]*fileStats
+	dir   string // transcripts root; empty = default (~/.claude/projects)
 }
 
 var dailyUsage = &dailyStore{files: map[string]*fileStats{}}
@@ -93,12 +95,30 @@ func projectsDir() string {
 	return filepath.Join(home, ".claude", "projects")
 }
 
+// workProjectsDir is the "claude-ts" (work account) transcripts root, if it exists.
+func workProjectsDir() string {
+	home, _ := os.UserHomeDir()
+	d := filepath.Join(home, ".claude-ts", "projects")
+	if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+		return d
+	}
+	return ""
+}
+
 func dayKey(ts string) string {
 	t, err := time.Parse(time.RFC3339, ts)
 	if err != nil {
 		return ""
 	}
 	return t.Local().Format("2006-01-02")
+}
+
+func hourKey(ts string) string {
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return ""
+	}
+	return t.Local().Format("2006-01-02T15")
 }
 
 func projectName(cwd string) string {
@@ -121,6 +141,7 @@ func parseTranscript(path string) *fileStats {
 		days:        map[string]usageBucket{},
 		models:      map[string]usageBucket{},
 		projects:    map[string]usageBucket{},
+		hours:       map[string]usageBucket{},
 		dayModels:   map[string]map[string]usageBucket{},
 		dayProjects: map[string]map[string]usageBucket{},
 	}
@@ -175,6 +196,9 @@ func parseTranscript(path string) *fileStats {
 		addTo(fsData.days, day, b)
 		addTo(fsData.models, e.Message.Model, b)
 		addTo(fsData.projects, proj, b)
+		if hk := hourKey(e.Timestamp); hk != "" {
+			addTo(fsData.hours, hk, b)
+		}
 		addNested(fsData.dayModels, day, e.Message.Model, b)
 		addNested(fsData.dayProjects, day, proj, b)
 	}
@@ -194,7 +218,10 @@ type dayBucket struct {
 // scan refreshes the per-file cache (re-parsing only changed transcripts) and
 // evicts deleted files. Caller must hold d.mu.
 func (d *dailyStore) scan() {
-	dir := projectsDir()
+	dir := d.dir
+	if dir == "" {
+		dir = projectsDir()
+	}
 	present := map[string]bool{}
 	filepath.WalkDir(dir, func(path string, de fs.DirEntry, err error) error {
 		if err != nil || de.IsDir() || !strings.HasSuffix(path, ".jsonl") {
@@ -300,6 +327,51 @@ func sortedBuckets(m map[string]usageBucket) []namedBucket {
 func handleFinanceDaily(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(dailyUsage.compute())
+}
+
+// computeWindows returns rolling usage spend: last 5 hours, current week (last
+// 7 days incl today), and today. Approximates the plan's 5h/weekly limits.
+func (d *dailyStore) computeWindows() map[string]interface{} {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.scan()
+	now := time.Now()
+	todayKey := now.Format("2006-01-02")
+	weekCut := now.AddDate(0, 0, -6).Format("2006-01-02")   // 7 days including today
+	hourCut := now.Add(-5 * time.Hour).Format("2006-01-02T15")
+	var today, week, w5 float64
+	for _, f := range d.files {
+		for day, b := range f.days {
+			if day == todayKey {
+				today += b.Cost
+			}
+			if day >= weekCut {
+				week += b.Cost
+			}
+		}
+		for hk, b := range f.hours {
+			if hk >= hourCut {
+				w5 += b.Cost
+			}
+		}
+	}
+	return map[string]interface{}{"today": today, "week": week, "window5h": w5}
+}
+
+var dailyWork *dailyStore
+
+// handleUsage reports rolling usage spend for the personal (~/.claude) and, when
+// present, work (~/.claude-ts) Claude accounts.
+func handleUsage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	out := map[string]interface{}{"personal": dailyUsage.computeWindows()}
+	if wd := workProjectsDir(); wd != "" {
+		if dailyWork == nil || dailyWork.dir != wd {
+			dailyWork = &dailyStore{files: map[string]*fileStats{}, dir: wd}
+		}
+		out["work"] = dailyWork.computeWindows()
+	}
+	json.NewEncoder(w).Encode(out)
 }
 
 // computeDay aggregates one date's model/project breakdown across all cached

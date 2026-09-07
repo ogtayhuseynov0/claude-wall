@@ -36,13 +36,15 @@ struct Summary: Decodable {
     let total: Int
     let working: Int
     let pending: Int
+    let stale: Int?
     let panes: [SummaryPane]
 }
 
-// finance: /api/finance/daily (today/month totals) + /api/finance/day (today's per-repo)
-struct DailyFinance: Decodable { let todayCost: Double; let monthCost: Double? }
+// finance: per-repo today (spenders) + rolling usage windows per account
 struct FinBucket: Decodable { let name: String; let cost: Double }
 struct DayFinance: Decodable { let byProject: [FinBucket] }
+struct UsageWindow: Decodable { let today: Double; let week: Double; let window5h: Double }
+struct Usage: Decodable { let personal: UsageWindow; let work: UsageWindow? }
 
 // tint a template image a solid color
 func tinted(_ image: NSImage, _ color: NSColor) -> NSImage {
@@ -61,6 +63,7 @@ func statusColor(_ s: String) -> NSColor {
     switch s {
     case "working":    return NSColor(calibratedRed: 0.28, green: 0.74, blue: 0.44, alpha: 1)
     case "permission": return NSColor(calibratedRed: 0.92, green: 0.30, blue: 0.34, alpha: 1)
+    case "stale":      return NSColor(calibratedRed: 0.96, green: 0.74, blue: 0.18, alpha: 1) // idle >30m
     case "error":      return NSColor(calibratedRed: 0.95, green: 0.60, blue: 0.20, alpha: 1)
     default:           return NSColor(calibratedWhite: 0.55, alpha: 1) // idle
     }
@@ -73,16 +76,16 @@ final class ButtonView: NSView {
     private var startInWindow: NSPoint = .zero
     private var moved = false
 
-    var idle = 0, working = 0, pending = 0
+    var idle = 0, working = 0, pending = 0, stale = 0
     private lazy var glyph: NSImage? = {
         guard let img = NSImage(systemSymbolName: "pip.fill", accessibilityDescription: nil) else { return nil }
         let cfg = NSImage.SymbolConfiguration(pointSize: 21, weight: .semibold)
         return tinted(img.withSymbolConfiguration(cfg) ?? img, .white)
     }()
 
-    func setStatus(idle: Int, working: Int, pending: Int) {
-        if self.idle == idle && self.working == working && self.pending == pending { return }
-        self.idle = idle; self.working = working; self.pending = pending
+    func setStatus(idle: Int, working: Int, pending: Int, stale: Int) {
+        if self.idle == idle && self.working == working && self.pending == pending && self.stale == stale { return }
+        self.idle = idle; self.working = working; self.pending = pending; self.stale = stale
         needsDisplay = true
     }
 
@@ -119,10 +122,11 @@ final class ButtonView: NSView {
         }
 
         let d: CGFloat = 19, pad: CGFloat = 1
-        // idle → top-left, working → top-right, permission → bottom-right
+        // idle → top-left, working → top-right, permission → bottom-right, stale(>30m) → bottom-left
         badge(idle,    at: NSPoint(x: pad, y: bounds.maxY - d - pad), color: statusColor("idle"))
         badge(working, at: NSPoint(x: bounds.maxX - d - pad, y: bounds.maxY - d - pad), color: statusColor("working"))
         badge(pending, at: NSPoint(x: bounds.maxX - d - pad, y: pad), color: statusColor("permission"))
+        badge(stale,   at: NSPoint(x: pad, y: pad), color: statusColor("stale"))
     }
     // register clicks even when the app/window isn't focused (no double-click needed)
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -281,7 +285,13 @@ final class PickerController: NSObject, NSTableViewDataSource, NSTableViewDelega
 
     // permission first, then working, then error, then idle; alphabetical within a group
     private func rank(_ s: String) -> Int {
-        switch s { case "permission": return 0; case "working": return 1; case "error": return 2; default: return 3 }
+        switch s {
+        case "permission": return 0
+        case "stale": return 1        // idle >30m — surface for attention
+        case "working": return 2
+        case "error": return 3
+        default: return 4             // idle
+        }
     }
     private func name(_ p: Pane) -> String { p.dirName.isEmpty ? p.session : p.dirName }
     private func sorted(_ items: [(pane: Pane, status: String)]) -> [(pane: Pane, status: String)] {
@@ -452,6 +462,7 @@ func fmtMoney(_ v: Double) -> String {
 // ── Custom menubar popover: spending + counts + transparency + actions ──────
 final class StatusPanel: NSViewController {
     var onOpen: (() -> Void)?
+    var onOpenActive: (() -> Void)?
     var onOpenDashboard: (() -> Void)?
     var onToggleButton: (() -> Void)?
     var onCloseAll: (() -> Void)?
@@ -460,12 +471,12 @@ final class StatusPanel: NSViewController {
 
     private let workLabel = StatusPanel.countLabel()
     private let permLabel = StatusPanel.countLabel()
+    private let staleLabel = StatusPanel.countLabel()
     private let idleLabel = StatusPanel.countLabel()
     private let totalLabel = NSTextField(labelWithString: "0 panes")
     private let slider = NSSlider()
     private let pctLabel = NSTextField(labelWithString: "90%")
-    private let spendToday = NSTextField(labelWithString: "$0.00")
-    private let spendMonth = NSTextField(labelWithString: "")
+    private let usageBox = NSStackView()
     private let spendersBox = NSStackView()
 
     static func countLabel() -> NSTextField {
@@ -502,7 +513,7 @@ final class StatusPanel: NSViewController {
 
     override func loadView() {
         let W: CGFloat = 320, cw: CGFloat = 292
-        let bg = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: W, height: 486))
+        let bg = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: W, height: 520))
         bg.material = .popover; bg.blendingMode = .behindWindow; bg.state = .active
 
         // header
@@ -517,11 +528,10 @@ final class StatusPanel: NSViewController {
         totalLabel.font = NSFont.systemFont(ofSize: 11); totalLabel.textColor = .secondaryLabelColor
         header.spacing = 8; header.alignment = .centerY
 
-        // spending today (big) + month (small)
-        spendToday.font = NSFont.monospacedDigitSystemFont(ofSize: 26, weight: .bold)
-        spendMonth.font = NSFont.systemFont(ofSize: 11); spendMonth.textColor = .secondaryLabelColor
-        let spendCol = NSStackView(views: [cap("SPENT TODAY"), spendToday, spendMonth])
-        spendCol.orientation = .vertical; spendCol.spacing = 1; spendCol.alignment = .leading
+        // usage windows (5h · week) per account
+        usageBox.orientation = .vertical; usageBox.spacing = 4; usageBox.alignment = .leading
+        let usageCol = NSStackView(views: [cap("USAGE  —  5H · WEEK"), usageBox])
+        usageCol.orientation = .vertical; usageCol.spacing = 4; usageCol.alignment = .leading
 
         // top repos today
         spendersBox.orientation = .vertical; spendersBox.spacing = 3; spendersBox.alignment = .leading
@@ -531,7 +541,8 @@ final class StatusPanel: NSViewController {
         // counts row
         let counts = NSStackView(views: [
             countGroup(statusColor("working"), workLabel, "working"),
-            countGroup(statusColor("permission"), permLabel, "permission"),
+            countGroup(statusColor("permission"), permLabel, "perm"),
+            countGroup(statusColor("stale"), staleLabel, "idle 30m+"),
             countGroup(statusColor("idle"), idleLabel, "idle"),
         ])
         counts.distribution = .fillEqually; counts.alignment = .top
@@ -547,14 +558,15 @@ final class StatusPanel: NSViewController {
 
         // action buttons
         let open = row("Open PiP…", "⌘⌥P", #selector(tapOpen))
+        let active = row("Open working + waiting (tiled)", "", #selector(tapActive))
         let dash = row("Open dashboard", "", #selector(tapDashboard))
         let toggle = row("Show / Hide floating button", "", #selector(tapToggle))
         let closeAll = row("Close all PiPs", "", #selector(tapClose))
         let quit = row("Quit Claude Wall", "⌘Q", #selector(tapQuit))
 
         let stack = NSStackView(views: [
-            header, sep(), spendCol, sep(), spendersCol, sep(), counts, sep(),
-            transHdr, slider, sep(), open, dash, toggle, closeAll, quit,
+            header, sep(), usageCol, sep(), spendersCol, sep(), counts, sep(),
+            transHdr, slider, sep(), open, active, dash, toggle, closeAll, quit,
         ])
         stack.orientation = .vertical
         stack.spacing = 9
@@ -568,7 +580,7 @@ final class StatusPanel: NSViewController {
             stack.topAnchor.constraint(equalTo: bg.topAnchor),
             stack.bottomAnchor.constraint(equalTo: bg.bottomAnchor),
         ])
-        for v in [header, spendCol, spendersCol, spendersBox, counts, transHdr, slider, open, dash, toggle, closeAll, quit] {
+        for v in [header, usageCol, spendersCol, spendersBox, counts, transHdr, slider, open, active, dash, toggle, closeAll, quit] {
             v.translatesAutoresizingMaskIntoConstraints = false
             v.widthAnchor.constraint(equalToConstant: cw).isActive = true
         }
@@ -595,22 +607,39 @@ final class StatusPanel: NSViewController {
 
     @objc private func sliderMoved() { pctLabel.stringValue = "\(Int(slider.doubleValue * 100))%"; onAlpha?(slider.doubleValue) }
     @objc private func tapOpen() { onOpen?() }
+    @objc private func tapActive() { onOpenActive?() }
     @objc private func tapDashboard() { onOpenDashboard?() }
     @objc private func tapToggle() { onToggleButton?() }
     @objc private func tapClose() { onCloseAll?() }
     @objc private func tapQuit() { onQuit?() }
 
-    func setCounts(working: Int, pending: Int, idle: Int, total: Int) {
+    func setCounts(working: Int, pending: Int, stale: Int, idle: Int, total: Int) {
         workLabel.stringValue = "\(working)"
         permLabel.stringValue = "\(pending)"
+        staleLabel.stringValue = "\(stale)"
         idleLabel.stringValue = "\(idle)"
         totalLabel.stringValue = "\(total) panes"
     }
     func setAlpha(_ v: Double) { slider.doubleValue = v; pctLabel.stringValue = "\(Int(v * 100))%" }
 
-    func setFinanceTotals(today: Double, month: Double) {
-        spendToday.stringValue = fmtMoney(today)
-        spendMonth.stringValue = month > 0 ? "\(fmtMoney(month)) this month" : ""
+    private func usageRow(_ name: String, _ u: UsageWindow) -> NSView {
+        let n = NSTextField(labelWithString: name)
+        n.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        let v = NSTextField(labelWithString: "\(fmtMoney(u.window5h))  ·  \(fmtMoney(u.week))")
+        v.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        v.alignment = .right
+        v.setContentHuggingPriority(.required, for: .horizontal)
+        let r = NSStackView(views: [n, NSView(), v])
+        r.alignment = .centerY
+        r.translatesAutoresizingMaskIntoConstraints = false
+        r.widthAnchor.constraint(equalToConstant: 292).isActive = true
+        return r
+    }
+
+    func setUsage(_ u: Usage) {
+        usageBox.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        usageBox.addArrangedSubview(usageRow("Personal", u.personal))
+        if let w = u.work { usageBox.addArrangedSubview(usageRow("Work", w)) }
     }
 
     func setSpenders(_ spenders: [(name: String, cost: Double)]) {
@@ -677,8 +706,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         popover.behavior = .transient
         popover.animates = true
         popover.contentViewController = statusPanel
-        popover.contentSize = NSSize(width: 320, height: 486)
+        popover.contentSize = NSSize(width: 320, height: 520)
         statusPanel.onOpen = { [weak self] in self?.popover.performClose(nil); self?.showPicker() }
+        statusPanel.onOpenActive = { [weak self] in self?.popover.performClose(nil); self?.openActive() }
         statusPanel.onOpenDashboard = { [weak self] in
             self?.popover.performClose(nil)
             if let u = URL(string: WALL) { NSWorkspace.shared.open(u) }
@@ -763,13 +793,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         return df.string(from: Date())
     }
 
-    func fetchFinance() {
-        if let u = URL(string: "\(WALL)/api/finance/daily") {
+    func fetchStats() {
+        if let u = URL(string: "\(WALL)/api/usage") {
             URLSession.shared.dataTask(with: u) { data, _, _ in
-                guard let d = data.flatMap({ try? JSONDecoder().decode(DailyFinance.self, from: $0) }) else { return }
-                DispatchQueue.main.async {
-                    self.statusPanel.setFinanceTotals(today: d.todayCost, month: d.monthCost ?? 0)
-                }
+                guard let usage = data.flatMap({ try? JSONDecoder().decode(Usage.self, from: $0) }) else { return }
+                DispatchQueue.main.async { self.statusPanel.setUsage(usage) }
             }.resume()
         }
         if let u = URL(string: "\(WALL)/api/finance/day?date=\(todayString())") {
@@ -790,17 +818,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if popover.isShown { popover.performClose(nil); return }
         statusPanel.setAlpha(Double(pipAlpha))
         refreshPopoverCounts()
-        fetchFinance()
+        fetchStats()
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: view.bounds, of: view, preferredEdge: edge)
     }
 
     func refreshPopoverCounts() {
-        var idle = 0, working = 0, pending = 0
+        var idle = 0, working = 0, pending = 0, stale = 0
         for (_, s) in statusByTarget {
-            switch s { case "working": working += 1; case "permission": pending += 1; default: idle += 1 }
+            switch s {
+            case "working": working += 1
+            case "permission": pending += 1
+            case "stale": stale += 1
+            default: idle += 1
+            }
         }
-        statusPanel.setCounts(working: working, pending: pending, idle: idle, total: statusByTarget.count)
+        statusPanel.setCounts(working: working, pending: pending, stale: stale, idle: idle, total: statusByTarget.count)
     }
 
     func setPipAlpha(_ v: CGFloat) {
@@ -823,26 +856,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             statusItem.button?.title = ""
             return
         }
-        var idle = 0, working = 0, pending = 0
+        var idle = 0, working = 0, pending = 0, stale = 0
         var map: [String: String] = [:]
         for p in s.panes {
             map[p.target] = p.status
             switch p.status {
             case "working":    working += 1
             case "permission": pending += 1
+            case "stale":      stale += 1
             default:           idle += 1
             }
         }
         statusByTarget = map
 
         // menubar: icon only; counts live in the tooltip + floating button badges
-        statusItem.button?.toolTip = "\(s.total) panes · \(working) working · \(pending) awaiting permission · \(idle) idle"
+        statusItem.button?.toolTip = "\(s.total) panes · \(working) working · \(pending) permission · \(stale) idle 30m+ · \(idle) idle"
 
-        buttonWindow.buttonView.setStatus(idle: idle, working: working, pending: pending)
+        buttonWindow.buttonView.setStatus(idle: idle, working: working, pending: pending, stale: stale)
         picker.refreshStatuses(map)
         if popover.isShown {
-            statusPanel.setCounts(working: working, pending: pending, idle: idle, total: s.panes.count)
-            fetchFinance()
+            statusPanel.setCounts(working: working, pending: pending, stale: stale, idle: idle, total: s.panes.count)
+            fetchStats()
         }
     }
 
@@ -852,6 +886,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     @objc func quit() { NSApp.terminate(nil) }
+
+    // Open every working / waiting-for-answer (permission or idle-30m) pane at once,
+    // then tile them side-by-side (no overlap), like the claude-wall web grid.
+    @objc func openActive() {
+        guard let url = URL(string: "\(WALL)/api/panes") else { return }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            let panes = (data.flatMap { try? JSONDecoder().decode([Pane].self, from: $0) }) ?? []
+            DispatchQueue.main.async {
+                let wanted: Set<String> = ["working", "permission", "stale"]
+                let active = panes.filter { wanted.contains(self.statusByTarget[$0.target] ?? "idle") }
+                for p in active {
+                    self.openPip(target: p.target, title: p.dirName.isEmpty ? p.session : p.dirName, tile: false)
+                }
+                self.tileOpenPips()
+            }
+        }.resume()
+    }
+
+    // Lay out all open PiP windows in a grid on the main screen.
+    func tileOpenPips() {
+        guard let scr = NSScreen.main else { return }
+        let f = scr.visibleFrame
+        let wins = Array(pips.values)
+        let n = wins.count
+        guard n > 0 else { return }
+        let cols = Int(ceil(Double(n).squareRoot()))
+        let rows = Int(ceil(Double(n) / Double(cols)))
+        let gap: CGFloat = 8
+        let cellW = (f.width - gap * CGFloat(cols + 1)) / CGFloat(cols)
+        let cellH = (f.height - gap * CGFloat(rows + 1)) / CGFloat(rows)
+        for (i, w) in wins.enumerated() {
+            let c = i % cols, rIdx = i / cols
+            let x = f.minX + gap + CGFloat(c) * (cellW + gap)
+            let y = f.maxY - gap - CGFloat(rIdx + 1) * cellH - CGFloat(rIdx) * gap
+            w.setFrame(NSRect(x: x, y: y, width: cellW, height: cellH), display: true)
+        }
+    }
 
     @objc func showPicker() {
         guard let url = URL(string: "\(WALL)/api/panes") else { return }
@@ -864,7 +935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }.resume()
     }
 
-    func openPip(target: String, title: String) {
+    func openPip(target: String, title: String, tile: Bool = true) {
         if let w = pips[target] { w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
 
         let size = NSRect(x: 0, y: 0, width: 560, height: 420)
@@ -915,7 +986,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let enc = target.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? target
         if let u = URL(string: "\(WALL)/pip.html?target=\(enc)") { wv.load(URLRequest(url: u)) }
 
-        if let scr = NSScreen.main {
+        if tile, let scr = NSScreen.main {
             let f = scr.visibleFrame
             let off = CGFloat(pips.count) * 28
             win.setFrameOrigin(NSPoint(x: f.maxX - 560 - 24 - off, y: f.maxY - 440 - off))
