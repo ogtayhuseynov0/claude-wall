@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -9,6 +11,19 @@ import (
 	"sync"
 	"time"
 )
+
+// keychainServiceFor returns the keychain service name Claude Code uses for a
+// given CLAUDE_CONFIG_DIR: the default (~/.claude) is the bare name; any other
+// config dir gets a "-<sha256(absPath)[:8]>" suffix (e.g. work / claude-ts).
+func keychainServiceFor(configDir string) string {
+	base := "Claude Code-credentials"
+	home, _ := os.UserHomeDir()
+	if configDir == "" || configDir == filepath.Join(home, ".claude") {
+		return base
+	}
+	sum := sha256.Sum256([]byte(configDir))
+	return base + "-" + hex.EncodeToString(sum[:])[:8]
+}
 
 // Real subscription usage from Claude's own endpoint (what `/usage` shows):
 // GET https://api.anthropic.com/api/oauth/usage → per-window utilization.
@@ -127,8 +142,8 @@ func handleLimits(w http.ResponseWriter, r *http.Request) {
 	home, _ := os.UserHomeDir()
 	workDir := filepath.Join(home, ".claude-ts")
 	if fi, err := os.Stat(workDir); err == nil && fi.IsDir() {
-		// work account: try its config-dir credentials file, then a namespaced keychain item
-		if u := limitsC.get("work", workDir, "Claude Code-credentials (claude-ts)"); u != nil {
+		// work account: credentials file, else the config-dir-namespaced keychain item
+		if u := limitsC.get("work", workDir, keychainServiceFor(workDir)); u != nil {
 			out["work"] = u
 		}
 	}
