@@ -508,6 +508,7 @@ func runWeb(port int) {
 	http.HandleFunc("/api/finance/daily", handleFinanceDaily)
 	http.HandleFunc("/api/finance/day", handleFinanceDay)
 	http.HandleFunc("/api/usage", handleUsage)
+	http.HandleFunc("/api/limits", handleLimits)
 
 	// Health check
 	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {

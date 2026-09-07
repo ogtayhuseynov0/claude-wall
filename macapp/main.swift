@@ -84,6 +84,11 @@ struct Usage: Decodable {
     let workCaps: UsageCaps?
 }
 
+// real subscription usage from Claude's /api/oauth/usage (utilization 0..1 or 0..100)
+struct LimWin: Decodable { let utilization: Double }
+struct AccountLimits: Decodable { let five_hour: LimWin; let seven_day: LimWin }
+struct Limits: Decodable { let personal: AccountLimits?; let work: AccountLimits? }
+
 // tint a template image a solid color
 func tinted(_ image: NSImage, _ color: NSColor) -> NSImage {
     let out = NSImage(size: image.size)
@@ -195,7 +200,7 @@ final class PickerController: NSObject, NSTableViewDataSource, NSTableViewDelega
     let panel: PickerPanel
     let search = NSTextField()
     let table = NSTableView()
-    let filterSeg = NSSegmentedControl(labels: ["All", "Working", "Permission", "Idle"],
+    let filterSeg = NSSegmentedControl(labels: ["All", "Working", "Perm", "30m+", "Idle"],
                                        trackingMode: .selectOne, target: nil, action: nil)
     let sortSeg = NSSegmentedControl(labels: ["Sort: Status", "Name"],
                                      trackingMode: .selectOne, target: nil, action: nil)
@@ -206,7 +211,13 @@ final class PickerController: NSObject, NSTableViewDataSource, NSTableViewDelega
     var clickMonitor: Any?
 
     private var statusFilter: String? {
-        switch filterSeg.selectedSegment { case 1: return "working"; case 2: return "permission"; case 3: return "idle"; default: return nil }
+        switch filterSeg.selectedSegment {
+        case 1: return "working"
+        case 2: return "permission"
+        case 3: return "stale"
+        case 4: return "idle"
+        default: return nil
+        }
     }
     private var sortByName: Bool { sortSeg.selectedSegment == 1 }
 
@@ -665,11 +676,21 @@ final class StatusPanel: NSViewController {
         guard cap > 0 else { return 0 }
         return min(999, Int((cost / cap * 100).rounded()))
     }
+    private func utilPct(_ u: Double) -> Int { min(999, Int((u <= 1.0 ? u * 100 : u).rounded())) }
 
-    private func usageRow(_ name: String, _ u: UsageWindow, _ caps: UsageCaps) -> NSView {
+    // Prefers real subscription utilization (from Claude's /usage) when available;
+    // otherwise falls back to spend as a % of the configured cap.
+    private func usageRow(_ name: String, _ u: UsageWindow, _ caps: UsageCaps, _ real: AccountLimits?) -> NSView {
         let n = NSTextField(labelWithString: name)
         n.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        let p5 = pct(u.window5h, caps.window5h), pw = pct(u.week, caps.week)
+        let p5: Int, pw: Int, tip: String
+        if let real = real {
+            p5 = utilPct(real.five_hour.utilization); pw = utilPct(real.seven_day.utilization)
+            tip = "live from Claude · 5h \(p5)% · week \(pw)%"
+        } else {
+            p5 = pct(u.window5h, caps.window5h); pw = pct(u.week, caps.week)
+            tip = "estimate · 5h \(fmtMoney(u.window5h)) of \(fmtMoney(caps.window5h))  ·  week \(fmtMoney(u.week)) of \(fmtMoney(caps.week))"
+        }
         let v = NSTextField(labelWithString: "\(p5)%  ·  \(pw)%")
         v.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         v.alignment = .right
@@ -677,16 +698,16 @@ final class StatusPanel: NSViewController {
         v.setContentHuggingPriority(.required, for: .horizontal)
         let r = NSStackView(views: [n, NSView(), v])
         r.alignment = .centerY
-        r.toolTip = "5h \(fmtMoney(u.window5h)) of \(fmtMoney(caps.window5h))  ·  week \(fmtMoney(u.week)) of \(fmtMoney(caps.week))"
+        r.toolTip = tip
         r.translatesAutoresizingMaskIntoConstraints = false
         r.widthAnchor.constraint(equalToConstant: 292).isActive = true
         return r
     }
 
-    func setUsage(_ u: Usage) {
+    func setUsage(_ u: Usage, _ limits: Limits?) {
         usageBox.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        usageBox.addArrangedSubview(usageRow("Personal", u.personal, u.caps))
-        if let w = u.work { usageBox.addArrangedSubview(usageRow("Work", w, u.workCaps ?? u.caps)) }
+        usageBox.addArrangedSubview(usageRow("Personal", u.personal, u.caps, limits?.personal))
+        if let w = u.work { usageBox.addArrangedSubview(usageRow("Work", w, u.workCaps ?? u.caps, limits?.work)) }
     }
 
     func setSpenders(_ spenders: [(name: String, cost: Double)]) {
@@ -728,6 +749,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     let statusPanel = StatusPanel()
     let popover = NSPopover()
     var serverProcess: Process?   // the claude-wall server we spawned (nil if we reused a running one)
+    var lastUsage: Usage?
+    var lastLimits: Limits?
 
     func applicationDidFinishLaunching(_ note: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -846,11 +869,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         return df.string(from: Date())
     }
 
+    func renderUsage() {
+        if let u = lastUsage { statusPanel.setUsage(u, lastLimits) }
+    }
+
     func fetchStats() {
         if let u = URL(string: "\(WALL)/api/usage") {
             URLSession.shared.dataTask(with: u) { data, _, _ in
                 guard let usage = data.flatMap({ try? JSONDecoder().decode(Usage.self, from: $0) }) else { return }
-                DispatchQueue.main.async { self.statusPanel.setUsage(usage) }
+                DispatchQueue.main.async { self.lastUsage = usage; self.renderUsage() }
+            }.resume()
+        }
+        // real subscription usage (from Claude's /usage). Empty until keychain access is allowed.
+        if let u = URL(string: "\(WALL)/api/limits") {
+            URLSession.shared.dataTask(with: u) { data, _, _ in
+                let lim = data.flatMap { try? JSONDecoder().decode(Limits.self, from: $0) }
+                DispatchQueue.main.async { self.lastLimits = lim; self.renderUsage() }
             }.resume()
         }
         if let u = URL(string: "\(WALL)/api/finance/day?date=\(todayString())") {
