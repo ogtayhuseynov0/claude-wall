@@ -341,6 +341,7 @@ func (d *dailyStore) computeWindows() map[string]interface{} {
 	weekCut := now.AddDate(0, 0, -6).Format("2006-01-02")   // 7 days including today
 	hourCut := now.Add(-5 * time.Hour).Format("2006-01-02T15")
 	var today, week, w5 float64
+	weekProj := map[string]usageBucket{}
 	for _, f := range d.files {
 		for day, b := range f.days {
 			if day == todayKey {
@@ -355,8 +356,20 @@ func (d *dailyStore) computeWindows() map[string]interface{} {
 				w5 += b.Cost
 			}
 		}
+		for day, pm := range f.dayProjects {
+			if day >= weekCut {
+				for proj, b := range pm {
+					addTo(weekProj, proj, b)
+				}
+			}
+		}
 	}
-	return map[string]interface{}{"today": today, "week": week, "window5h": w5}
+	return map[string]interface{}{
+		"today":      today,
+		"week":       week,
+		"window5h":   w5,
+		"byRepoWeek": sortedBuckets(weekProj), // per-repo weekly spend (for utilization split)
+	}
 }
 
 var dailyWork *dailyStore

@@ -72,10 +72,14 @@ struct Summary: Decodable {
     let panes: [SummaryPane]
 }
 
-// finance: per-repo today (spenders) + rolling usage windows per account
+// finance: rolling usage windows per account + per-repo weekly spend
 struct FinBucket: Decodable { let name: String; let cost: Double }
-struct DayFinance: Decodable { let byProject: [FinBucket] }
-struct UsageWindow: Decodable { let today: Double; let week: Double; let window5h: Double }
+struct UsageWindow: Decodable {
+    let today: Double
+    let week: Double
+    let window5h: Double
+    let byRepoWeek: [FinBucket]?
+}
 struct UsageCaps: Decodable { let window5h: Double; let week: Double }
 struct Usage: Decodable {
     let personal: UsageWindow
@@ -586,7 +590,7 @@ final class StatusPanel: NSViewController {
 
         // top repos today
         spendersBox.orientation = .vertical; spendersBox.spacing = 3; spendersBox.alignment = .leading
-        let spendersCol = NSStackView(views: [cap("TOP REPOS TODAY"), spendersBox])
+        let spendersCol = NSStackView(views: [cap("TOP REPOS — WEEK"), spendersBox])
         spendersCol.orientation = .vertical; spendersCol.spacing = 4; spendersCol.alignment = .leading
 
         // counts row
@@ -713,22 +717,40 @@ final class StatusPanel: NSViewController {
         if let w = u.work { usageBox.addArrangedSubview(usageRow("Work", w, u.workCaps ?? u.caps, limits?.work)) }
     }
 
-    func setSpenders(_ spenders: [(name: String, cost: Double)]) {
+    // Split each account's weekly utilization across its repos by spend share:
+    // repo% ≈ accountWeeklyUtilization × (repo weekly spend / account weekly spend).
+    // Approximate — Claude only reports the account-level number.
+    func setRepoUsage(_ u: Usage, _ limits: Limits?) {
         spendersBox.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        if spenders.isEmpty {
-            let l = NSTextField(labelWithString: "no spend recorded today")
+        var items: [(name: String, pct: Double, cost: Double, hasPct: Bool)] = []
+        func add(_ w: UsageWindow?, _ lim: AccountLimits?) {
+            guard let w = w, let repos = w.byRepoWeek, w.week > 0 else { return }
+            let util = lim.map { $0.seven_day.utilization <= 1 ? $0.seven_day.utilization * 100 : $0.seven_day.utilization }
+            for r in repos {
+                let p = (util ?? 0) * r.cost / w.week
+                items.append((r.name, p, r.cost, util != nil))
+            }
+        }
+        add(u.personal, limits?.personal)
+        add(u.work, limits?.work)
+        items.sort { $0.cost > $1.cost }
+
+        if items.isEmpty {
+            let l = NSTextField(labelWithString: "no spend recorded this week")
             l.font = NSFont.systemFont(ofSize: 11); l.textColor = .tertiaryLabelColor
             spendersBox.addArrangedSubview(l)
+            return
         }
-        for s in spenders.prefix(4) {
+        for s in items.prefix(5) {
             let n = NSTextField(labelWithString: s.name)
             n.font = NSFont.systemFont(ofSize: 12); n.lineBreakMode = .byTruncatingTail
-            let c = NSTextField(labelWithString: fmtMoney(s.cost))
+            let c = NSTextField(labelWithString: s.hasPct ? String(format: "%.1f%%", s.pct) : fmtMoney(s.cost))
             c.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
             c.alignment = .right
             c.setContentHuggingPriority(.required, for: .horizontal)
             let r = NSStackView(views: [n, NSView(), c])
             r.alignment = .centerY
+            r.toolTip = "\(fmtMoney(s.cost)) this week" + (s.hasPct ? "  ·  ~\(String(format: "%.1f", s.pct))% of weekly usage" : "")
             r.translatesAutoresizingMaskIntoConstraints = false
             r.widthAnchor.constraint(equalToConstant: 292).isActive = true
             spendersBox.addArrangedSubview(r)
@@ -889,7 +911,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func renderUsage() {
-        if let u = lastUsage { statusPanel.setUsage(u, lastLimits) }
+        if let u = lastUsage {
+            statusPanel.setUsage(u, lastLimits)
+            statusPanel.setRepoUsage(u, lastLimits)
+        }
     }
 
     func fetchStats() {
@@ -904,13 +929,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             URLSession.shared.dataTask(with: u) { data, _, _ in
                 let lim = data.flatMap { try? JSONDecoder().decode(Limits.self, from: $0) }
                 DispatchQueue.main.async { self.lastLimits = lim; self.renderUsage() }
-            }.resume()
-        }
-        if let u = URL(string: "\(WALL)/api/finance/day?date=\(todayString())") {
-            URLSession.shared.dataTask(with: u) { data, _, _ in
-                let day = data.flatMap { try? JSONDecoder().decode(DayFinance.self, from: $0) }
-                let top = (day?.byProject ?? []).map { (name: $0.name, cost: $0.cost) }
-                DispatchQueue.main.async { self.statusPanel.setSpenders(top) }
             }.resume()
         }
     }
