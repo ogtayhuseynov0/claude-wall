@@ -200,6 +200,14 @@ final class PickerPanel: NSPanel {
     override var canBecomeMain: Bool { true }
 }
 
+// PiP windows are non-activating panels so tiling WMs (aerospace) leave them
+// alone — combined with canJoinAllSpaces they stay visible across workspaces.
+// Still key-able so you can type into the terminal.
+final class PipPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 final class PickerController: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSTextFieldDelegate, NSWindowDelegate {
     let panel: PickerPanel
     let search = NSTextField()
@@ -1063,11 +1071,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if let w = pips[target] { w.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
 
         let size = NSRect(x: 0, y: 0, width: 560, height: 420)
-        let win = NSWindow(contentRect: size,
-                           styleMask: [.titled, .closable, .resizable, .miniaturizable],
+        let win = PipPanel(contentRect: size,
+                           styleMask: [.titled, .closable, .resizable, .nonactivatingPanel],
                            backing: .buffered, defer: false)
         win.title = "PiP · \(title)"
         win.level = .floating
+        win.isFloatingPanel = true
+        win.hidesOnDeactivate = false
         win.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
         win.isReleasedWhenClosed = false
         win.delegate = self
