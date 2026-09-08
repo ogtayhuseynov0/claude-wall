@@ -575,6 +575,13 @@ func runWeb(port int) {
 	http.HandleFunc("/api/ui/events", handleUIEvents)
 	http.HandleFunc("/api/ui/", handleUIAction)
 
+	// Web Push (PWA notifications)
+	push.load()
+	http.HandleFunc("/api/push/vapid", handlePushVAPID)
+	http.HandleFunc("/api/push/subscribe", handlePushSubscribe)
+	http.HandleFunc("/api/push/unsubscribe", handlePushUnsubscribe)
+	http.HandleFunc("/api/push/test", handlePushTest)
+
 	// Serve static files (strip "static/" prefix from embedded FS)
 	mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	sub, _ := fs.Sub(staticFiles, "static")
@@ -600,6 +607,11 @@ func runWeb(port int) {
 	}
 
 	fmt.Printf("▸ Dashboard at http://%s\n", addr)
+
+	// Background watcher for PWA push notifications (uses the real bound port)
+	if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
+		startNotifyWatcher(tcp.Port)
+	}
 
 	// Graceful shutdown
 	var handler http.Handler = http.DefaultServeMux
