@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
 <title>PiP</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -18,7 +18,7 @@
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
     font-family:"SFMono-Regular",Menlo,Consolas,"Liberation Mono",monospace; }
-  body { display:flex; flex-direction:column; outline:none; }
+  body { display:flex; flex-direction:column; outline:none; position:relative; overflow:hidden; }
   #bar { flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:4px 8px;
     background:var(--bar); border-bottom:1px solid rgba(80,86,104,0.35); font-size:12px; user-select:none; -webkit-app-region:drag; }
   #dot { width:9px; height:9px; border-radius:50%; background:var(--muted); flex:0 0 auto; margin:0 2px; }
@@ -42,7 +42,7 @@
   .mobile #back, .mobile .btn { width:42px; height:38px; }
   .mobile #back .ic, .mobile .btn .ic { width:23px; height:23px; }
   .mobile #title { font-size:14px; }
-  #term { flex:1; overflow-y:auto; overflow-x:hidden; padding:8px 10px; -webkit-overflow-scrolling:touch; }
+  #term { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:8px 10px; -webkit-overflow-scrolling:touch; }
   pre { margin:0; white-space:pre-wrap; word-break:break-word; font-size:12.5px; line-height:1.35; }
   #history { opacity:.72; }
   .hrule { display:block; border-top:1px solid #2a2e3a; margin:3px 0; }
