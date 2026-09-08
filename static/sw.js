@@ -10,10 +10,13 @@ self.addEventListener('push', (event) => {
     body: d.body || '',
     tag: d.tag || 'claude-wall',
     renotify: true,
+    requireInteraction: true,        // heads-up: stay on screen until acted on
+    silent: false,
     icon: '/icon-192.png',
     badge: '/badge-96.png',
     data: { url: d.url || '/m.html' },
-    vibrate: d.status === 'permission' ? [80, 40, 80] : [40],
+    vibrate: d.status === 'permission' ? [80, 40, 80, 40, 80] : [60, 40, 60],
+    actions: [{ action: 'open', title: 'Open' }],
   };
   // update the app-icon badge (works while the app is closed)
   try {
