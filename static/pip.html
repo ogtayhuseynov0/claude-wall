@@ -48,7 +48,8 @@
   .hrule { display:block; border-top:1px solid #2a2e3a; margin:3px 0; }
   #term::-webkit-scrollbar { width:9px; } #term::-webkit-scrollbar-thumb { background:#2f3340; border-radius:5px; }
   /* hidden field that summons the soft keyboard on touch devices */
-  #kbd { position:absolute; opacity:0; height:1px; width:1px; border:0; padding:0; }
+  #kbd { position:absolute; bottom:0; left:0; opacity:0; height:1px; width:1px; border:0; padding:0;
+    resize:none; overflow:hidden; }
   /* on-screen key toolbar (Esc/Ctrl/Tab/arrows the soft keyboard lacks) */
   #keys { display:none; flex:0 0 auto; gap:6px; padding:6px 8px calc(6px + env(safe-area-inset-bottom));
     background:#161922; border-top:1px solid #2a2e3a; overflow-x:auto; white-space:nowrap; }
@@ -68,7 +69,7 @@
     <span class="btn" id="close" title="Close"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
   </div>
   <div id="term"><pre id="history"></pre><pre id="live"></pre></div>
-  <input id="kbd" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" inputmode="text">
+  <textarea id="kbd" rows="1" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" inputmode="text"></textarea>
   <div id="keys">
     <button data-k="esc">esc</button>
     <button data-k="ctrl" id="kctrl">ctrl</button>
@@ -77,6 +78,7 @@
     <button data-k="down">↓</button>
     <button data-k="left">←</button>
     <button data-k="right">→</button>
+    <button data-k="bs">⌫</button>
     <button data-k="cc">^C</button>
     <button data-k="enter">⏎</button>
   </div>
@@ -173,23 +175,25 @@
     send(data);
   });
 
-  // soft keyboard (mobile): beforeinput gives reliable inputType across iOS/Android.
-  let ctrlArmed = false;
+  // soft keyboard (mobile): capture typed AND dictated text via input +
+  // composition events. Crucially we do NOT preventDefault — that breaks Gboard
+  // voice dictation (it composes into the field; blocking it drops the text).
+  let ctrlArmed = false, composing = false;
   const setCtrl = (on) => { ctrlArmed = on; document.getElementById('kctrl').classList.toggle('on', on); };
-  kbd.addEventListener('beforeinput', (e) => {
-    if (e.inputType === 'insertText' && e.data) {
-      if (ctrlArmed) {
-        const c = e.data.toLowerCase().charCodeAt(0) - 96;
-        if (c > 0 && c < 27) send(String.fromCharCode(c)); else send(e.data);
-        setCtrl(false);
-      } else send(e.data);
-    } else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
-      send('\r');
-    } else if (e.inputType === 'deleteContentBackward') {
-      send('\x7f');
-    }
-    e.preventDefault();          // keep the field empty so we only ever send deltas
-    kbd.value = '';
+  const applyCtrl = (s) => {
+    if (!ctrlArmed || !s) return s;
+    setCtrl(false);
+    if (s.length === 1) { const c = s.toLowerCase().charCodeAt(0) - 96; if (c > 0 && c < 27) return String.fromCharCode(c); }
+    return s;
+  };
+  const flushKbd = () => { if (kbd.value) { send(applyCtrl(kbd.value)); kbd.value = ''; } };
+  kbd.addEventListener('compositionstart', () => { composing = true; });
+  kbd.addEventListener('compositionend', () => { composing = false; flushKbd(); });
+  kbd.addEventListener('input', (e) => {
+    if (composing) return;                              // wait for compositionend (voice / IME)
+    if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') { kbd.value = ''; send('\r'); return; }
+    if (e.inputType === 'deleteContentBackward') { kbd.value = ''; send('\x7f'); return; }
+    flushKbd();
   });
 
   document.addEventListener('paste', (e) => {
@@ -198,24 +202,26 @@
   });
 
   // key toolbar
-  const KEYSEQ = { esc:'\x1b', tab:'\t', up:'\x1b[A', down:'\x1b[B', left:'\x1b[D', right:'\x1b[C', cc:'\x03', enter:'\r' };
+  const KEYSEQ = { esc:'\x1b', tab:'\t', up:'\x1b[A', down:'\x1b[B', left:'\x1b[D', right:'\x1b[C', bs:'\x7f', cc:'\x03', enter:'\r' };
+  document.getElementById('keys').addEventListener('mousedown', (e) => e.preventDefault()); // keep the field focused
   document.getElementById('keys').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return;
     const k = b.dataset.k;
-    if (k === 'ctrl') { setCtrl(!ctrlArmed); kbd.focus(); return; }
+    if (k === 'ctrl') { setCtrl(!ctrlArmed); kbd.focus({ preventScroll: true }); return; }
     send(KEYSEQ[k]);
-    kbd.focus();
+    kbd.focus({ preventScroll: true });
   });
 
   document.getElementById('close').onclick = () => { try { ws && ws.close(); } catch(_){} window.close(); };
   document.getElementById('goto').onclick = () => { fetch('/api/goto/' + encodeURIComponent(target)).catch(()=>{}); };
   document.getElementById('back').onclick = () => { location.href = '/m.html'; };
 
-  // focus: desktop keeps body focused; mobile focuses the hidden field to raise the keyboard.
-  const focusInput = () => { if (MOBILE) kbd.focus(); else document.body.focus(); };
+  // focus: desktop keeps body focused; mobile focuses the hidden field to raise
+  // the keyboard. preventScroll stops the browser jumping to the 1px field.
+  const focusInput = () => { if (MOBILE) kbd.focus({ preventScroll: true }); else document.body.focus(); };
   window.addEventListener('load', focusInput);
   term.addEventListener('mousedown', () => setTimeout(focusInput, 0));
-  term.addEventListener('touchend', () => setTimeout(() => kbd.focus(), 0));
+  term.addEventListener('touchend', () => setTimeout(() => kbd.focus({ preventScroll: true }), 0));
 
   // keep the screen awake while watching a pane on mobile
   let wakeLock = null;
