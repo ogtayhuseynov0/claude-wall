@@ -113,8 +113,16 @@
   let ws, reconnectDelay = 500, lastContent = '';
   const atBottom = () => (term.scrollHeight - term.scrollTop - term.clientHeight) < 40;
   const toBottom = () => { term.scrollTop = term.scrollHeight; };
+  // follow = auto-stick to bottom. Cleared when the user scrolls up to read,
+  // re-armed when they scroll back down or tap to type. Prevents the yank-down.
+  let follow = true;
+  term.addEventListener('scroll', () => { follow = atBottom(); });
   const setStatus = (s) => { dot.className = s || 'connecting'; };
-  const send = (data) => { if (data && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data })); };
+  const send = (data) => {
+    if (!data || !ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'input', data }));
+    follow = true; toBottom(); // sending input means we're at the prompt
+  };
 
   function connect() {
     setStatus('connecting');
@@ -124,17 +132,15 @@
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === 'history') {
-        const stick = atBottom();
         historyPre.innerHTML = renderAnsi(msg.data);
-        if (stick) toBottom();
+        if (follow) toBottom();
         if (msg.status) setStatus(msg.status);
       } else if (msg.type === 'content') {
         if (msg.data === lastContent) { if (msg.status) setStatus(msg.status); return; }
         lastContent = msg.data;
-        const stick = atBottom();
         livePre.innerHTML = renderAnsi(msg.data);
         if (msg.status) setStatus(msg.status);
-        if (stick) toBottom();
+        if (follow) toBottom();
       } else if (msg.type === 'status-update') {
         if (msg.status) setStatus(msg.status);
       } else if (msg.type === 'status' && msg.data === 'disconnected') {
@@ -242,18 +248,29 @@
   // focus: desktop keeps body focused; mobile focuses the hidden field to raise
   // the keyboard. preventScroll stops the browser jumping to the 1px field.
   const focusInput = () => { if (MOBILE) kbd.focus({ preventScroll: true }); else document.body.focus(); };
-  window.addEventListener('load', focusInput);
-  term.addEventListener('mousedown', () => setTimeout(focusInput, 0));
-  term.addEventListener('touchend', () => setTimeout(() => { kbd.focus({ preventScroll: true }); toBottom(); }, 0));
+  window.addEventListener('load', () => { if (!MOBILE) document.body.focus(); }); // don't auto-raise the keyboard on phones
+  term.addEventListener('mousedown', () => { if (!MOBILE) setTimeout(focusInput, 0); });
+
+  // mobile: only a tap (not a scroll gesture) raises the keyboard — so scrolling
+  // up to read never yanks back down or pops the keyboard.
+  let tStart = null;
+  term.addEventListener('touchstart', (e) => { const t = e.touches[0]; tStart = { x: t.clientX, y: t.clientY, at: Date.now() }; }, { passive: true });
+  term.addEventListener('touchend', (e) => {
+    if (!tStart) return;
+    const t = e.changedTouches[0];
+    const moved = Math.hypot(t.clientX - tStart.x, t.clientY - tStart.y);
+    const quick = Date.now() - tStart.at < 400;
+    tStart = null;
+    if (moved < 12 && quick) { follow = true; kbd.focus({ preventScroll: true }); toBottom(); } // tap → type at bottom
+  });
 
   // keyboard open/close resizes the visual viewport — shrink the app to the
-  // visible area and keep the latest line pinned above the keyboard.
+  // visible area, re-pinning to bottom only when following.
   if (MOBILE && window.visualViewport) {
     const vv = window.visualViewport;
-    const onVV = () => { document.body.style.height = vv.height + 'px'; toBottom(); };
-    vv.addEventListener('resize', onVV);
-    vv.addEventListener('scroll', onVV);
-    onVV();
+    const fit = () => { document.body.style.height = vv.height + 'px'; };
+    vv.addEventListener('resize', () => { fit(); if (follow) toBottom(); });
+    fit();
   }
 
   // keep the screen awake while watching a pane on mobile
