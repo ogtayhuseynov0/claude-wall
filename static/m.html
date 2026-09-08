@@ -42,6 +42,15 @@
   @keyframes spin { to { transform:rotate(360deg); } }
   .ic { stroke:currentColor; stroke-width:2.1; stroke-linecap:round; stroke-linejoin:round; fill:none; }
 
+  .search { display:flex; align-items:center; gap:8px; margin-top:9px; padding:0 12px;
+    background:var(--card); border:1px solid var(--line); border-radius:11px; height:40px; }
+  .search svg { width:17px; height:17px; color:var(--muted); flex:0 0 auto; }
+  .search input { flex:1; min-width:0; background:none; border:0; outline:none; color:var(--fg);
+    font-size:15px; font-family:inherit; height:100%; }
+  .search input::placeholder { color:var(--dim); }
+  .search input::-webkit-search-cancel-button { display:none; }
+  #clear { background:none; border:0; color:var(--muted); display:inline-flex; padding:4px; cursor:pointer; }
+
   .chips { display:flex; gap:7px; margin-top:9px; overflow-x:auto; padding-bottom:2px; }
   .chip { flex:0 0 auto; padding:5px 12px; border-radius:999px; border:1px solid var(--line);
     background:var(--card); color:var(--muted); font-size:12.5px; font-weight:600; }
@@ -58,7 +67,10 @@
   .dot.error { background:var(--perm); }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
   .meta { min-width:0; flex:1; }
+  .nameline { display:flex; align-items:center; gap:7px; min-width:0; }
   .name { font-size:15px; font-weight:650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pane { flex:0 0 auto; font-family:"SFMono-Regular",Menlo,monospace; font-size:11px; font-weight:600;
+    color:var(--muted); background:var(--card2); border:1px solid var(--line); border-radius:5px; padding:1px 5px; }
   .sub { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
   .tag { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:700; text-transform:uppercase;
     letter-spacing:.4px; padding:3px 7px; border-radius:6px; background:var(--card2); color:var(--dim); flex:0 0 auto; }
@@ -94,6 +106,14 @@
         <svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
       </button>
     </div>
+    <div class="search">
+      <svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="search" type="search" inputmode="search" autocapitalize="off" autocorrect="off"
+             autocomplete="off" spellcheck="false" placeholder="Search name, branch, pane…">
+      <button id="clear" title="Clear" hidden>
+        <svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
     <div class="chips" id="chips">
       <div class="chip on" data-f="all">All</div>
       <div class="chip" data-f="working">Working</div>
@@ -110,7 +130,10 @@
   const listEl = document.getElementById('list');
   const chipsEl = document.getElementById('chips');
   const refreshBtn = document.getElementById('refresh');
+  const searchEl = document.getElementById('search');
+  const clearEl = document.getElementById('clear');
   let filter = 'all';
+  let query = '';
   let panes = [];       // merged pane info
   const RANK = { permission:0, error:0, stale:1, working:2, idle:3 };
   const WORD = { working:'Working', permission:'Waiting for you', stale:'Idle 30m+', idle:'Idle', error:'Error', disconnected:'—' };
@@ -133,6 +156,7 @@
       (panesR || []).forEach(p => { info[p.target] = p; });
       panes = (sumR.panes || []).map(p => {
         const x = info[p.target] || {};
+        const suffix = p.target.split(':')[1] || '';      // window.pane, e.g. "2.1"
         return {
           target: p.target,
           name: p.dirName || x.dirName || x.session || p.target,
@@ -140,6 +164,7 @@
           agent: x.agent || 'claude',
           branch: x.branch || '',
           session: x.session || (p.target.split(':')[0]),
+          pane: suffix.replace('.', ':'),               // window:pane, e.g. "2:1"
         };
       });
       render();
@@ -155,17 +180,26 @@
         ? (p.status === 'permission' || p.status === 'error')
         : p.status === filter);
     }
+    if (query) {
+      const q = query.toLowerCase();
+      rows = rows.filter(p => (p.name + ' ' + p.session + ' ' + p.branch + ' ' + p.pane + ' ' + p.target + ' ' + p.agent)
+        .toLowerCase().includes(q));
+    }
     rows.sort((a, b) => (RANK[a.status] ?? 5) - (RANK[b.status] ?? 5) || a.name.localeCompare(b.name));
-    if (!rows.length) { listEl.innerHTML = '<div class="empty">No sessions here.</div>'; return; }
+    if (!rows.length) {
+      listEl.innerHTML = '<div class="empty">' + (query ? 'No match for “' + esc(query) + '”.' : 'No sessions here.') + '</div>';
+      return;
+    }
     listEl.innerHTML = rows.map(p => {
       const st = p.status || 'idle';
       const tagCls = p.agent === 'codex' ? 'tag codex' : 'tag';
       const branch = p.branch ? `${ICON.branch}${esc(p.branch)}` : '';
       const sub = p.session ? esc(p.session) + (branch ? ' · ' + branch : '') : (branch || esc(p.target));
+      const paneBadge = p.pane ? `<span class="pane">${esc(p.pane)}</span>` : '';
       return `<a class="row" href="/pip.html?m=1&target=${encodeURIComponent(p.target)}">
         <span class="dot ${st}"></span>
         <span class="meta">
-          <div class="name">${esc(p.name)}</div>
+          <div class="nameline"><span class="name">${esc(p.name)}</span>${paneBadge}</div>
           <div class="sub">${sub}</div>
           <div class="status-word sw-${st}">${WORD[st] || st}</div>
         </span>
@@ -184,6 +218,13 @@
     render();
   });
   refreshBtn.onclick = () => { refreshBtn.classList.add('spin'); load().finally(() => setTimeout(() => refreshBtn.classList.remove('spin'), 500)); };
+
+  searchEl.addEventListener('input', () => {
+    query = searchEl.value.trim();
+    clearEl.hidden = !searchEl.value;
+    render();
+  });
+  clearEl.onclick = () => { searchEl.value = ''; query = ''; clearEl.hidden = true; searchEl.focus(); render(); };
 
   load();
   setInterval(load, 4000);
