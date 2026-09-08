@@ -139,9 +139,10 @@ func runWeb(port int) {
 		w.Header().Set("Cache-Control", "no-cache")
 		panes, _ := findClaudePanes()
 		type paneStatus struct {
-			Target  string `json:"target"`
-			DirName string `json:"dirName"`
-			Status  string `json:"status"`
+			Target    string `json:"target"`
+			DirName   string `json:"dirName"`
+			Status    string `json:"status"`
+			StoppedAt int64  `json:"stoppedAt,omitempty"` // unix secs an agent that had worked went idle
 		}
 		out := struct {
 			Total   int          `json:"total"`
@@ -224,7 +225,15 @@ func runWeb(port int) {
 			case "stale":
 				out.Stale++
 			}
-			out.Panes = append(out.Panes, paneStatus{Target: p.Target, DirName: p.DirName, Status: status})
+			// surface when an agent that had been working went idle, so the UI
+			// can sort the most-recently-stopped panes to the top of the rest
+			var stoppedAt int64
+			if everWorked[p.Target] && (status == "idle" || status == "stale") {
+				if s := idleSince[p.Target]; !s.IsZero() {
+					stoppedAt = s.Unix()
+				}
+			}
+			out.Panes = append(out.Panes, paneStatus{Target: p.Target, DirName: p.DirName, Status: status, StoppedAt: stoppedAt})
 		}
 		// prune trackers for panes that no longer exist
 		for t := range idleSince {
