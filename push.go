@@ -201,6 +201,28 @@ func pushMuted(target string) bool {
 	return ok && time.Now().Before(t)
 }
 
+func pushUnmute(target string) {
+	muteMu.Lock()
+	delete(muteUntil, target)
+	muteMu.Unlock()
+}
+
+// activeMutes returns target → unix-secs the mute expires, for still-active mutes.
+func activeMutes() map[string]int64 {
+	muteMu.Lock()
+	defer muteMu.Unlock()
+	now := time.Now()
+	out := map[string]int64{}
+	for t, u := range muteUntil {
+		if now.Before(u) {
+			out[t] = u.Unix()
+		} else {
+			delete(muteUntil, t)
+		}
+	}
+	return out
+}
+
 // sendEvent delivers to every subscription that wants this category, honoring
 // per-device toggles + quiet hours; prunes subscriptions the push service expired.
 func (p *pushStore) sendEvent(cat string, pl pushPayload) {
@@ -301,11 +323,17 @@ func handlePushMute(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", 400)
 		return
 	}
-	if p.Minutes <= 0 {
-		p.Minutes = 30
+	if p.Minutes > 0 {
+		pushMute(p.Target, time.Duration(p.Minutes)*time.Minute)
+	} else {
+		pushUnmute(p.Target) // minutes <= 0 means unmute
 	}
-	pushMute(p.Target, time.Duration(p.Minutes)*time.Minute)
 	w.WriteHeader(200)
+}
+
+func handlePushMutes(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(activeMutes())
 }
 
 // startNotifyWatcher polls the local summary and pushes on status transitions.

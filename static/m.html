@@ -107,6 +107,14 @@
   .proj svg { width:16px; height:16px; color:var(--work); flex:0 0 auto; }
   .note { font-size:12px; color:var(--muted); line-height:1.4; margin-top:12px; padding:10px 12px;
     background:var(--card2); border:1px solid var(--line); border-radius:10px; }
+  .muted-sec { margin-top:14px; }
+  .muted-h { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); margin-bottom:8px; }
+  .mrow { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px;
+    background:var(--card2); border:1px solid var(--line); margin-bottom:6px; }
+  .mrow .mn { flex:1; min-width:0; font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .mrow .mt { font-size:11px; color:var(--muted); flex:0 0 auto; }
+  .mrow .un { background:none; border:1px solid var(--line); color:var(--work); font-weight:700; font-size:12px;
+    font-family:inherit; padding:6px 11px; border-radius:8px; cursor:pointer; flex:0 0 auto; }
 
   #notifyBanner { display:flex; align-items:center; gap:9px; margin:10px 10px 0; padding:11px 12px;
     background:linear-gradient(135deg,#20242e,#191d26); border:1px solid var(--line); border-radius:13px; }
@@ -263,6 +271,10 @@
         <span class="sw"><input type="checkbox" id="prefErr" checked><i></i></span></label>
       <div class="quiet"><span class="lbl">Quiet hours</span>
         <select id="qStart"></select><span class="muted">to</span><select id="qEnd"></select></div>
+      <div class="muted-sec" id="mutedSec" hidden>
+        <div class="muted-h">Muted sessions</div>
+        <div id="mutedList"></div>
+      </div>
       <div class="note">Not popping over other apps? Android controls this per-app: long-press a Claude Wall notification → <b>settings</b>, or Settings → Apps → Claude Wall → Notifications, and set it to <b>Pop on screen / Alerting</b>.</div>
       <button class="disable-btn" id="notifDisable">Turn off notifications</button>
     </div>
@@ -483,7 +495,26 @@
     const sub = await currentSub();
     if (sub) fetch('/api/push/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint, ...p }) }).catch(() => {});
   }
-  function openNotifSettings() { loadPrefsUI(); notifSheet.hidden = false; }
+  async function loadMutes() {
+    let mutes = {};
+    try { mutes = await fetch('/api/push/mutes').then(r => r.json()) || {}; } catch (_) {}
+    const targets = Object.keys(mutes);
+    const sec = document.getElementById('mutedSec'), list = document.getElementById('mutedList');
+    if (!targets.length) { sec.hidden = true; return; }
+    sec.hidden = false;
+    const now = Date.now() / 1000;
+    list.innerHTML = targets.map(t => {
+      const name = (panes.find(p => p.target === t) || {}).name || t.split(':')[0];
+      const mins = Math.max(1, Math.round((mutes[t] - now) / 60));
+      return `<div class="mrow"><span class="mn">${esc(name)}</span><span class="mt">${mins}m left</span><button class="un" data-t="${esc(t)}">Unmute</button></div>`;
+    }).join('');
+  }
+  document.getElementById('mutedList').addEventListener('click', async (e) => {
+    const b = e.target.closest('.un'); if (!b) return;
+    await fetch('/api/push/mute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ target: b.dataset.t, minutes: 0 }) }).catch(() => {});
+    loadMutes();
+  });
+  function openNotifSettings() { loadPrefsUI(); loadMutes(); notifSheet.hidden = false; }
   [...Object.values(prefEls), qStart, qEnd].forEach(el => el.addEventListener('change', savePrefs));
   document.getElementById('notifClose').onclick = () => notifSheet.hidden = true;
   document.getElementById('notifDisable').onclick = () => { notifSheet.hidden = true; disablePush(); };
