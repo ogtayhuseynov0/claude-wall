@@ -133,8 +133,17 @@ func (c *limitsCache) get(account, configDir, keychain string) *usageResp {
 	return u
 }
 
+func (c *limitsCache) invalidate() {
+	c.mu.Lock()
+	c.at = map[string]time.Time{}
+	c.mu.Unlock()
+}
+
 func handleLimits(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if r.URL.Query().Get("force") == "1" {
+		limitsC.invalidate() // manual refresh bypasses the 60s cache
+	}
 	out := map[string]interface{}{}
 	if u := limitsC.get("personal", "", "Claude Code-credentials"); u != nil {
 		out["personal"] = u
