@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -575,6 +576,7 @@ func runWeb(port int) {
 	http.HandleFunc("/api/ui/", handleUIAction)
 
 	// Serve static files (strip "static/" prefix from embedded FS)
+	mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	sub, _ := fs.Sub(staticFiles, "static")
 	http.Handle("/", http.FileServer(http.FS(sub)))
 

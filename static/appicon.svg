@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b2f3a"/>
+      <stop offset="1" stop-color="#14161d"/>
+    </linearGradient>
+    <linearGradient id="lit" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7ad52"/>
+      <stop offset="1" stop-color="#d97706"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="9" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- full-bleed body (iOS applies its own corner mask) -->
+  <rect x="0" y="0" width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- 2x2 pane grid, centered -->
+  <rect x="86"  y="86"  width="150" height="150" rx="34" fill="url(#lit)"/>
+  <rect x="276" y="86"  width="150" height="150" rx="34" fill="#333846"/>
+  <rect x="86"  y="276" width="150" height="150" rx="34" fill="#333846"/>
+  <rect x="276" y="276" width="150" height="150" rx="34" fill="#333846"/>
+
+  <!-- sparkle on the live pane -->
+  <g filter="url(#glow)">
+    <path d="M161 116 L176 146 L206 161 L176 176 L161 206 L146 176 L116 161 L146 146 Z"
+          fill="#fff6ec"/>
+  </g>
+</svg>

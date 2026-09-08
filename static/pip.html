@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>PiP</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<meta name="theme-color" content="#0d0f14">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Claude Wall">
 <script src="/ansi_up.min.js"></script>
 <style>
   :root { --bg:transparent; --bar:rgba(24,27,36,0.35); --fg:#f0f2f6; --muted:#9aa0b0; --accent:#6ea1f7; }
@@ -11,17 +19,29 @@
   html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
     font-family:"SFMono-Regular",Menlo,Consolas,"Liberation Mono",monospace; }
   body { display:flex; flex-direction:column; outline:none; }
-  #bar { flex:0 0 auto; display:flex; align-items:center; gap:8px; padding:5px 10px;
+  #bar { flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:4px 8px;
     background:var(--bar); border-bottom:1px solid rgba(80,86,104,0.35); font-size:12px; user-select:none; -webkit-app-region:drag; }
-  #dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:0 0 auto; }
-  #dot.idle { background:#57d977; } #dot.working { background:#f5a742; }
+  #dot { width:9px; height:9px; border-radius:50%; background:var(--muted); flex:0 0 auto; margin:0 2px; }
+  #dot.idle { background:#57d977; } #dot.working { background:#f5a742; box-shadow:0 0 7px #f5a742; }
   #dot.error { background:#e5566a; } #dot.connecting,#dot.disconnected { background:var(--muted); }
-  #back { -webkit-app-region:no-drag; cursor:pointer; color:var(--fg); font-size:16px; padding:2px 4px; display:none; }
-  #title { font-weight:600; color:var(--fg); }
-  #sub { color:var(--muted); }
+  #title { font-weight:600; color:var(--fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #sub { color:var(--muted); white-space:nowrap; }
   #spacer { flex:1; }
-  .btn { -webkit-app-region:no-drag; cursor:pointer; color:var(--muted); padding:2px 6px; border-radius:4px; }
+  #back { -webkit-app-region:no-drag; cursor:pointer; color:var(--fg); display:none;
+    align-items:center; justify-content:center; border-radius:8px; }
+  #back:active { background:#2a2e3a; }
+  .btn { -webkit-app-region:no-drag; cursor:pointer; color:var(--muted); border-radius:8px;
+    display:inline-flex; align-items:center; justify-content:center; }
   .btn:hover { color:var(--fg); background:#2a2e3a; }
+  .btn:active { background:#2a2e3a; }
+  /* icon buttons: compact on desktop (native app), large tap targets on touch */
+  #bar .ic { stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; fill:none; }
+  #back, .btn { width:30px; height:26px; }
+  #back .ic, .btn .ic { width:17px; height:17px; }
+  .mobile #bar { gap:8px; padding:8px 10px calc(8px + env(safe-area-inset-top)); }
+  .mobile #back, .mobile .btn { width:42px; height:38px; }
+  .mobile #back .ic, .mobile .btn .ic { width:23px; height:23px; }
+  .mobile #title { font-size:14px; }
   #term { flex:1; overflow-y:auto; overflow-x:hidden; padding:8px 10px; -webkit-overflow-scrolling:touch; }
   pre { margin:0; white-space:pre-wrap; word-break:break-word; font-size:12.5px; line-height:1.35; }
   #history { opacity:.72; }
@@ -40,12 +60,12 @@
 </head>
 <body tabindex="0">
   <div id="bar">
-    <span id="back" title="Sessions">‹</span>
+    <span id="back" title="Sessions"><svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg></span>
     <span id="dot" class="connecting"></span>
     <span id="title">…</span><span id="sub"></span>
     <span id="spacer"></span>
-    <span class="btn" id="goto" title="Focus this pane in the terminal">⤢</span>
-    <span class="btn" id="close" title="Close">✕</span>
+    <span class="btn" id="goto" title="Focus this pane in the terminal"><svg class="ic" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></span>
+    <span class="btn" id="close" title="Close"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
   </div>
   <div id="term"><pre id="history"></pre><pre id="live"></pre></div>
   <input id="kbd" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" inputmode="text">
@@ -81,10 +101,11 @@
 
   // Mobile: solid dark background (native app supplies its own), key toolbar + back button.
   if (MOBILE) {
+    document.body.classList.add('mobile');
     document.documentElement.style.setProperty('--bg', '#0d0f14');
     document.documentElement.style.setProperty('--bar', '#161922');
     document.getElementById('keys').style.display = 'flex';
-    if (params.get('m') === '1') document.getElementById('back').style.display = 'inline';
+    if (params.get('m') === '1') document.getElementById('back').style.display = 'inline-flex';
   }
 
   let ws, reconnectDelay = 500, lastContent = '';

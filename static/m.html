@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Claude Wall</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<meta name="theme-color" content="#0d0f14">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Claude Wall">
 <style>
   :root {
     --bg:#0d0f14; --card:#161922; --card2:#1c2029; --line:#262b36;
@@ -19,17 +27,20 @@
     backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
     padding:calc(10px + env(safe-area-inset-top)) 14px 8px; border-bottom:1px solid var(--line); }
   .top { display:flex; align-items:center; gap:10px; }
-  .logo { width:26px; height:26px; border-radius:7px; background:linear-gradient(135deg,#20242e,#12141b);
-    border:1px solid #2c3140; position:relative; flex:0 0 auto; }
-  .logo::before { content:""; position:absolute; left:5px; top:5px; width:6px; height:6px; border-radius:2px;
-    background:var(--work); box-shadow:9px 0 0 #363c4a, 0 9px 0 #363c4a, 9px 9px 0 #363c4a; }
+  .logo { width:28px; height:28px; border-radius:8px; flex:0 0 auto; display:block; }
   h1 { font-size:16px; font-weight:700; margin:0; letter-spacing:-.2px; }
-  .counts { margin-left:auto; display:flex; gap:8px; font-size:12px; font-variant-numeric:tabular-nums; }
-  .counts b { font-weight:700; }
+  .counts { margin-left:auto; display:flex; gap:11px; font-size:13px; font-weight:700;
+    font-variant-numeric:tabular-nums; align-items:center; }
+  .counts .c { display:inline-flex; align-items:center; gap:4px; }
+  .counts svg { width:15px; height:15px; }
   .cwork { color:var(--work); } .cperm { color:var(--perm); } .cstale { color:var(--stale); }
-  #refresh { margin-left:4px; background:none; border:0; color:var(--muted); font-size:18px; padding:2px 4px; cursor:pointer; }
-  #refresh.spin { animation:spin .8s linear infinite; }
+  #refresh { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
+    display:inline-flex; border-radius:8px; }
+  #refresh:active { background:var(--card); }
+  #refresh svg { width:19px; height:19px; }
+  #refresh.spin svg { animation:spin .8s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
+  .ic { stroke:currentColor; stroke-width:2.1; stroke-linecap:round; stroke-linejoin:round; fill:none; }
 
   .chips { display:flex; gap:7px; margin-top:9px; overflow-x:auto; padding-bottom:2px; }
   .chip { flex:0 0 auto; padding:5px 12px; border-radius:999px; border:1px solid var(--line);
@@ -49,10 +60,13 @@
   .meta { min-width:0; flex:1; }
   .name { font-size:15px; font-weight:650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .sub { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
-  .tag { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; padding:2px 6px;
-    border-radius:5px; background:var(--card2); color:var(--dim); flex:0 0 auto; }
+  .tag { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.4px; padding:3px 7px; border-radius:6px; background:var(--card2); color:var(--dim); flex:0 0 auto; }
+  .tag svg { width:12px; height:12px; }
   .tag.codex { color:var(--codex); }
-  .chev { color:var(--dim); font-size:16px; flex:0 0 auto; }
+  .sub svg { width:11px; height:11px; vertical-align:-1px; margin-right:2px; opacity:.7; }
+  .chev { color:var(--dim); flex:0 0 auto; display:inline-flex; }
+  .chev svg { width:20px; height:20px; }
   .empty { text-align:center; color:var(--muted); padding:48px 20px; font-size:14px; }
   .skel { height:66px; border-radius:13px; background:linear-gradient(90deg,#161922 25%,#1e222d 50%,#161922 75%);
     background-size:200% 100%; animation:sh 1.3s infinite; }
@@ -66,14 +80,19 @@
 <body>
   <header>
     <div class="top">
-      <div class="logo"></div>
+      <img class="logo" src="/favicon.svg" alt="">
       <h1>Claude Wall</h1>
       <div class="counts">
-        <span class="cwork"><b id="cWork">0</b> ▶</span>
-        <span class="cperm"><b id="cPerm">0</b> ?</span>
-        <span class="cstale"><b id="cStale">0</b> ⏾</span>
+        <span class="c cwork" title="Working">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span id="cWork">0</span></span>
+        <span class="c cperm" title="Waiting for you">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span id="cPerm">0</span></span>
+        <span class="c cstale" title="Idle 30m+">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg><span id="cStale">0</span></span>
       </div>
-      <button id="refresh" title="Refresh">↻</button>
+      <button id="refresh" title="Refresh">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+      </button>
     </div>
     <div class="chips" id="chips">
       <div class="chip on" data-f="all">All</div>
@@ -95,6 +114,11 @@
   let panes = [];       // merged pane info
   const RANK = { permission:0, error:0, stale:1, working:2, idle:3 };
   const WORD = { working:'Working', permission:'Waiting for you', stale:'Idle 30m+', idle:'Idle', error:'Error', disconnected:'—' };
+  const ICON = {
+    chev: '<svg class="ic" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>',
+    term: '<svg class="ic" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg>',
+    branch: '<svg class="ic" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>',
+  };
 
   async function load() {
     try {
@@ -136,16 +160,17 @@
     listEl.innerHTML = rows.map(p => {
       const st = p.status || 'idle';
       const tagCls = p.agent === 'codex' ? 'tag codex' : 'tag';
-      const sub = [p.session, p.branch].filter(Boolean).join(' · ');
+      const branch = p.branch ? `${ICON.branch}${esc(p.branch)}` : '';
+      const sub = p.session ? esc(p.session) + (branch ? ' · ' + branch : '') : (branch || esc(p.target));
       return `<a class="row" href="/pip.html?m=1&target=${encodeURIComponent(p.target)}">
         <span class="dot ${st}"></span>
         <span class="meta">
           <div class="name">${esc(p.name)}</div>
-          <div class="sub">${esc(sub || p.target)}</div>
+          <div class="sub">${sub}</div>
           <div class="status-word sw-${st}">${WORD[st] || st}</div>
         </span>
-        <span class="${tagCls}">${esc(p.agent)}</span>
-        <span class="chev">›</span>
+        <span class="${tagCls}">${ICON.term}${esc(p.agent)}</span>
+        <span class="chev">${ICON.chev}</span>
       </a>`;
     }).join('');
   }
