@@ -244,7 +244,17 @@
   const focusInput = () => { if (MOBILE) kbd.focus({ preventScroll: true }); else document.body.focus(); };
   window.addEventListener('load', focusInput);
   term.addEventListener('mousedown', () => setTimeout(focusInput, 0));
-  term.addEventListener('touchend', () => setTimeout(() => kbd.focus({ preventScroll: true }), 0));
+  term.addEventListener('touchend', () => setTimeout(() => { kbd.focus({ preventScroll: true }); toBottom(); }, 0));
+
+  // keyboard open/close resizes the visual viewport — shrink the app to the
+  // visible area and keep the latest line pinned above the keyboard.
+  if (MOBILE && window.visualViewport) {
+    const vv = window.visualViewport;
+    const onVV = () => { document.body.style.height = vv.height + 'px'; toBottom(); };
+    vv.addEventListener('resize', onVV);
+    vv.addEventListener('scroll', onVV);
+    onVV();
+  }
 
   // keep the screen awake while watching a pane on mobile
   let wakeLock = null;
