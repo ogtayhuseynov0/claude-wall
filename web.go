@@ -591,6 +591,7 @@ func runWeb(port int) {
 	http.HandleFunc("/api/push/unsubscribe", handlePushUnsubscribe)
 	http.HandleFunc("/api/push/prefs", handlePushPrefs)
 	http.HandleFunc("/api/push/test", handlePushTest)
+	http.HandleFunc("/api/push/mute", handlePushMute)
 
 	// Session launcher
 	http.HandleFunc("/api/projects", handleProjects)

@@ -179,7 +179,26 @@ type pushPayload struct {
 	Tag    string `json:"tag"`
 	URL    string `json:"url"`
 	Status string `json:"status,omitempty"`
-	Attn   int    `json:"attn"` // panes needing attention → drives the app-icon badge
+	Target string `json:"target,omitempty"` // pane target, for the notification's Mute action
+	Attn   int    `json:"attn"`             // panes needing attention → drives the app-icon badge
+}
+
+// per-session notification mute (from the notification's "Mute 30m" action).
+// Global for the single user across devices.
+var muteMu sync.Mutex
+var muteUntil = map[string]time.Time{}
+
+func pushMute(target string, d time.Duration) {
+	muteMu.Lock()
+	muteUntil[target] = time.Now().Add(d)
+	muteMu.Unlock()
+}
+
+func pushMuted(target string) bool {
+	muteMu.Lock()
+	defer muteMu.Unlock()
+	t, ok := muteUntil[target]
+	return ok && time.Now().Before(t)
 }
 
 // sendEvent delivers to every subscription that wants this category, honoring
@@ -273,6 +292,22 @@ func handlePushTest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 }
 
+func handlePushMute(w http.ResponseWriter, r *http.Request) {
+	var p struct {
+		Target  string `json:"target"`
+		Minutes int    `json:"minutes"`
+	}
+	if json.NewDecoder(r.Body).Decode(&p) != nil || p.Target == "" {
+		http.Error(w, "bad request", 400)
+		return
+	}
+	if p.Minutes <= 0 {
+		p.Minutes = 30
+	}
+	pushMute(p.Target, time.Duration(p.Minutes)*time.Minute)
+	w.WriteHeader(200)
+}
+
 // startNotifyWatcher polls the local summary and pushes on status transitions.
 func startNotifyWatcher(port int) {
 	go func() {
@@ -314,7 +349,7 @@ func startNotifyWatcher(port int) {
 				}
 			}
 			for _, p := range s.Panes {
-				if first {
+				if first || pushMuted(p.Target) {
 					continue
 				}
 				name := p.DirName
@@ -327,17 +362,17 @@ func startNotifyWatcher(port int) {
 				case p.Status == "permission" && old != "permission":
 					push.sendEvent("permission", pushPayload{
 						Title: "Permission needed", Body: name + " is waiting for you",
-						Tag: "perm:" + p.Target, Status: "permission", URL: link, Attn: attn,
+						Tag: "perm:" + p.Target, Status: "permission", URL: link, Target: p.Target, Attn: attn,
 					})
 				case (p.Status == "idle" || p.Status == "stale") && old == "working":
 					push.sendEvent("stop", pushPayload{
 						Title: "Claude stopped", Body: name + " finished / is idle",
-						Tag: "stop:" + p.Target, Status: p.Status, URL: link, Attn: attn,
+						Tag: "stop:" + p.Target, Status: p.Status, URL: link, Target: p.Target, Attn: attn,
 					})
 				case p.Status == "error" && old != "error":
 					push.sendEvent("error", pushPayload{
 						Title: "Session error", Body: name + " hit an error",
-						Tag: "err:" + p.Target, Status: "error", URL: link, Attn: attn,
+						Tag: "err:" + p.Target, Status: "error", URL: link, Target: p.Target, Attn: attn,
 					})
 				}
 			}
