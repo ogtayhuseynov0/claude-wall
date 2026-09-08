@@ -21,11 +21,59 @@ import (
 
 const vapidSubscriber = "mailto:claude-wall@localhost" // contact sent to push services; no real email leaked
 
+// subRecord is one device subscription plus its per-event preferences.
+type subRecord struct {
+	Sub        webpush.Subscription `json:"sub"`
+	Permission bool                 `json:"permission"`
+	Stop       bool                 `json:"stop"`
+	Error      bool                 `json:"error"`
+	QuietStart int                  `json:"quietStart"` // hour 0-23, -1 = disabled
+	QuietEnd   int                  `json:"quietEnd"`
+}
+
+func defaultRecord(s webpush.Subscription) subRecord {
+	return subRecord{Sub: s, Permission: true, Stop: true, Error: true, QuietStart: -1, QuietEnd: -1}
+}
+
+// wants reports whether this device wants a push for the given event category,
+// honoring its per-event toggles and quiet-hours window (server local time).
+func (r subRecord) wants(cat string) bool {
+	switch cat {
+	case "permission":
+		if !r.Permission {
+			return false
+		}
+	case "stop":
+		if !r.Stop {
+			return false
+		}
+	case "error":
+		if !r.Error {
+			return false
+		}
+	case "test":
+		return true // manual test always goes through
+	}
+	if r.QuietStart >= 0 && r.QuietEnd >= 0 && r.QuietStart != r.QuietEnd {
+		h := time.Now().Hour()
+		inQuiet := false
+		if r.QuietStart < r.QuietEnd {
+			inQuiet = h >= r.QuietStart && h < r.QuietEnd
+		} else { // window wraps midnight, e.g. 22 → 7
+			inQuiet = h >= r.QuietStart || h < r.QuietEnd
+		}
+		if inQuiet {
+			return false
+		}
+	}
+	return true
+}
+
 type pushStore struct {
 	mu      sync.Mutex
 	privKey string
 	pubKey  string
-	subs    []webpush.Subscription
+	subs    []subRecord
 }
 
 var push = &pushStore{}
@@ -55,9 +103,21 @@ func (p *pushStore) load() {
 			os.WriteFile(vf, b, 0600)
 		}
 	}
-	// subscriptions
+	// subscriptions — new format ([]subRecord), with fallback to the old
+	// flat []webpush.Subscription written by earlier versions.
 	if b, err := os.ReadFile(filepath.Join(pushDir(), "push-subs.json")); err == nil {
-		json.Unmarshal(b, &p.subs)
+		var recs []subRecord
+		if json.Unmarshal(b, &recs) == nil && (len(recs) == 0 || recs[0].Sub.Endpoint != "") {
+			p.subs = recs
+		} else {
+			var old []webpush.Subscription
+			if json.Unmarshal(b, &old) == nil {
+				for _, s := range old {
+					p.subs = append(p.subs, defaultRecord(s))
+				}
+				p.saveSubs() // rewrite in the new format
+			}
+		}
 	}
 }
 
@@ -70,11 +130,11 @@ func (p *pushStore) add(s webpush.Subscription) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, e := range p.subs {
-		if e.Endpoint == s.Endpoint {
+		if e.Sub.Endpoint == s.Endpoint {
 			return
 		}
 	}
-	p.subs = append(p.subs, s)
+	p.subs = append(p.subs, defaultRecord(s))
 	p.saveSubs()
 }
 
@@ -83,12 +143,28 @@ func (p *pushStore) remove(endpoint string) {
 	defer p.mu.Unlock()
 	out := p.subs[:0]
 	for _, e := range p.subs {
-		if e.Endpoint != endpoint {
+		if e.Sub.Endpoint != endpoint {
 			out = append(out, e)
 		}
 	}
 	p.subs = out
 	p.saveSubs()
+}
+
+func (p *pushStore) setPrefs(endpoint string, perm, stop, err bool, qs, qe int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for i := range p.subs {
+		if p.subs[i].Sub.Endpoint == endpoint {
+			p.subs[i].Permission = perm
+			p.subs[i].Stop = stop
+			p.subs[i].Error = err
+			p.subs[i].QuietStart = qs
+			p.subs[i].QuietEnd = qe
+			p.saveSubs()
+			return
+		}
+	}
 }
 
 func (p *pushStore) count() int {
@@ -103,22 +179,27 @@ type pushPayload struct {
 	Tag    string `json:"tag"`
 	URL    string `json:"url"`
 	Status string `json:"status,omitempty"`
+	Attn   int    `json:"attn"` // panes needing attention → drives the app-icon badge
 }
 
-// send delivers to every subscription; prunes ones the push service has expired.
-func (p *pushStore) send(pl pushPayload) {
+// sendEvent delivers to every subscription that wants this category, honoring
+// per-device toggles + quiet hours; prunes subscriptions the push service expired.
+func (p *pushStore) sendEvent(cat string, pl pushPayload) {
 	p.mu.Lock()
 	priv, pub := p.privKey, p.pubKey
-	subs := make([]webpush.Subscription, len(p.subs))
-	copy(subs, p.subs)
+	recs := make([]subRecord, len(p.subs))
+	copy(recs, p.subs)
 	p.mu.Unlock()
-	if priv == "" || len(subs) == 0 {
+	if priv == "" || len(recs) == 0 {
 		return
 	}
 	body, _ := json.Marshal(pl)
 	var dead []string
-	for i := range subs {
-		s := subs[i]
+	for _, r := range recs {
+		if !r.wants(cat) {
+			continue
+		}
+		s := r.Sub
 		resp, err := webpush.SendNotification(body, &s, &webpush.Options{
 			Subscriber:      vapidSubscriber,
 			VAPIDPublicKey:  pub,
@@ -168,9 +249,26 @@ func handlePushUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(200)
 }
 
+func handlePushPrefs(w http.ResponseWriter, r *http.Request) {
+	var p struct {
+		Endpoint   string `json:"endpoint"`
+		Permission bool   `json:"permission"`
+		Stop       bool   `json:"stop"`
+		Error      bool   `json:"error"`
+		QuietStart int    `json:"quietStart"`
+		QuietEnd   int    `json:"quietEnd"`
+	}
+	if json.NewDecoder(r.Body).Decode(&p) != nil || p.Endpoint == "" {
+		http.Error(w, "bad prefs", 400)
+		return
+	}
+	push.setPrefs(p.Endpoint, p.Permission, p.Stop, p.Error, p.QuietStart, p.QuietEnd)
+	w.WriteHeader(200)
+}
+
 func handlePushTest(w http.ResponseWriter, r *http.Request) {
-	push.send(pushPayload{
-		Title: "Claude Wall", Body: "Notifications are on ✓", Tag: "cw-test", URL: "/m.html",
+	push.sendEvent("test", pushPayload{
+		Title: "Claude Wall", Body: "Notifications are on ✓", Tag: "cw-test", URL: "/m.html?attn=1",
 	})
 	w.WriteHeader(200)
 }
@@ -206,9 +304,16 @@ func startNotifyWatcher(port int) {
 			if derr != nil {
 				continue
 			}
+			// attention = panes that want the user: waiting for permission or stopped/idle-stale
+			attn := 0
 			cur := make(map[string]string, len(s.Panes))
 			for _, p := range s.Panes {
 				cur[p.Target] = p.Status
+				if p.Status == "permission" || p.Status == "stale" {
+					attn++
+				}
+			}
+			for _, p := range s.Panes {
 				if first {
 					continue
 				}
@@ -217,24 +322,22 @@ func startNotifyWatcher(port int) {
 					name = p.Target
 				}
 				old := prev[p.Target]
+				link := "/pip.html?m=1&target=" + url.QueryEscape(p.Target)
 				switch {
 				case p.Status == "permission" && old != "permission":
-					push.send(pushPayload{
+					push.sendEvent("permission", pushPayload{
 						Title: "Permission needed", Body: name + " is waiting for you",
-						Tag: "perm:" + p.Target, Status: "permission",
-						URL: "/pip.html?m=1&target=" + url.QueryEscape(p.Target),
+						Tag: "perm:" + p.Target, Status: "permission", URL: link, Attn: attn,
 					})
 				case (p.Status == "idle" || p.Status == "stale") && old == "working":
-					push.send(pushPayload{
+					push.sendEvent("stop", pushPayload{
 						Title: "Claude stopped", Body: name + " finished / is idle",
-						Tag: "stop:" + p.Target, Status: p.Status,
-						URL: "/pip.html?m=1&target=" + url.QueryEscape(p.Target),
+						Tag: "stop:" + p.Target, Status: p.Status, URL: link, Attn: attn,
 					})
 				case p.Status == "error" && old != "error":
-					push.send(pushPayload{
+					push.sendEvent("error", pushPayload{
 						Title: "Session error", Body: name + " hit an error",
-						Tag: "err:" + p.Target, Status: "error",
-						URL: "/pip.html?m=1&target=" + url.QueryEscape(p.Target),
+						Tag: "err:" + p.Target, Status: "error", URL: link, Attn: attn,
 					})
 				}
 			}

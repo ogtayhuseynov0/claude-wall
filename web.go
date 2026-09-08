@@ -580,6 +580,7 @@ func runWeb(port int) {
 	http.HandleFunc("/api/push/vapid", handlePushVAPID)
 	http.HandleFunc("/api/push/subscribe", handlePushSubscribe)
 	http.HandleFunc("/api/push/unsubscribe", handlePushUnsubscribe)
+	http.HandleFunc("/api/push/prefs", handlePushPrefs)
 	http.HandleFunc("/api/push/test", handlePushTest)
 
 	// Serve static files (strip "static/" prefix from embedded FS)

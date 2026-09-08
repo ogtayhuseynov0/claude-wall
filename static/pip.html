@@ -217,6 +217,15 @@
   term.addEventListener('mousedown', () => setTimeout(focusInput, 0));
   term.addEventListener('touchend', () => setTimeout(() => kbd.focus(), 0));
 
+  // keep the screen awake while watching a pane on mobile
+  let wakeLock = null;
+  async function acquireWake() {
+    if (!MOBILE || !('wakeLock' in navigator) || document.hidden) return;
+    try { wakeLock = await navigator.wakeLock.request('screen'); } catch (_) {}
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) acquireWake(); });
+  acquireWake();
+
   if (!target) { livePre.textContent = 'no ?target= given'; } else { connect(); }
 </script>
 </body>

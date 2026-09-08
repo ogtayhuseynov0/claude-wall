@@ -15,6 +15,12 @@ self.addEventListener('push', (event) => {
     data: { url: d.url || '/m.html' },
     vibrate: d.status === 'permission' ? [80, 40, 80] : [40],
   };
+  // update the app-icon badge (works while the app is closed)
+  try {
+    if (self.navigator.setAppBadge && typeof d.attn === 'number') {
+      d.attn > 0 ? self.navigator.setAppBadge(d.attn) : self.navigator.clearAppBadge();
+    }
+  } catch (_) {}
   event.waitUntil(self.registration.showNotification(title, opts));
 });
 
