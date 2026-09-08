@@ -205,7 +205,9 @@
   });
   kbd.addEventListener('compositionend', (e) => {
     composing = false;
-    streamDelta(lastComposed, e.data || lastComposed); // final delta
+    const finalStr = e.data || lastComposed;
+    streamDelta(lastComposed, finalStr);               // final delta
+    if (finalStr) send(' ');                            // space after each dictated phrase
     lastComposed = ''; kbd.value = '';
     justComposed = true; setTimeout(() => { justComposed = false; }, 0);
   });
