@@ -4,6 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Claude Wall</title>
+<script>
+  // Phones/small touchscreens get the dedicated mobile UI. ?desktop=1 (or a saved
+  // preference) forces the full dashboard.
+  (function () {
+    try {
+      if (location.search.indexOf('desktop=1') >= 0) { localStorage.setItem('cw-force-desktop', '1'); }
+      if (localStorage.getItem('cw-force-desktop') === '1') return;
+      var small = matchMedia('(max-width:640px)').matches;
+      var touch = matchMedia('(pointer:coarse)').matches;
+      if (small && touch) location.replace('/m.html');
+    } catch (e) {}
+  })();
+</script>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">

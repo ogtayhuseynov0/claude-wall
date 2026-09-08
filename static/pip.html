@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>PiP</title>
 <script src="/ansi_up.min.js"></script>
 <style>
@@ -16,20 +16,31 @@
   #dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex:0 0 auto; }
   #dot.idle { background:#57d977; } #dot.working { background:#f5a742; }
   #dot.error { background:#e5566a; } #dot.connecting,#dot.disconnected { background:var(--muted); }
+  #back { -webkit-app-region:no-drag; cursor:pointer; color:var(--fg); font-size:16px; padding:2px 4px; display:none; }
   #title { font-weight:600; color:var(--fg); }
   #sub { color:var(--muted); }
   #spacer { flex:1; }
   .btn { -webkit-app-region:no-drag; cursor:pointer; color:var(--muted); padding:2px 6px; border-radius:4px; }
   .btn:hover { color:var(--fg); background:#2a2e3a; }
-  #term { flex:1; overflow-y:auto; overflow-x:hidden; padding:8px 10px; }
+  #term { flex:1; overflow-y:auto; overflow-x:hidden; padding:8px 10px; -webkit-overflow-scrolling:touch; }
   pre { margin:0; white-space:pre-wrap; word-break:break-word; font-size:12.5px; line-height:1.35; }
   #history { opacity:.72; }
   .hrule { display:block; border-top:1px solid #2a2e3a; margin:3px 0; }
   #term::-webkit-scrollbar { width:9px; } #term::-webkit-scrollbar-thumb { background:#2f3340; border-radius:5px; }
+  /* hidden field that summons the soft keyboard on touch devices */
+  #kbd { position:absolute; opacity:0; height:1px; width:1px; border:0; padding:0; }
+  /* on-screen key toolbar (Esc/Ctrl/Tab/arrows the soft keyboard lacks) */
+  #keys { display:none; flex:0 0 auto; gap:6px; padding:6px 8px calc(6px + env(safe-area-inset-bottom));
+    background:#161922; border-top:1px solid #2a2e3a; overflow-x:auto; white-space:nowrap; }
+  #keys button { flex:0 0 auto; min-width:40px; height:38px; border-radius:8px; border:1px solid #2f3340;
+    background:#20242e; color:var(--fg); font-size:14px; font-family:inherit; }
+  #keys button:active { background:#2f3340; }
+  #keys button.on { background:var(--accent); color:#0d0f14; border-color:var(--accent); }
 </style>
 </head>
 <body tabindex="0">
   <div id="bar">
+    <span id="back" title="Sessions">‹</span>
     <span id="dot" class="connecting"></span>
     <span id="title">…</span><span id="sub"></span>
     <span id="spacer"></span>
@@ -37,10 +48,22 @@
     <span class="btn" id="close" title="Close">✕</span>
   </div>
   <div id="term"><pre id="history"></pre><pre id="live"></pre></div>
+  <input id="kbd" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" inputmode="text">
+  <div id="keys">
+    <button data-k="esc">esc</button>
+    <button data-k="ctrl" id="kctrl">ctrl</button>
+    <button data-k="tab">tab</button>
+    <button data-k="up">↑</button>
+    <button data-k="down">↓</button>
+    <button data-k="left">←</button>
+    <button data-k="right">→</button>
+    <button data-k="cc">^C</button>
+    <button data-k="enter">⏎</button>
+  </div>
 <script>
   const params = new URLSearchParams(location.search);
   const target = params.get('target') || '';
-  // page background is transparent; the native app draws an adjustable dark layer behind.
+  const MOBILE = params.get('m') === '1' || matchMedia('(pointer:coarse)').matches;
   const ansi = new AnsiUp();
   const stripOSC = (t) => t.replace(/\x1b\]8;[^]*?(?:\x1b\\|\x07)(.*?)\x1b\]8;[^]*?(?:\x1b\\|\x07)/g,'$1').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g,'');
   const renderAnsi = (t) => ansi.ansi_to_html(stripOSC(t)).replace(/^@@HRULE@@$/gm,'<span class="hrule"></span>');
@@ -51,14 +74,24 @@
   const dot = document.getElementById('dot');
   const titleEl = document.getElementById('title');
   const subEl = document.getElementById('sub');
+  const kbd = document.getElementById('kbd');
   document.title = 'PiP · ' + target;
   titleEl.textContent = target.split(':')[0] || target;
   subEl.textContent = target ? '· ' + target : '';
+
+  // Mobile: solid dark background (native app supplies its own), key toolbar + back button.
+  if (MOBILE) {
+    document.documentElement.style.setProperty('--bg', '#0d0f14');
+    document.documentElement.style.setProperty('--bar', '#161922');
+    document.getElementById('keys').style.display = 'flex';
+    if (params.get('m') === '1') document.getElementById('back').style.display = 'inline';
+  }
 
   let ws, reconnectDelay = 500, lastContent = '';
   const atBottom = () => (term.scrollHeight - term.scrollTop - term.clientHeight) < 40;
   const toBottom = () => { term.scrollTop = term.scrollHeight; };
   const setStatus = (s) => { dot.className = s || 'connecting'; };
+  const send = (data) => { if (data && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data })); };
 
   function connect() {
     setStatus('connecting');
@@ -89,7 +122,7 @@
     ws.onerror = () => ws.close();
   }
 
-  // keystrokes → tmux (same mapping as the dashboard)
+  // hardware keyboard (desktop + phones with a BT keyboard)
   document.addEventListener('keydown', (e) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     let data = '';
@@ -116,21 +149,52 @@
       }
       if (data) e.preventDefault();
     }
-    if (data) ws.send(JSON.stringify({ type: 'input', data }));
+    send(data);
   });
+
+  // soft keyboard (mobile): beforeinput gives reliable inputType across iOS/Android.
+  let ctrlArmed = false;
+  const setCtrl = (on) => { ctrlArmed = on; document.getElementById('kctrl').classList.toggle('on', on); };
+  kbd.addEventListener('beforeinput', (e) => {
+    if (e.inputType === 'insertText' && e.data) {
+      if (ctrlArmed) {
+        const c = e.data.toLowerCase().charCodeAt(0) - 96;
+        if (c > 0 && c < 27) send(String.fromCharCode(c)); else send(e.data);
+        setCtrl(false);
+      } else send(e.data);
+    } else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
+      send('\r');
+    } else if (e.inputType === 'deleteContentBackward') {
+      send('\x7f');
+    }
+    e.preventDefault();          // keep the field empty so we only ever send deltas
+    kbd.value = '';
+  });
+
   document.addEventListener('paste', (e) => {
     e.preventDefault();
-    const text = e.clipboardData.getData('text');
-    if (text && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data: text }));
+    send((e.clipboardData || window.clipboardData).getData('text'));
+  });
+
+  // key toolbar
+  const KEYSEQ = { esc:'\x1b', tab:'\t', up:'\x1b[A', down:'\x1b[B', left:'\x1b[D', right:'\x1b[C', cc:'\x03', enter:'\r' };
+  document.getElementById('keys').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    const k = b.dataset.k;
+    if (k === 'ctrl') { setCtrl(!ctrlArmed); kbd.focus(); return; }
+    send(KEYSEQ[k]);
+    kbd.focus();
   });
 
   document.getElementById('close').onclick = () => { try { ws && ws.close(); } catch(_){} window.close(); };
   document.getElementById('goto').onclick = () => { fetch('/api/goto/' + encodeURIComponent(target)).catch(()=>{}); };
-  // keep the page focused so keystrokes are captured
-  const refocus = () => document.body.focus();
-  window.addEventListener('load', refocus);
-  window.addEventListener('focus', refocus);
-  term.addEventListener('mousedown', () => setTimeout(refocus, 0));
+  document.getElementById('back').onclick = () => { location.href = '/m.html'; };
+
+  // focus: desktop keeps body focused; mobile focuses the hidden field to raise the keyboard.
+  const focusInput = () => { if (MOBILE) kbd.focus(); else document.body.focus(); };
+  window.addEventListener('load', focusInput);
+  term.addEventListener('mousedown', () => setTimeout(focusInput, 0));
+  term.addEventListener('touchend', () => setTimeout(() => kbd.focus(), 0));
 
   if (!target) { livePre.textContent = 'no ?target= given'; } else { connect(); }
 </script>

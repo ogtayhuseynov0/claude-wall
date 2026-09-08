@@ -1,0 +1,168 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Claude Wall</title>
+<style>
+  :root {
+    --bg:#0d0f14; --card:#161922; --card2:#1c2029; --line:#262b36;
+    --fg:#f0f2f6; --muted:#8b91a3; --dim:#5b6172;
+    --work:#f5a742; --perm:#e5566a; --stale:#e8b93b; --idle:#57d977; --codex:#8b7cf0;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; }
+  body { padding:0 0 env(safe-area-inset-bottom); max-width:680px; margin:0 auto; }
+
+  header { position:sticky; top:0; z-index:5; background:rgba(13,15,20,0.92);
+    backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+    padding:calc(10px + env(safe-area-inset-top)) 14px 8px; border-bottom:1px solid var(--line); }
+  .top { display:flex; align-items:center; gap:10px; }
+  .logo { width:26px; height:26px; border-radius:7px; background:linear-gradient(135deg,#20242e,#12141b);
+    border:1px solid #2c3140; position:relative; flex:0 0 auto; }
+  .logo::before { content:""; position:absolute; left:5px; top:5px; width:6px; height:6px; border-radius:2px;
+    background:var(--work); box-shadow:9px 0 0 #363c4a, 0 9px 0 #363c4a, 9px 9px 0 #363c4a; }
+  h1 { font-size:16px; font-weight:700; margin:0; letter-spacing:-.2px; }
+  .counts { margin-left:auto; display:flex; gap:8px; font-size:12px; font-variant-numeric:tabular-nums; }
+  .counts b { font-weight:700; }
+  .cwork { color:var(--work); } .cperm { color:var(--perm); } .cstale { color:var(--stale); }
+  #refresh { margin-left:4px; background:none; border:0; color:var(--muted); font-size:18px; padding:2px 4px; cursor:pointer; }
+  #refresh.spin { animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .chips { display:flex; gap:7px; margin-top:9px; overflow-x:auto; padding-bottom:2px; }
+  .chip { flex:0 0 auto; padding:5px 12px; border-radius:999px; border:1px solid var(--line);
+    background:var(--card); color:var(--muted); font-size:12.5px; font-weight:600; }
+  .chip.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+
+  #list { padding:8px 10px 24px; display:flex; flex-direction:column; gap:8px; }
+  .row { display:flex; align-items:center; gap:11px; padding:12px 13px; border-radius:13px;
+    background:var(--card); border:1px solid var(--line); text-decoration:none; color:inherit; }
+  .row:active { background:var(--card2); }
+  .dot { width:11px; height:11px; border-radius:50%; flex:0 0 auto; background:var(--dim); }
+  .dot.working { background:var(--work); box-shadow:0 0 8px var(--work); animation:pulse 1.4s ease-in-out infinite; }
+  .dot.permission { background:var(--perm); box-shadow:0 0 8px var(--perm); }
+  .dot.stale { background:var(--stale); } .dot.idle { background:var(--idle); }
+  .dot.error { background:var(--perm); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .meta { min-width:0; flex:1; }
+  .name { font-size:15px; font-weight:650; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sub { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+  .tag { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; padding:2px 6px;
+    border-radius:5px; background:var(--card2); color:var(--dim); flex:0 0 auto; }
+  .tag.codex { color:var(--codex); }
+  .chev { color:var(--dim); font-size:16px; flex:0 0 auto; }
+  .empty { text-align:center; color:var(--muted); padding:48px 20px; font-size:14px; }
+  .skel { height:66px; border-radius:13px; background:linear-gradient(90deg,#161922 25%,#1e222d 50%,#161922 75%);
+    background-size:200% 100%; animation:sh 1.3s infinite; }
+  @keyframes sh { to { background-position:-200% 0; } }
+  #deskLink { display:block; text-align:center; color:var(--dim); font-size:12.5px; font-weight:600;
+    text-decoration:none; padding:4px 0 28px; }
+  .status-word { font-size:11px; font-weight:700; margin-top:2px; }
+  .sw-working{color:var(--work)} .sw-permission{color:var(--perm)} .sw-stale{color:var(--stale)} .sw-idle{color:var(--muted)}
+</style>
+</head>
+<body>
+  <header>
+    <div class="top">
+      <div class="logo"></div>
+      <h1>Claude Wall</h1>
+      <div class="counts">
+        <span class="cwork"><b id="cWork">0</b> ▶</span>
+        <span class="cperm"><b id="cPerm">0</b> ?</span>
+        <span class="cstale"><b id="cStale">0</b> ⏾</span>
+      </div>
+      <button id="refresh" title="Refresh">↻</button>
+    </div>
+    <div class="chips" id="chips">
+      <div class="chip on" data-f="all">All</div>
+      <div class="chip" data-f="working">Working</div>
+      <div class="chip" data-f="permission">Waiting</div>
+      <div class="chip" data-f="stale">30m+</div>
+      <div class="chip" data-f="idle">Idle</div>
+    </div>
+  </header>
+  <div id="list">
+    <div class="skel"></div><div class="skel"></div><div class="skel"></div>
+  </div>
+  <a id="deskLink" href="/?desktop=1">Full dashboard ↗</a>
+<script>
+  const listEl = document.getElementById('list');
+  const chipsEl = document.getElementById('chips');
+  const refreshBtn = document.getElementById('refresh');
+  let filter = 'all';
+  let panes = [];       // merged pane info
+  const RANK = { permission:0, error:0, stale:1, working:2, idle:3 };
+  const WORD = { working:'Working', permission:'Waiting for you', stale:'Idle 30m+', idle:'Idle', error:'Error', disconnected:'—' };
+
+  async function load() {
+    try {
+      const [sumR, panesR] = await Promise.all([
+        fetch('/api/summary').then(r => r.json()),
+        fetch('/api/panes').then(r => r.json()).catch(() => []),
+      ]);
+      document.getElementById('cWork').textContent = sumR.working || 0;
+      document.getElementById('cPerm').textContent = sumR.pending || 0;
+      document.getElementById('cStale').textContent = sumR.stale || 0;
+      const info = {};
+      (panesR || []).forEach(p => { info[p.target] = p; });
+      panes = (sumR.panes || []).map(p => {
+        const x = info[p.target] || {};
+        return {
+          target: p.target,
+          name: p.dirName || x.dirName || x.session || p.target,
+          status: p.status || 'idle',
+          agent: x.agent || 'claude',
+          branch: x.branch || '',
+          session: x.session || (p.target.split(':')[0]),
+        };
+      });
+      render();
+    } catch (e) {
+      listEl.innerHTML = '<div class="empty">Can\'t reach server.<br>Is claude-wall running?</div>';
+    }
+  }
+
+  function render() {
+    let rows = panes.slice();
+    if (filter !== 'all') {
+      rows = rows.filter(p => filter === 'permission'
+        ? (p.status === 'permission' || p.status === 'error')
+        : p.status === filter);
+    }
+    rows.sort((a, b) => (RANK[a.status] ?? 5) - (RANK[b.status] ?? 5) || a.name.localeCompare(b.name));
+    if (!rows.length) { listEl.innerHTML = '<div class="empty">No sessions here.</div>'; return; }
+    listEl.innerHTML = rows.map(p => {
+      const st = p.status || 'idle';
+      const tagCls = p.agent === 'codex' ? 'tag codex' : 'tag';
+      const sub = [p.session, p.branch].filter(Boolean).join(' · ');
+      return `<a class="row" href="/pip.html?m=1&target=${encodeURIComponent(p.target)}">
+        <span class="dot ${st}"></span>
+        <span class="meta">
+          <div class="name">${esc(p.name)}</div>
+          <div class="sub">${esc(sub || p.target)}</div>
+          <div class="status-word sw-${st}">${WORD[st] || st}</div>
+        </span>
+        <span class="${tagCls}">${esc(p.agent)}</span>
+        <span class="chev">›</span>
+      </a>`;
+    }).join('');
+  }
+
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+  chipsEl.addEventListener('click', e => {
+    const c = e.target.closest('.chip'); if (!c) return;
+    filter = c.dataset.f;
+    [...chipsEl.children].forEach(ch => ch.classList.toggle('on', ch === c));
+    render();
+  });
+  refreshBtn.onclick = () => { refreshBtn.classList.add('spin'); load().finally(() => setTimeout(() => refreshBtn.classList.remove('spin'), 500)); };
+
+  load();
+  setInterval(load, 4000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+</script>
+</body>
+</html>
