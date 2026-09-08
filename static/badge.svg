@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96">
+  <!-- monochrome (alpha) badge: 2x2 pane glyph, white so Android can tint it -->
+  <rect x="16" y="16" width="28" height="28" rx="7" fill="#ffffff"/>
+  <rect x="52" y="16" width="28" height="28" rx="7" fill="#ffffff"/>
+  <rect x="16" y="52" width="28" height="28" rx="7" fill="#ffffff"/>
+  <rect x="52" y="52" width="28" height="28" rx="7" fill="#ffffff"/>
+</svg>
