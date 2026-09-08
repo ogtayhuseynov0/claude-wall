@@ -35,10 +35,11 @@
   .counts .c { display:inline-flex; align-items:center; gap:4px; }
   .counts svg { width:15px; height:15px; }
   .cwork { color:var(--work); } .cperm { color:var(--perm); } .cstale { color:var(--stale); }
-  #usage, #notify { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
+  #usage, #notify, #launch { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
     display:inline-flex; border-radius:8px; }
-  #usage:active, #notify:active { background:var(--card); }
-  #usage svg, #notify svg { width:19px; height:19px; }
+  #usage:active, #notify:active, #launch:active { background:var(--card); }
+  #usage svg, #notify svg, #launch svg { width:19px; height:19px; }
+  #launch { color:var(--work); }
   #notify.on { color:var(--work); }
   @keyframes spin { to { transform:rotate(360deg); } }
   .spin { animation:spin .8s linear infinite; }
@@ -88,6 +89,21 @@
   .quiet .muted { color:var(--muted); font-weight:400; }
   .disable-btn { width:100%; margin-top:14px; background:none; border:1px solid var(--line); color:var(--perm);
     font-weight:600; font-size:14px; font-family:inherit; padding:11px; border-radius:11px; cursor:pointer; }
+
+  .agent-seg { display:flex; gap:6px; margin-bottom:12px; }
+  .agent-seg button { flex:1; padding:9px 6px; border-radius:10px; border:1px solid var(--line); background:var(--card2);
+    color:var(--muted); font-weight:600; font-size:13px; font-family:inherit; cursor:pointer; }
+  .agent-seg button.on { background:var(--work); color:#1a1206; border-color:var(--work); }
+  .lsearch { margin-top:0; margin-bottom:10px; }
+  #projList { display:flex; flex-direction:column; gap:6px; max-height:52vh; overflow-y:auto; }
+  .proj { display:flex; align-items:center; gap:10px; padding:12px 12px; border-radius:11px; background:var(--card2);
+    border:1px solid var(--line); cursor:pointer; }
+  .proj:active { background:var(--line); }
+  .proj .pn { flex:1; font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .proj .go { color:var(--dim); font-size:12px; font-weight:700; }
+  .proj svg { width:16px; height:16px; color:var(--work); flex:0 0 auto; }
+  .note { font-size:12px; color:var(--muted); line-height:1.4; margin-top:12px; padding:10px 12px;
+    background:var(--card2); border:1px solid var(--line); border-radius:10px; }
 
   #notifyBanner { display:flex; align-items:center; gap:9px; margin:10px 10px 0; padding:11px 12px;
     background:linear-gradient(135deg,#20242e,#191d26); border:1px solid var(--line); border-radius:13px; }
@@ -159,6 +175,9 @@
         <span class="c cstale" title="Idle 30m+">
           <svg class="ic" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg><span id="cStale">0</span></span>
       </div>
+      <button id="launch" title="New session">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+      </button>
       <button id="notify" title="Notifications" hidden>
         <svg class="ic bell-off" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M17 17H4s3-2 3-9a5 5 0 0 1 .3-1.7"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="m2 2 20 20"/><path d="M16.5 9.5A8.6 8.6 0 0 0 17 8a5 5 0 0 0-9.3-2.5"/></svg>
         <svg class="ic bell-on" viewBox="0 0 24 24" hidden><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/></svg>
@@ -208,6 +227,23 @@
     </div>
   </div>
 
+  <div class="sheet" id="launchSheet" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <h2>New session</h2>
+        <button id="launchClose" title="Close"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <div class="agent-seg" id="agentSeg">
+        <button data-a="claude" class="on">Claude</button>
+        <button data-a="claude-work">Claude · work</button>
+        <button data-a="codex">Codex</button>
+      </div>
+      <div class="search lsearch"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="projSearch" type="search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" placeholder="Search projects…"></div>
+      <div id="projList"><div class="u-empty">Loading…</div></div>
+    </div>
+  </div>
+
   <div class="sheet" id="notifSheet" hidden>
     <div class="sheet-card">
       <div class="sheet-head">
@@ -222,6 +258,7 @@
         <span class="sw"><input type="checkbox" id="prefErr" checked><i></i></span></label>
       <div class="quiet"><span class="lbl">Quiet hours</span>
         <select id="qStart"></select><span class="muted">to</span><select id="qEnd"></select></div>
+      <div class="note">Not popping over other apps? Android controls this per-app: long-press a Claude Wall notification → <b>settings</b>, or Settings → Apps → Claude Wall → Notifications, and set it to <b>Pop on screen / Alerting</b>.</div>
       <button class="disable-btn" id="notifDisable">Turn off notifications</button>
     </div>
   </div>
@@ -481,9 +518,49 @@
   document.getElementById('usageClose').onclick = () => usageSheet.hidden = true;
   usageRefresh.onclick = () => loadUsage(true);
 
+  // ---- session launcher ----
+  const launchSheet = document.getElementById('launchSheet');
+  const agentSeg = document.getElementById('agentSeg');
+  const projSearch = document.getElementById('projSearch');
+  const projList = document.getElementById('projList');
+  let projects = [], agent = 'claude', launching = false;
+  function renderProjects() {
+    const q = projSearch.value.trim().toLowerCase();
+    const rows = projects.filter(p => !q || p.name.toLowerCase().includes(q));
+    if (!rows.length) { projList.innerHTML = '<div class="u-empty">' + (projects.length ? 'No match.' : 'No git projects found.') + '</div>'; return; }
+    projList.innerHTML = rows.map(p => `<div class="proj" data-path="${esc(p.path)}">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+      <span class="pn">${esc(p.name)}</span><span class="go">start ›</span></div>`).join('');
+  }
+  async function openLaunch() {
+    launchSheet.hidden = false;
+    if (!projects.length) {
+      try { projects = await fetch('/api/projects').then(r => r.json()) || []; } catch (_) { projects = []; }
+    }
+    renderProjects();
+  }
+  agentSeg.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    agent = b.dataset.a;
+    [...agentSeg.children].forEach(c => c.classList.toggle('on', c === b));
+  });
+  projSearch.addEventListener('input', renderProjects);
+  projList.addEventListener('click', async e => {
+    const row = e.target.closest('.proj'); if (!row || launching) return;
+    launching = true; row.querySelector('.go').textContent = 'starting…';
+    try {
+      await fetch('/api/launch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: row.dataset.path, agent }) });
+      launchSheet.hidden = true;
+      filter = 'all'; syncChips(); setTimeout(load, 1200); // new pane appears shortly
+    } catch (_) { row.querySelector('.go').textContent = 'failed'; }
+    launching = false;
+  });
+  document.getElementById('launch').onclick = openLaunch;
+  document.getElementById('launchClose').onclick = () => launchSheet.hidden = true;
+
   // tap backdrop or Esc closes any open sheet
-  [usageSheet, notifSheet].forEach(sh => sh.addEventListener('click', e => { if (e.target === sh) sh.hidden = true; }));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { usageSheet.hidden = true; notifSheet.hidden = true; } });
+  [usageSheet, notifSheet, launchSheet].forEach(sh => sh.addEventListener('click', e => { if (e.target === sh) sh.hidden = true; }));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { usageSheet.hidden = true; notifSheet.hidden = true; launchSheet.hidden = true; } });
 
   initPush();
   load();

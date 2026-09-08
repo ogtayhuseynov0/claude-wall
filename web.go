@@ -592,6 +592,10 @@ func runWeb(port int) {
 	http.HandleFunc("/api/push/prefs", handlePushPrefs)
 	http.HandleFunc("/api/push/test", handlePushTest)
 
+	// Session launcher
+	http.HandleFunc("/api/projects", handleProjects)
+	http.HandleFunc("/api/launch", handleLaunch)
+
 	// Serve static files (strip "static/" prefix from embedded FS)
 	mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	sub, _ := fs.Sub(staticFiles, "static")
