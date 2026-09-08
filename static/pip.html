@@ -247,21 +247,12 @@
 
   // focus: desktop keeps body focused; mobile focuses the hidden field to raise
   // the keyboard. preventScroll stops the browser jumping to the 1px field.
-  const focusInput = () => { if (MOBILE) kbd.focus({ preventScroll: true }); else document.body.focus(); };
   window.addEventListener('load', () => { if (!MOBILE) document.body.focus(); }); // don't auto-raise the keyboard on phones
-  term.addEventListener('mousedown', () => { if (!MOBILE) setTimeout(focusInput, 0); });
-
-  // mobile: only a tap (not a scroll gesture) raises the keyboard — so scrolling
-  // up to read never yanks back down or pops the keyboard.
-  let tStart = null;
-  term.addEventListener('touchstart', (e) => { const t = e.touches[0]; tStart = { x: t.clientX, y: t.clientY, at: Date.now() }; }, { passive: true });
-  term.addEventListener('touchend', (e) => {
-    if (!tStart) return;
-    const t = e.changedTouches[0];
-    const moved = Math.hypot(t.clientX - tStart.x, t.clientY - tStart.y);
-    const quick = Date.now() - tStart.at < 400;
-    tStart = null;
-    if (moved < 12 && quick) { follow = true; kbd.focus({ preventScroll: true }); toBottom(); } // tap → type at bottom
+  // A click fires on a tap but not after a scroll gesture (browser suppresses it),
+  // and is a user gesture so focus() reliably raises the soft keyboard.
+  term.addEventListener('click', () => {
+    if (MOBILE) { follow = true; kbd.focus({ preventScroll: true }); toBottom(); }
+    else document.body.focus();
   });
 
   // keyboard open/close resizes the visual viewport — shrink the app to the
