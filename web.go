@@ -753,6 +753,20 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 	updates := hub.subscribe(target)
 	defer hub.unsubscribe(target, updates)
 
+	// Immediate paint: send a one-shot live snapshot on connect so the pane
+	// isn't blank until the hub's next *change* — alt-screen agents have no
+	// scrollback history to paint, so without this they stayed black until a keypress.
+	if out, e := exec.Command("tmux", "capture-pane", "-t", target, "-e", "-p").Output(); e == nil && len(out) > 0 {
+		lines := strings.Split(string(out), "\n")
+		for i, l := range lines {
+			lines[i] = strings.TrimRight(l, " ")
+		}
+		joined := strings.Join(lines, "\n")
+		st, _ := parseTerminalStatus(joined)
+		msg, _ := json.Marshal(map[string]string{"type": "content", "data": joined, "status": st})
+		conn.WriteMessage(websocket.TextMessage, msg)
+	}
+
 	pingTicker := time.NewTicker(30 * time.Second)
 	defer pingTicker.Stop()
 
