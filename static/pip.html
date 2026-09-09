@@ -61,6 +61,7 @@
     background:#20242e; color:var(--fg); font-size:14px; font-family:inherit; }
   #keys button:active { background:#2f3340; }
   #keys button.on { background:var(--accent); color:#0d0f14; border-color:var(--accent); }
+  #keys button#kbottom { background:var(--accent); color:#0d0f14; border-color:var(--accent); font-size:19px; font-weight:700; }
 </style>
 </head>
 <body tabindex="0">
@@ -75,6 +76,7 @@
   <div id="term"><pre id="history"></pre><pre id="live"></pre></div>
   <textarea id="kbd" rows="1" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" inputmode="text"></textarea>
   <div id="keys">
+    <button data-k="bottom" id="kbottom" title="Jump to latest" hidden>⤓</button>
     <button data-k="esc">esc</button>
     <button data-k="ctrl" id="kctrl">ctrl</button>
     <button data-k="tab">tab</button>
@@ -120,7 +122,9 @@
   // follow = auto-stick to bottom. Cleared when the user scrolls up to read,
   // re-armed when they scroll back down or tap to type. Prevents the yank-down.
   let follow = true;
-  term.addEventListener('scroll', () => { follow = atBottom(); });
+  const kbottom = document.getElementById('kbottom');
+  const updateScrollBtn = () => { kbottom.hidden = follow; };
+  term.addEventListener('scroll', () => { follow = atBottom(); updateScrollBtn(); });
   const setStatus = (s) => { dot.className = s || 'connecting'; };
 
   // mobile: fit the monospace font so the widest line fits the pane width
@@ -141,7 +145,7 @@
   const send = (data) => {
     if (!data) return;
     sendRaw(data);
-    follow = true; toBottom(); // typing/keys means we're at the prompt
+    follow = true; toBottom(); updateScrollBtn(); // typing/keys means we're at the prompt
   };
 
   // Scroll-forwarding: for full-screen TUI panes (alt-screen), the terminal only
@@ -150,7 +154,7 @@
   // capture the revealed rows. Only for alt-screen panes (never a plain shell).
   let isAlt = false, scrollAccum = 0;
   const WHEEL_UP = '\x1b[<64;20;20M', WHEEL_DOWN = '\x1b[<65;20;20M';
-  const forwardScroll = (dir) => { if (dir === 'up') follow = false; const s = dir === 'up' ? WHEEL_UP : WHEEL_DOWN; sendRaw(s + s + s); };
+  const forwardScroll = (dir) => { if (dir === 'up') { follow = false; updateScrollBtn(); } const s = dir === 'up' ? WHEEL_UP : WHEEL_DOWN; sendRaw(s + s + s); };
 
   function connect() {
     setStatus('connecting');
@@ -269,6 +273,11 @@
     const b = e.target.closest('button'); if (!b) return;
     const k = b.dataset.k;
     if (k === 'ctrl') { setCtrl(!ctrlArmed); kbd.focus({ preventScroll: true }); return; }
+    if (k === 'bottom') {                         // jump back to the latest output
+      follow = true; toBottom();
+      if (isAlt) sendRaw(WHEEL_DOWN.repeat(40));   // scroll the agent's transcript to the bottom
+      updateScrollBtn(); kbd.focus({ preventScroll: true }); return;
+    }
     send(KEYSEQ[k]);
     kbd.focus({ preventScroll: true });
   });
