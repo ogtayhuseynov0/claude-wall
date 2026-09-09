@@ -43,7 +43,11 @@
   .mobile #back .ic, .mobile .btn .ic { width:23px; height:23px; }
   .mobile #title { font-size:14px; }
   #term { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:8px 10px; -webkit-overflow-scrolling:touch; }
-  pre { margin:0; white-space:pre-wrap; word-break:break-word; font-size:12.5px; line-height:1.35; }
+  pre { margin:0; white-space:pre-wrap; word-break:break-word; font-size:var(--fs,12.5px); line-height:1.35; }
+  /* mobile: don't wrap wide TUI lines into 4-5 rows — keep one line, fit the
+     font to the pane width, allow horizontal scroll once at the min size. */
+  .mobile #term { overflow-x:auto; }
+  .mobile pre { white-space:pre; word-break:normal; }
   #history { opacity:.72; }
   .hrule { display:block; border-top:1px solid #2a2e3a; margin:3px 0; }
   #term::-webkit-scrollbar { width:9px; } #term::-webkit-scrollbar-thumb { background:#2f3340; border-radius:5px; }
@@ -118,6 +122,21 @@
   let follow = true;
   term.addEventListener('scroll', () => { follow = atBottom(); });
   const setStatus = (s) => { dot.className = s || 'connecting'; };
+
+  // mobile: fit the monospace font so the widest line fits the pane width
+  // (avoids wide TUI lines wrapping to 4-5 rows). Floor at 7px → horizontal scroll.
+  const BASE_FS = 12.5, MIN_FS = 7;
+  let fitPending = false;
+  function fitFont() {
+    if (!MOBILE) return;
+    document.documentElement.style.setProperty('--fs', BASE_FS + 'px');
+    const natural = Math.max(historyPre.scrollWidth, livePre.scrollWidth, 1);
+    const avail = term.clientWidth - 20; // minus padding
+    let f = BASE_FS;
+    if (natural > avail) f = Math.max(MIN_FS, BASE_FS * avail / natural);
+    document.documentElement.style.setProperty('--fs', f.toFixed(1) + 'px');
+  }
+  const scheduleFit = () => { if (fitPending) return; fitPending = true; requestAnimationFrame(() => { fitPending = false; fitFont(); }); };
   const send = (data) => {
     if (!data || !ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ type: 'input', data }));
@@ -133,12 +152,14 @@
       const msg = JSON.parse(e.data);
       if (msg.type === 'history') {
         historyPre.innerHTML = renderAnsi(msg.data);
+        scheduleFit();
         if (follow) toBottom();
         if (msg.status) setStatus(msg.status);
       } else if (msg.type === 'content') {
         if (msg.data === lastContent) { if (msg.status) setStatus(msg.status); return; }
         lastContent = msg.data;
         livePre.innerHTML = renderAnsi(msg.data);
+        scheduleFit();
         if (msg.status) setStatus(msg.status);
         if (follow) toBottom();
       } else if (msg.type === 'status-update') {
@@ -259,10 +280,11 @@
   // visible area, re-pinning to bottom only when following.
   if (MOBILE && window.visualViewport) {
     const vv = window.visualViewport;
-    const fit = () => { document.body.style.height = vv.height + 'px'; };
+    const fit = () => { document.body.style.height = vv.height + 'px'; scheduleFit(); };
     vv.addEventListener('resize', () => { fit(); if (follow) toBottom(); });
     fit();
   }
+  window.addEventListener('orientationchange', scheduleFit);
 
   // tell the server we're actively viewing this pane, so it suppresses pushes
   // for it while the tab is open + visible.
