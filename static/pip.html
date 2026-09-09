@@ -125,7 +125,7 @@
 
   // mobile: fit the monospace font so the widest line fits the pane width
   // (avoids wide TUI lines wrapping to 4-5 rows). Floor at 7px → horizontal scroll.
-  const BASE_FS = 12.5, MIN_FS = 7;
+  const BASE_FS = 12.5, MIN_FS = 9;
   let fitPending = false;
   function fitFont() {
     if (!MOBILE) return;
