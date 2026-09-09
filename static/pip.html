@@ -137,11 +137,20 @@
     document.documentElement.style.setProperty('--fs', f.toFixed(1) + 'px');
   }
   const scheduleFit = () => { if (fitPending) return; fitPending = true; requestAnimationFrame(() => { fitPending = false; fitFont(); }); };
+  const sendRaw = (data) => { if (data && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data })); };
   const send = (data) => {
-    if (!data || !ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify({ type: 'input', data }));
-    follow = true; toBottom(); // sending input means we're at the prompt
+    if (!data) return;
+    sendRaw(data);
+    follow = true; toBottom(); // typing/keys means we're at the prompt
   };
+
+  // Scroll-forwarding: for full-screen TUI panes (alt-screen), the terminal only
+  // exposes the current screen. When the user over-scrolls past the top, send
+  // mouse-wheel events to the app so it scrolls its own transcript; we then
+  // capture the revealed rows. Only for alt-screen panes (never a plain shell).
+  let isAlt = false, scrollAccum = 0;
+  const WHEEL_UP = '\x1b[<64;20;20M', WHEEL_DOWN = '\x1b[<65;20;20M';
+  const forwardScroll = (dir) => { if (dir === 'up') follow = false; const s = dir === 'up' ? WHEEL_UP : WHEEL_DOWN; sendRaw(s + s + s); };
 
   function connect() {
     setStatus('connecting');
@@ -164,6 +173,8 @@
         if (follow) toBottom();
       } else if (msg.type === 'status-update') {
         if (msg.status) setStatus(msg.status);
+      } else if (msg.type === 'alt') {
+        isAlt = msg.data === '1';
       } else if (msg.type === 'status' && msg.data === 'disconnected') {
         setStatus('disconnected');
       }
@@ -285,6 +296,24 @@
     fit();
   }
   window.addEventListener('orientationchange', scheduleFit);
+
+  // desktop wheel: at the top, wheel-up scrolls the app's transcript; at the
+  // bottom, wheel-down. Only for alt-screen panes.
+  term.addEventListener('wheel', (e) => {
+    if (!isAlt) return;
+    if (e.deltaY < 0 && term.scrollTop <= 0) forwardScroll('up');
+    else if (e.deltaY > 0 && atBottom()) forwardScroll('down');
+  }, { passive: true });
+
+  // mobile: over-scroll past the top/bottom forwards a wheel event to the app
+  let tY = null;
+  term.addEventListener('touchstart', (e) => { tY = e.touches[0].clientY; scrollAccum = 0; }, { passive: true });
+  term.addEventListener('touchmove', (e) => {
+    if (!isAlt || tY == null) return;
+    const y = e.touches[0].clientY, dy = y - tY; tY = y;
+    if (term.scrollTop <= 0 && dy > 0) { scrollAccum += dy; if (scrollAccum > 28) { scrollAccum = 0; forwardScroll('up'); } }
+    else if (atBottom() && dy < 0) { scrollAccum -= dy; if (scrollAccum > 28) { scrollAccum = 0; forwardScroll('down'); } }
+  }, { passive: true });
 
   // tell the server we're actively viewing this pane, so it suppresses pushes
   // for it while the tab is open + visible.

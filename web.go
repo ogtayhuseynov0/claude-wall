@@ -767,6 +767,21 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 		conn.WriteMessage(websocket.TextMessage, msg)
 	}
 
+	// Tell the client whether this pane is a full-screen (alternate-screen) TUI,
+	// so it only forwards scroll gestures to the app for those (never a plain shell).
+	getAlt := func() string {
+		if o, e := exec.Command("tmux", "display-message", "-t", target, "-p", "#{alternate_on}").Output(); e == nil {
+			return strings.TrimSpace(string(o))
+		}
+		return ""
+	}
+	lastAlt := getAlt()
+	sendAlt := func() {
+		msg, _ := json.Marshal(map[string]string{"type": "alt", "data": lastAlt})
+		conn.WriteMessage(websocket.TextMessage, msg)
+	}
+	sendAlt()
+
 	pingTicker := time.NewTicker(30 * time.Second)
 	defer pingTicker.Stop()
 
@@ -791,6 +806,10 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 				if atomic.CompareAndSwapInt32(&historyRequest, 1, 0) || atomic.CompareAndSwapInt32(&contentChanged, 1, 0) {
 					captureHistory()
 				}
+			}
+			if a := getAlt(); a != lastAlt { // alt-screen state changed → tell the client
+				lastAlt = a
+				sendAlt()
 			}
 
 		case update, ok := <-updates:
