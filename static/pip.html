@@ -161,13 +161,15 @@
   async function jumpBottom() {
     follow = true; toBottom(); updateScrollBtn();
     if (!isAlt) return;
-    let prev = null;
-    for (let i = 0; i < 20; i++) {
-      sendRaw(WHEEL_DOWN.repeat(10));
-      await sleep(90);
+    let stable = 0;
+    for (let i = 0; i < 35; i++) {
+      const before = lastContent;
+      sendRaw(WHEEL_DOWN.repeat(8));
+      await sleep(200);                 // allow the capture round-trip (phone/tailscale latency)
       toBottom();
-      if (lastContent === prev) break; // stable → reached the bottom
-      prev = lastContent;
+      // require 2 consecutive no-change ticks so a single laggy update
+      // doesn't stop us mid-transcript
+      if (lastContent === before) { if (++stable >= 2) break; } else stable = 0;
     }
   }
 
