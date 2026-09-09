@@ -128,7 +128,7 @@
     setStatus('connecting');
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${proto}//${location.host}/ws/${target}`);
-    ws.onopen = () => { setStatus('idle'); reconnectDelay = 500; ws.send(JSON.stringify({type:'history-mode',data:'on'})); };
+    ws.onopen = () => { setStatus('idle'); reconnectDelay = 500; ws.send(JSON.stringify({type:'history-mode',data:'on'})); sendViewing(); };
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === 'history') {
@@ -263,6 +263,12 @@
     vv.addEventListener('resize', () => { fit(); if (follow) toBottom(); });
     fit();
   }
+
+  // tell the server we're actively viewing this pane, so it suppresses pushes
+  // for it while the tab is open + visible.
+  const sendViewing = () => { if (!document.hidden && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'viewing' })); };
+  setInterval(sendViewing, 8000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) sendViewing(); });
 
   // keep the screen awake while watching a pane on mobile
   let wakeLock = null;

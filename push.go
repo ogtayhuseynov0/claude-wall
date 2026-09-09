@@ -207,6 +207,24 @@ func pushUnmute(target string) {
 	muteMu.Unlock()
 }
 
+// A pip viewer heartbeats "viewing" over its WS while the tab is visible; we
+// suppress pushes for a pane the user is actively watching.
+var viewMu sync.Mutex
+var viewingSeen = map[string]time.Time{}
+
+func markViewing(target string) {
+	viewMu.Lock()
+	viewingSeen[target] = time.Now()
+	viewMu.Unlock()
+}
+
+func viewingRecently(target string) bool {
+	viewMu.Lock()
+	defer viewMu.Unlock()
+	t, ok := viewingSeen[target]
+	return ok && time.Since(t) < 20*time.Second // heartbeat is ~8s
+}
+
 // activeMutes returns target → unix-secs the mute expires, for still-active mutes.
 func activeMutes() map[string]int64 {
 	muteMu.Lock()
@@ -377,7 +395,7 @@ func startNotifyWatcher(port int) {
 				}
 			}
 			for _, p := range s.Panes {
-				if first || pushMuted(p.Target) {
+				if first || pushMuted(p.Target) || viewingRecently(p.Target) {
 					continue
 				}
 				name := p.DirName

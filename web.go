@@ -707,6 +707,8 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 				} else {
 					atomic.StoreInt32(&historyEnabled, 0)
 				}
+			case "viewing":
+				markViewing(target) // suppress pushes for the pane being watched
 			}
 		}
 	}()
@@ -714,6 +716,18 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 	// Send scrollback history on connect (limited to last 2000 lines to prevent memory bloat)
 	lastHistory := ""
 	captureHistory := func() {
+		// Full-screen TUI agents (Claude/Codex) run on the alternate screen, so
+		// tmux scrollback holds the SHELL behind them, not the agent transcript.
+		// Showing that stale shell above the live screen is misleading and causes
+		// a gap during streaming — skip it (and clear any stale block on the client).
+		if alt, e := exec.Command("tmux", "display-message", "-t", target, "-p", "#{alternate_on}").Output(); e == nil && strings.TrimSpace(string(alt)) == "1" {
+			if lastHistory != "" {
+				lastHistory = ""
+				msg, _ := json.Marshal(map[string]string{"type": "history", "data": ""})
+				conn.WriteMessage(websocket.TextMessage, msg)
+			}
+			return
+		}
 		historyOut, err := exec.Command("tmux", "capture-pane", "-t", target, "-e", "-p", "-S", "-2000", "-E", "-1").Output()
 		if err != nil || len(historyOut) <= 1 {
 			return
