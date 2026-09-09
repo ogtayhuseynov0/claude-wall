@@ -155,6 +155,21 @@
   let isAlt = false, scrollAccum = 0;
   const WHEEL_UP = '\x1b[<64;20;20M', WHEEL_DOWN = '\x1b[<65;20;20M';
   const forwardScroll = (dir) => { if (dir === 'up') { follow = false; updateScrollBtn(); } const s = dir === 'up' ? WHEEL_UP : WHEEL_DOWN; sendRaw(s + s + s); };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Jump to the latest output. One big burst gets coalesced by the agent, so
+  // send small spaced bursts until the captured content stops changing (bottom).
+  async function jumpBottom() {
+    follow = true; toBottom(); updateScrollBtn();
+    if (!isAlt) return;
+    let prev = null;
+    for (let i = 0; i < 20; i++) {
+      sendRaw(WHEEL_DOWN.repeat(10));
+      await sleep(90);
+      toBottom();
+      if (lastContent === prev) break; // stable → reached the bottom
+      prev = lastContent;
+    }
+  }
 
   function connect() {
     setStatus('connecting');
@@ -273,11 +288,7 @@
     const b = e.target.closest('button'); if (!b) return;
     const k = b.dataset.k;
     if (k === 'ctrl') { setCtrl(!ctrlArmed); kbd.focus({ preventScroll: true }); return; }
-    if (k === 'bottom') {                         // jump back to the latest output
-      follow = true; toBottom();
-      if (isAlt) sendRaw(WHEEL_DOWN.repeat(40));   // scroll the agent's transcript to the bottom
-      updateScrollBtn(); kbd.focus({ preventScroll: true }); return;
-    }
+    if (k === 'bottom') { jumpBottom(); kbd.focus({ preventScroll: true }); return; } // jump to latest
     send(KEYSEQ[k]);
     kbd.focus({ preventScroll: true });
   });
