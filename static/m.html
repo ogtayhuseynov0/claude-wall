@@ -314,13 +314,15 @@
       panes = (sumR.panes || []).map(p => {
         const x = info[p.target] || {};
         const suffix = p.target.split(':')[1] || '';      // window.pane, e.g. "2.1"
+        const sess = x.session || p.target.split(':')[0]; // tmux session name
         return {
           target: p.target,
-          name: p.dirName || x.dirName || x.session || p.target,
+          name: sess,                                   // title = session name (not folder)
           status: p.status || 'idle',
           agent: x.agent || 'claude',
           branch: x.branch || '',
-          session: x.session || (p.target.split(':')[0]),
+          session: sess,
+          dirName: p.dirName || x.dirName || '',        // folder basename (subline)
           pane: suffix.replace('.', ':'),               // window:pane, e.g. "2:1"
           stoppedAt: p.stoppedAt || 0,                  // unix secs it went idle (0 = never worked)
         };
@@ -340,7 +342,7 @@
     }
     if (query) {
       const q = query.toLowerCase();
-      rows = rows.filter(p => (p.name + ' ' + p.session + ' ' + p.branch + ' ' + p.pane + ' ' + p.target + ' ' + p.agent)
+      rows = rows.filter(p => (p.name + ' ' + p.dirName + ' ' + p.branch + ' ' + p.pane + ' ' + p.target + ' ' + p.agent)
         .toLowerCase().includes(q));
     }
     rows.sort((a, b) => {
@@ -357,7 +359,8 @@
       const st = p.status || 'idle';
       const tagCls = p.agent === 'codex' ? 'tag codex' : 'tag';
       const branch = p.branch ? `${ICON.branch}${esc(p.branch)}` : '';
-      const sub = p.session ? esc(p.session) + (branch ? ' · ' + branch : '') : (branch || esc(p.target));
+      const folder = (p.dirName && p.dirName !== p.name) ? esc(p.dirName) : ''; // show folder only if it differs
+      const sub = [folder, branch].filter(Boolean).join(' · ') || esc(p.target);
       const paneBadge = p.pane ? `<span class="pane">${esc(p.pane)}</span>` : '';
       return `<a class="row" href="/pip.html?m=1&target=${encodeURIComponent(p.target)}">
         <span class="dot ${st}"></span>
