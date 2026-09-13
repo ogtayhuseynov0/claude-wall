@@ -85,6 +85,7 @@
     <button data-k="left">←</button>
     <button data-k="right">→</button>
     <button data-k="bs">⌫</button>
+    <button data-k="paste">paste</button>
     <button data-k="cc">^C</button>
     <button data-k="enter">⏎</button>
   </div>
@@ -291,6 +292,12 @@
     const k = b.dataset.k;
     if (k === 'ctrl') { setCtrl(!ctrlArmed); kbd.focus({ preventScroll: true }); return; }
     if (k === 'bottom') { jumpBottom(); kbd.focus({ preventScroll: true }); return; } // jump to latest
+    if (k === 'paste') {                          // paste clipboard into the pane
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        navigator.clipboard.readText().then((t) => { if (t) send(t); }).catch(() => {});
+      }
+      kbd.focus({ preventScroll: true }); return;
+    }
     send(KEYSEQ[k]);
     kbd.focus({ preventScroll: true });
   });
