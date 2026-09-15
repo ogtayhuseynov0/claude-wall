@@ -696,10 +696,26 @@ func runWeb(port int) {
 	// Restart an agent resuming its last session (GET = default account, POST = do it)
 	http.HandleFunc("/api/restart-agent/", handleRestartAgent)
 
+	// Reverse-proxy local ports to the phone (Ports page)
+	http.HandleFunc("/api/ports", handlePorts)
+	http.HandleFunc("/proxy/", handleProxy)
+
 	// Serve static files (strip "static/" prefix from embedded FS)
 	mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	sub, _ := fs.Sub(staticFiles, "static")
-	http.Handle("/", http.FileServer(http.FS(sub)))
+	fileSrv := http.FileServer(http.FS(sub))
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// SPA asset fallback: a page opened via /proxy/<port>/ requests its
+		// assets at root-absolute paths (/assets/…). If those aren't our own
+		// files and a proxied port is remembered, forward them to that backend.
+		if r.URL.Path != "/" && !staticExists(sub, r.URL.Path) {
+			if c, err := r.Cookie("cwproxy"); err == nil && c.Value != "" {
+				proxyTo(w, r, c.Value, r.URL.Path)
+				return
+			}
+		}
+		fileSrv.ServeHTTP(w, r)
+	})
 
 	// Background watcher for PWA push notifications (uses the real bound port)
 	if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
