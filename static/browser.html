@@ -55,23 +55,34 @@
   let fw = 420, fh = 900;          // frame (page) size in CSS px
   let ws, urlFocused = false;
 
+  // On-screen diagnostics: this page runs on a phone with no console, so surface
+  // build tag / WS state / frame count / errors right in the status overlay.
+  const BUILD = 'b5';
+  let frames = 0;
+  function diag(line) { statusEl.hidden = false; statusEl.textContent = '[' + BUILD + '] ' + line; }
+  window.addEventListener('error', (e) => diag('JS error: ' + (e.message || e.type)));
+  window.addEventListener('unhandledrejection', (e) => diag('promise: ' + (e.reason && e.reason.message || e.reason)));
+
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    diag('WS connecting…');
     ws = new WebSocket(proto + '//' + location.host + '/ws/browser');
+    ws.onopen = () => diag('WS open, waiting for frames…');
     ws.onmessage = (e) => {
       const m = JSON.parse(e.data);
       if (m.type === 'frame') {
+        frames++;
         if (m.w) { fw = m.w; fh = m.h; }
         screen.src = 'data:image/jpeg;base64,' + m.data;
         statusEl.hidden = true;
       } else if (m.type === 'url') {
         if (!urlFocused) urlEl.value = m.url;
       } else if (m.type === 'error') {
-        statusEl.hidden = false; statusEl.textContent = m.msg || 'Error';
+        diag('server: ' + (m.msg || 'error'));
       }
     };
-    ws.onclose = () => { statusEl.hidden = false; statusEl.textContent = 'Disconnected — reconnecting…'; setTimeout(connect, 1500); };
-    ws.onerror = () => {};
+    ws.onclose = (e) => { if (frames === 0) diag('WS closed (code ' + e.code + ') — retrying'); else { statusEl.hidden = false; statusEl.textContent = 'Disconnected — reconnecting…'; } setTimeout(connect, 1500); };
+    ws.onerror = () => diag('WS error');
   }
   const send = (o) => { try { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); } catch (_) {} };
 
@@ -137,20 +148,20 @@
   // profile + boots Chrome, so it can take a few seconds.
   function setStatusHTML(html) { statusEl.hidden = false; statusEl.innerHTML = html; }
 
-  function start() {
-    statusEl.textContent = 'Starting Chrome…';
+  function boot() {
+    diag('Starting Chrome…');
     fetch('/api/browser/start').then((r) => r.json()).then((j) => {
-      if (j.ok) { statusEl.textContent = 'Connecting…'; connect(); }
+      if (j.ok) { connect(); }
       else setStatusHTML(
         '<div style="max-width:320px">' + (j.error || 'Could not start Chrome') +
         '<br><br><button id="retry" class="prim">Try again</button></div>');
-      const rt = document.getElementById('retry'); if (rt) rt.onclick = start;
+      const rt = document.getElementById('retry'); if (rt) rt.onclick = boot;
     }).catch(() => {
       setStatusHTML('Server unreachable<br><br><button id="retry" class="prim">Try again</button>');
-      const rt = document.getElementById('retry'); if (rt) rt.onclick = start;
+      const rt = document.getElementById('retry'); if (rt) rt.onclick = boot;
     });
   }
-  start();
+  boot();
 </script>
 </body>
 </html>
