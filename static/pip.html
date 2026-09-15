@@ -62,6 +62,25 @@
   #keys button:active { background:#2f3340; }
   #keys button.on { background:var(--accent); color:#0d0f14; border-color:var(--accent); }
   #keys button#kbottom { background:var(--accent); color:#0d0f14; border-color:var(--accent); font-size:19px; font-weight:700; }
+  #keys button#krestart { font-size:17px; }
+  [hidden] { display:none !important; }
+  /* restart confirm modal */
+  .rm-overlay { position:fixed; inset:0; z-index:50; background:rgba(6,8,12,0.66);
+    display:flex; align-items:flex-end; justify-content:center; }
+  @media (min-width:560px) { .rm-overlay { align-items:center; } }
+  .rm-card { width:100%; max-width:440px; background:#161922; border:1px solid #2a2e3a;
+    border-radius:16px 16px 0 0; padding:18px 16px calc(16px + env(safe-area-inset-bottom)); }
+  @media (min-width:560px) { .rm-card { border-radius:16px; } }
+  .rm-title { font-size:16px; font-weight:700; }
+  .rm-desc { font-size:12.5px; color:var(--muted); margin:5px 0 14px; line-height:1.4; }
+  .rm-seg { display:flex; gap:7px; margin-bottom:16px; }
+  .rm-seg button { flex:1; padding:11px 6px; border-radius:10px; border:1px solid #2f3340;
+    background:#20242e; color:var(--fg); font-size:13px; font-family:inherit; font-weight:600; }
+  .rm-seg button.on { background:var(--accent); color:#0d0f14; border-color:var(--accent); }
+  .rm-actions { display:flex; gap:9px; }
+  .rm-btn { flex:1; padding:12px; border-radius:11px; border:1px solid #2f3340; background:#20242e;
+    color:var(--fg); font-size:14px; font-weight:650; font-family:inherit; }
+  .rm-danger { background:#e5484d; border-color:#e5484d; color:#fff; }
 </style>
 </head>
 <body tabindex="0">
@@ -88,6 +107,23 @@
     <button data-k="paste">paste</button>
     <button data-k="cc">^C</button>
     <button data-k="enter">⏎</button>
+    <button data-k="restart" id="krestart" title="Restart & resume">↻</button>
+  </div>
+
+  <div id="restartModal" class="rm-overlay" hidden>
+    <div class="rm-card">
+      <div class="rm-title">Restart &amp; resume</div>
+      <div class="rm-desc">Stops the current agent and relaunches it resuming the last session in this pane.</div>
+      <div class="rm-seg" id="rmSeg">
+        <button data-acct="claude">Claude</button>
+        <button data-acct="claude-work">Claude · work</button>
+        <button data-acct="codex">Codex</button>
+      </div>
+      <div class="rm-actions">
+        <button id="rmCancel" class="rm-btn">Cancel</button>
+        <button id="rmGo" class="rm-btn rm-danger">Restart</button>
+      </div>
+    </div>
   </div>
 <script>
   const params = new URLSearchParams(location.search);
@@ -292,6 +328,7 @@
     const k = b.dataset.k;
     if (k === 'ctrl') { setCtrl(!ctrlArmed); kbd.focus({ preventScroll: true }); return; }
     if (k === 'bottom') { jumpBottom(); kbd.focus({ preventScroll: true }); return; } // jump to latest
+    if (k === 'restart') { openRestart(); return; }   // confirm modal picks the account
     if (k === 'paste') {                          // paste clipboard into the pane
       if (navigator.clipboard && navigator.clipboard.readText) {
         navigator.clipboard.readText().then((t) => { if (t) send(t); }).catch(() => {});
@@ -305,6 +342,29 @@
   document.getElementById('close').onclick = () => { try { ws && ws.close(); } catch(_){} window.close(); };
   document.getElementById('goto').onclick = () => { fetch('/api/goto/' + encodeURIComponent(target)).catch(()=>{}); };
   document.getElementById('back').onclick = () => { location.href = '/m.html'; };
+
+  // ── restart & resume confirm modal ─────────────────────────────────────────
+  const rm = document.getElementById('restartModal');
+  const rmSeg = document.getElementById('rmSeg');
+  let rmAcct = 'claude';
+  const setAcct = (a) => { rmAcct = a; [...rmSeg.children].forEach(x => x.classList.toggle('on', x.dataset.acct === a)); };
+  function openRestart() {
+    try { document.activeElement && document.activeElement.blur(); } catch(_){}   // drop the soft keyboard so the sheet is visible
+    setAcct('claude');
+    fetch('/api/restart-agent/' + encodeURIComponent(target))               // preselect the detected account
+      .then(r => r.json()).then(d => setAcct(d.account || 'claude')).catch(() => {});
+    rm.hidden = false;
+  }
+  rmSeg.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setAcct(b.dataset.acct); });
+  document.getElementById('rmCancel').onclick = () => { rm.hidden = true; };
+  rm.addEventListener('click', (e) => { if (e.target === rm) rm.hidden = true; });   // tap backdrop to dismiss
+  document.getElementById('rmGo').onclick = () => {
+    rm.hidden = true;
+    fetch('/api/restart-agent/' + encodeURIComponent(target), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: rmAcct }),
+    }).catch(() => {});
+  };
 
   // focus: desktop keeps body focused; mobile focuses the hidden field to raise
   // the keyboard. preventScroll stops the browser jumping to the 1px field.
