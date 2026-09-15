@@ -24,15 +24,19 @@
   .manual button { background:var(--accent); border:0; color:#0d1017; font-weight:700; border-radius:10px;
     padding:0 16px; font-size:14px; }
   #list { display:flex; flex-direction:column; gap:8px; padding:10px 14px 28px; }
-  .row { display:flex; align-items:center; gap:12px; padding:13px 14px; border-radius:12px;
-    background:var(--card); border:1px solid var(--line); color:inherit; text-decoration:none; }
-  .row:active { background:var(--card2); }
+  .row { display:flex; align-items:center; gap:10px; padding:11px 12px; border-radius:12px;
+    background:var(--card); border:1px solid var(--line); }
   .port { font-family:"SFMono-Regular",Menlo,monospace; font-size:16px; font-weight:700; flex:0 0 auto;
-    min-width:62px; }
+    min-width:58px; }
   .proc { flex:1; min-width:0; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .tag { flex:0 0 auto; font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.4px;
     padding:2px 6px; border-radius:5px; background:rgba(87,217,119,.15); color:var(--ok); }
-  .chev { color:var(--dim); flex:0 0 auto; font-size:18px; }
+  .copy, .open { flex:0 0 auto; width:40px; height:36px; display:inline-flex; align-items:center; justify-content:center;
+    border-radius:9px; border:1px solid var(--line); background:var(--card2); color:var(--muted);
+    font-size:15px; text-decoration:none; }
+  .copy:active, .open:active { background:var(--line); }
+  .copy.done { color:var(--ok); border-color:var(--ok); }
+  .open { color:var(--accent); font-size:18px; }
   .empty { color:var(--muted); text-align:center; padding:44px 20px; }
 </style>
 </head>
@@ -49,28 +53,39 @@
   <div id="list"><div class="empty">Loading…</div></div>
 <script>
   const listEl = document.getElementById('list');
-  const open = (port) => { location.href = '/proxy/' + encodeURIComponent(port) + '/'; };
+  const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const urlFor = (port) => location.origin + '/proxy/' + port + '/';
+  const openExternal = (port) => window.open(urlFor(port), '_blank', 'noopener'); // breaks out of the PWA into the browser
 
   async function load() {
     try {
       const ports = await (await fetch('/api/ports', { cache: 'no-store' })).json();
       if (!ports.length) { listEl.innerHTML = '<div class="empty">No local listeners found.</div>'; return; }
       listEl.innerHTML = ports.map((p) => `
-        <a class="row" href="/proxy/${p.port}/">
+        <div class="row">
           <span class="port">:${p.port}</span>
-          <span class="proc">${(p.proc || '').replace(/[&<>"]/g, '')}</span>
+          <span class="proc">${esc(p.proc)}</span>
           ${p.all ? '<span class="tag">all</span>' : ''}
-          <span class="chev">›</span>
-        </a>`).join('');
+          <button class="copy" data-port="${p.port}" title="Copy URL" aria-label="Copy URL">⧉</button>
+          <a class="open" href="${urlFor(p.port)}" target="_blank" rel="noopener" title="Open" aria-label="Open">↗</a>
+        </div>`).join('');
     } catch (e) {
       listEl.innerHTML = '<div class="empty">Can\'t reach server.</div>';
     }
   }
 
+  // copy URL (delegated); the open link is a normal target=_blank anchor
+  listEl.addEventListener('click', async (e) => {
+    const b = e.target.closest('.copy'); if (!b) return;
+    try { await navigator.clipboard.writeText(urlFor(b.dataset.port)); } catch (_) {}
+    const t = b.textContent; b.textContent = '✓'; b.classList.add('done');
+    setTimeout(() => { b.textContent = t; b.classList.remove('done'); }, 1200);
+  });
+
   document.getElementById('refresh').onclick = load;
   document.getElementById('go').onclick = () => {
     const v = parseInt(document.getElementById('portInput').value, 10);
-    if (v >= 1 && v <= 65535) open(v);
+    if (v >= 1 && v <= 65535) openExternal(v);
   };
   document.getElementById('portInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('go').click(); });
   load();
