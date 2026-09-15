@@ -63,9 +63,10 @@
   #keys button.on { background:var(--accent); color:#0d0f14; border-color:var(--accent); }
   #keys button#kbottom { background:var(--accent); color:#0d0f14; border-color:var(--accent); font-size:19px; font-weight:700; }
   #keys button#krestart { font-size:17px; }
-  #keys button#kattach { min-width:46px; }
-  #keys button .spin { display:inline-block; width:15px; height:15px; border:2px solid #ffffff33;
-    border-top-color:var(--accent); border-radius:50%; animation:kspin .7s linear infinite; vertical-align:-2px; }
+  #keys button#kattach { min-width:46px; display:inline-flex; align-items:center; justify-content:center; gap:5px; }
+  #keys button .spin { display:inline-block; width:14px; height:14px; border:2px solid #ffffff33;
+    border-top-color:var(--accent); border-radius:50%; animation:kspin .7s linear infinite; flex:0 0 auto; }
+  #keys button .pn { font-size:12px; font-weight:700; }
   @keyframes kspin { to { transform:rotate(360deg); } }
   [hidden] { display:none !important; }
   /* restart confirm modal */
@@ -387,7 +388,7 @@
     kattach.disabled = state !== false;
     if (state === false) kattach.textContent = attachLabel;
     else if (state === true) kattach.innerHTML = '<span class="spin"></span>';
-    else kattach.textContent = state + '%';
+    else kattach.innerHTML = '<span class="spin"></span><span class="pn">' + state + '%</span>'; // spin + %
   };
 
   // XHR (not fetch) so we get real upload progress from upload.onprogress.
@@ -407,11 +408,36 @@
     });
   }
 
+  // Downscale/re-encode large images before upload so photos send fast. WebP
+  // ~0.9 keeps text legible for Claude's vision; already-compressed images don't
+  // benefit from gzip, so this (not server-side inflate) is the real speedup.
+  async function maybeCompress(file) {
+    if (!file.type || !file.type.startsWith('image/') || file.type === 'image/gif') return file;
+    if (file.size < 400 * 1024) return file; // small already
+    try {
+      const bmp = await createImageBitmap(file);
+      const MAX = 2048;
+      const scale = Math.min(1, MAX / Math.max(bmp.width, bmp.height));
+      const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
+      if (bmp.close) bmp.close();
+      const blob = await new Promise((res) => canvas.toBlob(res, 'image/webp', 0.9));
+      if (blob && blob.size < file.size) {
+        return new File([blob], (file.name || 'photo').replace(/\.\w+$/, '') + '.webp', { type: 'image/webp' });
+      }
+    } catch (_) {}
+    return file;
+  }
+
   async function uploadFiles(files) {
-    const total = files.reduce((s, f) => s + (f.size || 0), 0);
+    const prepared = [];
+    for (const f of files) prepared.push(await maybeCompress(f)); // spinner is showing during this
+    const total = prepared.reduce((s, f) => s + (f.size || 0), 0);
     let done = 0;
     const paths = [];
-    for (const f of files) {
+    for (const f of prepared) {
       const p = await xhrUpload(f, (loaded) => {
         if (total > 0) setAttach(Math.min(99, Math.round((done + loaded) / total * 100)));
       });
