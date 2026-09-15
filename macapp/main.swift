@@ -839,6 +839,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     let statusPanel = StatusPanel()
     let popover = NSPopover()
     var serverProcess: Process?   // the claude-wall server we spawned (nil if we reused a running one)
+    var recentSpawns: [Date] = [] // spawn timestamps, to stop a crash-loop respawning forever
     var lastUsage: Usage?
     var lastLimits: Limits?
 
@@ -947,6 +948,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard FileManager.default.isExecutableFile(atPath: bin) else {
             NSLog("Claude Wall: bundled server missing at \(bin)"); return
         }
+
+        // Stop a crash-loop. The server now refuses to start when something
+        // else already holds the port, which is the right answer — but paired
+        // with an unconditional respawn it would restart forever, once a
+        // second, for as long as the app is open.
+        let now = Date()
+        recentSpawns = recentSpawns.filter { now.timeIntervalSince($0) < 60 }
+        guard recentSpawns.count < 3 else {
+            NSLog("Claude Wall: server failed to stay up 3x in 60s — not respawning")
+            serverProcess = nil
+            return
+        }
+        recentSpawns.append(now)
         let p = Process()
         p.executableURL = URL(fileURLWithPath: bin)
         p.arguments = ["--serve", "--port", "7685"]
@@ -957,7 +971,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         p.terminationHandler = { [weak self] _ in
             // respawn if our owned server dies while we're still running
             guard let self = self, self.serverProcess != nil else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self.spawnServer() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                // Someone else may have taken the port in the meantime (the CLI
+                // server, or a copy started from tmux). Reuse it rather than
+                // racing it.
+                self.probeHealth { ok in
+                    guard !ok else { self.serverProcess = nil; return }
+                    DispatchQueue.main.async { self.spawnServer() }
+                }
+            }
         }
         do { try p.run(); serverProcess = p } catch { NSLog("Claude Wall: server spawn failed \(error)") }
     }
