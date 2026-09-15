@@ -365,6 +365,11 @@ func (h *captureHub) resolveStatus(target, content string) (string, string, stri
 // not any single glyph. Group 1 = the verb, group 2 = the parenthetical.
 var spinnerRe = regexp.MustCompile(`^\S{1,2}\s+(\p{Lu}[\p{L}]+)\x{2026}(?:\s*\((.+?)\))?`)
 
+// compactingRe catches the compaction status ("Compacting conversation…"),
+// which is a multi-word phrase the single-word spinnerRe misses and can render
+// without the leading spinner glyph. Matched anywhere on the line.
+var compactingRe = regexp.MustCompile(`(?i)(compacting[^(\x{2026}\n]*?)\s*\x{2026}(?:\s*\((.+?)\))?`)
+
 // spinnerActivity builds a short card label from the spinner verb + the leading
 // part of the parenthetical (the elapsed timer, before the first " · ").
 // e.g. verb="Compacting", paren="1m 12s · ↓ 3.1k tokens" → "Compacting… 1m 12s".
@@ -400,6 +405,10 @@ func parseTerminalStatus(content string) (string, string) {
 		// Claude cycles glyphs (\u00b7\u2722\u2733\u2736\u273b\u273d \u2026), so match the line STRUCTURE.
 		if m := spinnerRe.FindStringSubmatch(plain); m != nil {
 			return "working", spinnerActivity(m[1], m[2])
+		}
+		// Compaction: "Compacting conversation\u2026" (multi-word, glyph optional)
+		if m := compactingRe.FindStringSubmatch(plain); m != nil {
+			return "working", spinnerActivity(strings.TrimSpace(m[1]), m[2])
 		}
 		// Tool actively running (e.g. "Bash Running\u2026")
 		if strings.HasSuffix(plain, "Running\u2026") || strings.HasSuffix(plain, "Running...") {
