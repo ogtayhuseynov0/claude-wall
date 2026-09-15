@@ -17,8 +17,16 @@ var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 type captureHub struct {
 	mu               sync.RWMutex
 	subscribers      map[string][]chan paneUpdate // target → channels
-	latest           map[string]paneUpdate       // target → last update
-	termWorkingUntil map[string]time.Time        // target → debounce: stay "working" until this time
+	latest           map[string]paneUpdate        // target → last update
+	termWorkingUntil map[string]time.Time         // target → debounce: stay "working" until this time
+
+	// The tmux control-mode connection, when one is up. It is held here rather
+	// than as a local in run() for two reasons: shutdown has to be able to
+	// detach it, and the capture loop has to be able to see it disappear and
+	// come back. nil means we are on the batch-capture fallback.
+	ctlMu   sync.RWMutex
+	ctl     *tmuxControl
+	closing bool
 }
 
 type paneUpdate struct {
@@ -69,6 +77,21 @@ func (h *captureHub) statusSnapshot() map[string]string {
 	return m
 }
 
+// activitySnapshot returns the current activity label per subscribed target
+// that is actively working (e.g. "Compacting… 1m 12s", "Stewing… 6m 28s").
+// Empty for panes that aren't working or have no activity yet.
+func (h *captureHub) activitySnapshot() map[string]string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	m := make(map[string]string, len(h.latest))
+	for t, u := range h.latest {
+		if u.Status == "working" && u.Activity != "" {
+			m[t] = u.Activity
+		}
+	}
+	return m
+}
+
 func (h *captureHub) subscribe(target string) chan paneUpdate {
 	ch := make(chan paneUpdate, 4)
 	h.mu.Lock()
@@ -101,31 +124,16 @@ func (h *captureHub) unsubscribe(target string, ch chan paneUpdate) {
 }
 
 func (h *captureHub) run() {
-	// Try control mode first (zero subprocess architecture)
-	tc := newTmuxControl()
-	useControlMode := false
+	// Try control mode first (zero subprocess architecture). If it is not
+	// available now, or dies later, the loop below runs on batch capture and a
+	// supervisor keeps trying to get it back.
+	h.connectControl()
 
-	if err := tc.start(); err != nil {
-		log.Printf("[hub] control mode failed, using batch capture: %v", err)
-	} else {
-		useControlMode = true
-		log.Println("[hub] control mode active (zero-poll)")
-
-		// Periodically refresh pane map (new panes, closed panes)
-		go func() {
-			for range time.NewTicker(10 * time.Second).C {
-				tc.refreshPaneMap()
-			}
-		}()
-	}
-
-	// Control mode: captures via persistent connection (no subprocess), can tick faster
-	interval := 40 * time.Millisecond // 25fps
-	if !useControlMode {
-		interval = 100 * time.Millisecond // 10fps fallback
-	}
-	ticker := time.NewTicker(interval)
+	// 25fps. Control mode captures over the persistent connection, batch mode
+	// shells out; the batch path throttles itself below.
+	ticker := time.NewTicker(40 * time.Millisecond)
 	defer ticker.Stop()
+	var lastBatch time.Time
 
 	failCounts := map[string]int{}
 
@@ -141,28 +149,32 @@ func (h *captureHub) run() {
 			continue
 		}
 
-		// Determine which panes to capture
-		var toCapture []string
-		if useControlMode {
-			// Always capture all subscribed panes — control mode capture is cheap (no subprocess)
-			toCapture = targets
-		} else {
-			toCapture = targets
-		}
+		toCapture := targets
 
-		// Capture pane contents
+		// Capture pane contents over whichever transport is up right now.
 		var captures map[string]string
-		if useControlMode {
+		if tc := h.control(); tc != nil {
 			captures = make(map[string]string, len(toCapture))
 			for _, t := range toCapture {
 				out, err := tc.capturePaneByTarget(t)
 				if err != nil {
+					// A dead connection fails every target. Log it once and let
+					// the supervisor rebuild rather than repeating it per pane
+					// at 25fps.
+					if err == errControlDead {
+						break
+					}
 					log.Printf("[hub] capture failed for %s: %v", t, err)
 				} else {
 					captures[t] = out
 				}
 			}
 		} else {
+			// Batch capture forks a shell, so it runs at 10fps, not 25.
+			if time.Since(lastBatch) < 100*time.Millisecond {
+				continue
+			}
+			lastBatch = time.Now()
 			captures = batchCapture(toCapture)
 		}
 
@@ -312,7 +324,15 @@ func (h *captureHub) resolveStatus(target, content string) (string, string, stri
 					if mode == "" {
 						mode = hs.PermissionMode
 					}
-					return hs.Status, hs.Activity, mode
+					activity := hs.Activity
+					// While working, prefer the live spinner label ("Compacting… 1m 12s")
+					// — it carries the elapsed timer the hook activity lacks.
+					if hs.Status == "working" {
+						if _, spin := parseTerminalStatus(content); spin != "" {
+							activity = spin
+						}
+					}
+					return hs.Status, activity, mode
 				}
 			}
 		}
@@ -336,6 +356,31 @@ func (h *captureHub) resolveStatus(target, content string) (string, string, stri
 
 // parseTerminalStatus detects idle vs working from Claude Code terminal content.
 // Used when no hook state exists or hook state is stale.
+// spinnerRe matches the Claude Code working status line, e.g.
+//   "✽ Stewing… (6m 28s · ↓ 12.0k tokens)"
+//   "✻ Architecting… (3m 17s · ↓ 10.9k tokens · thinking with xhigh effort)"
+//   "· Compacting… (esc to interrupt)"
+// Claude cycles several spinner glyphs (·✢✳✶✻✽ …), so we key off the line
+// STRUCTURE — a lone leading glyph, a Capitalized gerund, and the … char —
+// not any single glyph. Group 1 = the verb, group 2 = the parenthetical.
+var spinnerRe = regexp.MustCompile(`^\S{1,2}\s+(\p{Lu}[\p{L}]+)\x{2026}(?:\s*\((.+?)\))?`)
+
+// spinnerActivity builds a short card label from the spinner verb + the leading
+// part of the parenthetical (the elapsed timer, before the first " · ").
+// e.g. verb="Compacting", paren="1m 12s · ↓ 3.1k tokens" → "Compacting… 1m 12s".
+func spinnerActivity(verb, paren string) string {
+	act := verb + "…"
+	if paren = strings.TrimSpace(paren); paren != "" {
+		if idx := strings.Index(paren, " · "); idx >= 0 {
+			paren = paren[:idx]
+		}
+		if paren = strings.TrimSpace(paren); paren != "" && paren != "esc to interrupt" {
+			act += " " + paren
+		}
+	}
+	return act
+}
+
 func parseTerminalStatus(content string) (string, string) {
 	lines := strings.Split(content, "\n")
 	checked := 0
@@ -351,13 +396,14 @@ func parseTerminalStatus(content string) (string, string) {
 			continue
 		}
 		checked++
-		// Thinking spinner
-		if strings.HasPrefix(plain, "\u2733") {
-			return "working", ""
+		// Working spinner: "<glyph> <Gerund>\u2026 (<elapsed> \u00b7 \u2193 <tokens>[\u00b7 effort])".
+		// Claude cycles glyphs (\u00b7\u2722\u2733\u2736\u273b\u273d \u2026), so match the line STRUCTURE.
+		if m := spinnerRe.FindStringSubmatch(plain); m != nil {
+			return "working", spinnerActivity(m[1], m[2])
 		}
-		// Tool actively running
+		// Tool actively running (e.g. "Bash Running\u2026")
 		if strings.HasSuffix(plain, "Running\u2026") || strings.HasSuffix(plain, "Running...") {
-			return "working", ""
+			return "working", strings.TrimLeft(plain, "\u00b7\u2722\u2733\u2736\u273b\u273d\u2217\u23fa ")
 		}
 	}
 	return "idle", ""
@@ -429,4 +475,114 @@ func (h *captureHub) pushHookStatus(hs *hookStore) {
 			}
 		}
 	}
+}
+
+// ── tmux control-mode supervision ───────────────────────────────────────────
+//
+// The control connection is the hub's fast path, and it is not durable: a tmux
+// server restart, a `kill-server`, or the socket going away all end it. Before
+// this was supervised, readLoop simply returned, every capture then blocked for
+// its full timeout, and the dashboard froze on its last frame while HTTP kept
+// answering 200 — indistinguishable from a crash, but nothing had crashed and
+// nothing was logged.
+
+// control returns the live connection, or nil when we are on batch capture.
+func (h *captureHub) control() *tmuxControl {
+	h.ctlMu.RLock()
+	tc := h.ctl
+	h.ctlMu.RUnlock()
+	if tc != nil && !tc.alive() {
+		return nil
+	}
+	return tc
+}
+
+func (h *captureHub) setControl(tc *tmuxControl) {
+	h.ctlMu.Lock()
+	h.ctl = tc
+	h.ctlMu.Unlock()
+}
+
+// connectControl attempts one connection. On success it starts the watcher; on
+// failure it schedules a retry, so a server started before tmux is ready still
+// ends up on the fast path.
+func (h *captureHub) connectControl() {
+	h.ctlMu.RLock()
+	closing := h.closing
+	h.ctlMu.RUnlock()
+	if closing {
+		return
+	}
+
+	tc := newTmuxControl()
+	if err := tc.start(); err != nil {
+		log.Printf("[hub] control mode unavailable, using batch capture: %v", err)
+		go h.retryControl()
+		return
+	}
+	h.setControl(tc)
+	log.Println("[hub] control mode active (zero-poll)")
+	go h.watchControl(tc)
+}
+
+// watchControl refreshes the pane map while the connection lives, and reacts
+// when it dies.
+func (h *captureHub) watchControl(tc *tmuxControl) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-tc.dead:
+			h.setControl(nil)
+			if tc.stopping.Load() {
+				return // we asked for this
+			}
+			log.Println("[hub] control connection lost — batch capture until it is back")
+			go h.retryControl()
+			return
+		case <-ticker.C:
+			tc.refreshPaneMap()
+		}
+	}
+}
+
+// retryControl reconnects with backoff. Capture keeps working on the fallback
+// throughout, so this is allowed to be patient.
+func (h *captureHub) retryControl() {
+	delay := 2 * time.Second
+	for {
+		time.Sleep(delay)
+
+		h.ctlMu.RLock()
+		closing := h.closing
+		h.ctlMu.RUnlock()
+		if closing {
+			return
+		}
+
+		tc := newTmuxControl()
+		if err := tc.start(); err != nil {
+			if delay < 30*time.Second {
+				delay *= 2
+			}
+			log.Printf("[hub] control reconnect failed (%v), retrying in %s", err, delay)
+			continue
+		}
+		h.setControl(tc)
+		log.Println("[hub] control mode reconnected")
+		go h.watchControl(tc)
+		return
+	}
+}
+
+// shutdown detaches the control-mode client. Every exit path must call this:
+// an orphaned `tmux -C attach` outlives the process that spawned it and stays
+// on the tmux server as a client, so skipping it leaks one per restart.
+func (h *captureHub) shutdown() {
+	h.ctlMu.Lock()
+	h.closing = true
+	tc := h.ctl
+	h.ctl = nil
+	h.ctlMu.Unlock()
+	tc.stop()
 }
