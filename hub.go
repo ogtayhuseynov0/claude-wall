@@ -359,16 +359,18 @@ func (h *captureHub) resolveStatus(target, content string) (string, string, stri
 // spinnerRe matches the Claude Code working status line, e.g.
 //   "✽ Stewing… (6m 28s · ↓ 12.0k tokens)"
 //   "✻ Architecting… (3m 17s · ↓ 10.9k tokens · thinking with xhigh effort)"
-//   "· Compacting… (esc to interrupt)"
-// Claude cycles several spinner glyphs (·✢✳✶✻✽ …), so we key off the line
-// STRUCTURE — a lone leading glyph, a Capitalized gerund, and the … char —
-// not any single glyph. Group 1 = the verb, group 2 = the parenthetical.
-var spinnerRe = regexp.MustCompile(`^\S{1,2}\s+(\p{Lu}[\p{L}]+)\x{2026}(?:\s*\((.+?)\))?`)
-
-// compactingRe catches the compaction status ("Compacting conversation…"),
-// which is a multi-word phrase the single-word spinnerRe misses and can render
-// without the leading spinner glyph. Matched anywhere on the line.
-var compactingRe = regexp.MustCompile(`(?i)(compacting[^(\x{2026}\n]*?)\s*\x{2026}(?:\s*\((.+?)\))?`)
+//   "✢ Compacting conversation… (17s)"
+// Matched by STRUCTURE, not keywords (keyword matching false-fired on any pane
+// whose transcript merely contained the word "compacting"):
+//   • a leading spinner glyph — Claude cycles ·✢✳✶✻✽… so we allow any single
+//     symbol EXCEPT the assistant bullet ⏺, the tool-result ⎿, and box-drawing
+//     (those start ordinary output lines that can also end in …);
+//   • a Capitalized gerund of up to 3 words (covers "Compacting conversation");
+//   • the … char and the REQUIRED "(elapsed…)" parenthetical the status line
+//     always carries — its presence is what separates it from prose.
+// Group 1 = the verb phrase, group 2 = the parenthetical.
+var spinnerRe = regexp.MustCompile(
+	`^[^\s\p{L}\p{N}\x{23fa}\x{23bf}\x{2500}-\x{257f}]\s+(\p{Lu}[\p{L}]+(?:\s+[\p{L}]+){0,2})\x{2026}\s*\(([^)]+)\)`)
 
 // spinnerActivity builds a short card label from the spinner verb + the leading
 // part of the parenthetical (the elapsed timer, before the first " · ").
@@ -405,10 +407,6 @@ func parseTerminalStatus(content string) (string, string) {
 		// Claude cycles glyphs (\u00b7\u2722\u2733\u2736\u273b\u273d \u2026), so match the line STRUCTURE.
 		if m := spinnerRe.FindStringSubmatch(plain); m != nil {
 			return "working", spinnerActivity(m[1], m[2])
-		}
-		// Compaction: "Compacting conversation\u2026" (multi-word, glyph optional)
-		if m := compactingRe.FindStringSubmatch(plain); m != nil {
-			return "working", spinnerActivity(strings.TrimSpace(m[1]), m[2])
 		}
 		// Tool actively running (e.g. "Bash Running\u2026")
 		if strings.HasSuffix(plain, "Running\u2026") || strings.HasSuffix(plain, "Running...") {
