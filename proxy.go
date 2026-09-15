@@ -145,7 +145,34 @@ func cwdByPID(pids []int) map[int]string {
 	return m
 }
 
-// handlePorts lists local TCP listeners (labelled by the folder they run from)
+// gitToplevel returns the git repo root for a directory, or "".
+func gitToplevel(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// projectLabel turns a working directory into the real project name: the git
+// repo's folder, plus the subpath within it for monorepos (e.g. "River/backend",
+// "growth-os/web"). Falls back to the plain folder name when it's not a repo.
+func projectLabel(cwd string) string {
+	if cwd == "" || cwd == "/" {
+		return ""
+	}
+	root := gitToplevel(cwd)
+	if root == "" {
+		return baseName(cwd)
+	}
+	proj := baseName(root)
+	if rel := strings.TrimPrefix(cwd, root+"/"); rel != "" && rel != cwd {
+		proj += "/" + rel
+	}
+	return proj
+}
+
+// handlePorts lists local TCP listeners (labelled by the project they run from)
 // so the Ports page can offer them.
 func handlePorts(w http.ResponseWriter, r *http.Request) {
 	out, _ := exec.Command("lsof", "-nP", "-iTCP", "-sTCP:LISTEN").Output()
@@ -181,6 +208,7 @@ func handlePorts(w http.ResponseWriter, r *http.Request) {
 	}
 	cwds := cwdByPID(pids)
 
+	labels := map[string]string{} // cwd → project label (memoized: git call per unique cwd)
 	list := make([]portInfo, 0, len(byPort))
 	for _, r := range byPort {
 		if r.Port == 7685 { // that's us
@@ -189,8 +217,13 @@ func handlePorts(w http.ResponseWriter, r *http.Request) {
 		p := r.portInfo
 		p.Name = p.Proc
 		if dir := cwds[r.pid]; dir != "" && dir != "/" {
-			if b := baseName(dir); b != "" && b != "/" {
-				p.Name = b // the project folder the server runs from
+			lbl, ok := labels[dir]
+			if !ok {
+				lbl = projectLabel(dir)
+				labels[dir] = lbl
+			}
+			if lbl != "" {
+				p.Name = lbl // the project the server runs from
 			}
 		}
 		list = append(list, p)
