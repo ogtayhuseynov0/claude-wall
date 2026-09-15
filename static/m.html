@@ -38,7 +38,7 @@
     font-variant-numeric:tabular-nums; align-items:center; }
   .counts .c { display:inline-flex; align-items:center; gap:4px; }
   .counts svg { width:15px; height:15px; }
-  .cwork { color:var(--working); } .cperm { color:var(--perm); } .cstale { color:var(--stale); }
+  .cwork { color:var(--working); } .cperm { color:var(--perm); } .cstale { color:var(--stale); } .cidle { color:var(--muted); }
   #usage, #notify, #launch { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
     display:inline-flex; border-radius:8px; }
   #usage:active, #notify:active, #launch:active { background:var(--card); }
@@ -142,9 +142,10 @@
   .chip.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
 
   #list { padding:8px 10px 24px; display:flex; flex-direction:column; gap:8px; }
-  .row { display:flex; align-items:center; gap:11px; padding:12px 13px; border-radius:13px;
+  .row { display:flex; flex-direction:column; gap:8px; padding:12px 13px; border-radius:13px;
     background:var(--card); border:1px solid var(--line); text-decoration:none; color:inherit; }
   .row:active { background:var(--card2); }
+  .rowtop { display:flex; align-items:center; gap:11px; }
   .dot { width:11px; height:11px; border-radius:50%; flex:0 0 auto; background:var(--dim); }
   .dot.working { background:var(--working); box-shadow:0 0 8px var(--working); animation:pulse 1.4s ease-in-out infinite; }
   .dot.permission { background:var(--perm); box-shadow:0 0 8px var(--perm); }
@@ -157,20 +158,30 @@
   .pane { flex:0 0 auto; font-family:"SFMono-Regular",Menlo,monospace; font-size:11px; font-weight:600;
     color:var(--muted); background:var(--card2); border:1px solid var(--line); border-radius:5px; padding:1px 5px; }
   .sub { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
-  .tag { display:inline-flex; align-items:center; gap:4px; font-size:10px; font-weight:700; text-transform:uppercase;
-    letter-spacing:.4px; padding:3px 7px; border-radius:6px; background:var(--card2); color:var(--dim); flex:0 0 auto; }
-  .tag svg { width:12px; height:12px; }
+  .agent { flex:0 0 auto; display:inline-flex; align-items:center; justify-content:center; }
+  .agent svg { width:21px; height:21px; }
+  .prof { flex:0 0 auto; font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.4px;
+    padding:2px 6px; border-radius:5px; background:rgba(110,161,247,.16); color:#6ea1f7; }
   .tag.codex { color:var(--codex); }
   .sub svg { width:11px; height:11px; vertical-align:-1px; margin-right:2px; opacity:.7; }
   .chev { color:var(--dim); flex:0 0 auto; display:inline-flex; }
   .chev svg { width:20px; height:20px; }
+  .star { flex:0 0 auto; width:34px; height:34px; display:inline-flex; align-items:center; justify-content:center;
+    background:transparent; border:0; padding:0; color:var(--dim); border-radius:8px; }
+  .star:active { background:var(--card2); }
+  .star .ic { width:18px; height:18px; }
+  .star.on { color:#f5b301; }
+  .star.on .ic { fill:#f5b301; }
   .empty { text-align:center; color:var(--muted); padding:48px 20px; font-size:14px; }
   .skel { height:66px; border-radius:13px; background:linear-gradient(90deg,#161922 25%,#1e222d 50%,#161922 75%);
     background-size:200% 100%; animation:sh 1.3s infinite; }
   @keyframes sh { to { background-position:-200% 0; } }
   #deskLink { display:block; text-align:center; color:var(--dim); font-size:12.5px; font-weight:600;
     text-decoration:none; padding:4px 0 28px; }
-  .status-word { font-size:11px; font-weight:700; margin-top:2px; }
+  .status-word { display:flex; align-items:center; gap:8px; font-size:11px; font-weight:700; width:100%;
+    border-top:1px solid var(--line); padding-top:7px; }
+  .status-word .dot { margin:0; }
+  .sw-text { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .sw-working{color:var(--working)} .sw-permission{color:var(--perm)} .sw-stale{color:var(--stale)} .sw-idle{color:var(--muted)}
 </style>
 </head>
@@ -196,6 +207,8 @@
           <svg class="ic" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span id="cPerm">0</span></span>
         <span class="c cstale" title="Idle 30m+">
           <svg class="ic" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg><span id="cStale">0</span></span>
+        <span class="c cidle" title="Idle">
+          <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span id="cIdle">0</span></span>
       </div>
       <button id="launch" title="New session">
         <svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
@@ -288,6 +301,11 @@
   let filter = new URLSearchParams(location.search).get('filter') || (new URLSearchParams(location.search).get('attn') ? 'permission' : 'all');
   let query = '';
   let panes = [];       // merged pane info
+  // favorites: pinned to the top, persisted per-device (targets)
+  let favs = new Set();
+  try { favs = new Set(JSON.parse(localStorage.getItem('cw_favs') || '[]')); } catch (_) {}
+  const saveFavs = () => { try { localStorage.setItem('cw_favs', JSON.stringify([...favs])); } catch (_) {} };
+  const toggleFav = (t) => { if (favs.has(t)) favs.delete(t); else favs.add(t); saveFavs(); render(); };
   const WORD = { working:'Working', permission:'Waiting for you', stale:'Idle 30m+', idle:'Idle', error:'Error', disconnected:'—' };
   // order: working → needs-you (permission/error) → recently-stopped → never-worked idle
   const rankOf = (p) => p.status === 'working' ? 0
@@ -297,6 +315,11 @@
     chev: '<svg class="ic" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>',
     term: '<svg class="ic" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></svg>',
     branch: '<svg class="ic" viewBox="0 0 24 24"><line x1="6" x2="6" y1="3" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>',
+    star: '<svg class="ic" viewBox="0 0 24 24"><path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z"/></svg>',
+    // Claude — the sparkle mark, brand coral
+    claude: '<svg viewBox="0 0 24 24" fill="#d97757" aria-hidden="true"><path d="M12 1.4c.55 4.7 1.05 6.5 3.1 7.9 1.4.95 3.3 1.5 7.5 2.7-4.2 1.2-6.1 1.75-7.5 2.7-2.05 1.4-2.55 3.2-3.1 7.9-.55-4.7-1.05-6.5-3.1-7.9C7.5 13.75 5.6 13.2 1.4 12c4.2-1.2 6.1-1.75 7.5-2.7C10.95 7.9 11.45 6.1 12 1.4Z"/></svg>',
+    // Codex — the OpenAI blossom, brand green
+    codex: '<svg viewBox="0 0 24 24" fill="#10a37f" aria-hidden="true"><path d="M22.28 9.82a5.98 5.98 0 0 0-.52-4.91 6.05 6.05 0 0 0-6.51-2.9A6.07 6.07 0 0 0 4.98 4.18a5.98 5.98 0 0 0-4 2.9 6.05 6.05 0 0 0 .75 7.1 5.98 5.98 0 0 0 .51 4.9 6.05 6.05 0 0 0 6.51 2.9 5.98 5.98 0 0 0 4.51 2.02 6.06 6.06 0 0 0 5.77-4.2 5.99 5.99 0 0 0 4-2.9 6.06 6.06 0 0 0-.75-7.08ZM13.26 22.43a4.48 4.48 0 0 1-2.88-1.04l.14-.08 4.78-2.76a.79.79 0 0 0 .39-.68v-6.74l2.02 1.17a.07.07 0 0 1 .04.05v5.58a4.5 4.5 0 0 1-4.49 4.5ZM3.6 18.3a4.47 4.47 0 0 1-.53-3.01l.14.08 4.78 2.76a.77.77 0 0 0 .78 0l5.84-3.37v2.33a.08.08 0 0 1-.03.06L9.74 21.9a4.5 4.5 0 0 1-6.14-1.65ZM2.34 7.9a4.49 4.49 0 0 1 2.37-1.98v5.68a.77.77 0 0 0 .39.68l5.81 3.35-2.02 1.17a.08.08 0 0 1-.07 0l-4.83-2.79A4.5 4.5 0 0 1 2.34 7.9Zm16.6 3.85-5.84-3.39L15.12 7.2a.08.08 0 0 1 .07 0l4.83 2.79a4.49 4.49 0 0 1-.68 8.1v-5.67a.79.79 0 0 0-.4-.67Zm2.01-3.02-.14-.09-4.77-2.78a.78.78 0 0 0-.79 0L9.41 9.23V6.9a.07.07 0 0 1 .03-.06l4.83-2.79a4.5 4.5 0 0 1 6.68 4.66ZM8.3 12.86l-2.02-1.16a.08.08 0 0 1-.04-.06V6.07a4.5 4.5 0 0 1 7.38-3.45l-.14.08-4.78 2.76a.79.79 0 0 0-.39.68Zm1.1-2.37L12 8.99l2.6 1.5v3l-2.6 1.5-2.6-1.5Z"/></svg>',
   };
 
   async function load() {
@@ -308,6 +331,9 @@
       document.getElementById('cWork').textContent = sumR.working || 0;
       document.getElementById('cPerm').textContent = sumR.pending || 0;
       document.getElementById('cStale').textContent = sumR.stale || 0;
+      // idle = everything not working / waiting / stale
+      document.getElementById('cIdle').textContent =
+        Math.max(0, (sumR.total || 0) - (sumR.working || 0) - (sumR.pending || 0) - (sumR.stale || 0));
       setBadge((sumR.pending || 0) + (sumR.stale || 0)); // app-icon badge = needs-you count
       const info = {};
       (panesR || []).forEach(p => { info[p.target] = p; });
@@ -320,10 +346,12 @@
           name: sess,                                   // title = session name (not folder)
           status: p.status || 'idle',
           agent: x.agent || 'claude',
+          profile: x.profile || p.profile || '',    // claude account: '' personal, 'work', …
           branch: x.branch || '',
           session: sess,
           dirName: p.dirName || x.dirName || '',        // folder basename (subline)
           pane: suffix.replace('.', ':'),               // window:pane, e.g. "2:1"
+          activity: p.activity || '',                   // live label, e.g. "Compacting… 1m 12s"
           stoppedAt: p.stoppedAt || 0,                  // unix secs it went idle (0 = never worked)
         };
       });
@@ -346,6 +374,8 @@
         .toLowerCase().includes(q));
     }
     rows.sort((a, b) => {
+      const fa = favs.has(a.target), fb = favs.has(b.target);   // favorites pinned to top
+      if (fa !== fb) return fa ? -1 : 1;
       const ra = rankOf(a), rb = rankOf(b);
       if (ra !== rb) return ra - rb;
       if (ra === 2) return b.stoppedAt - a.stoppedAt;   // most-recently stopped first
@@ -357,20 +387,23 @@
     }
     listEl.innerHTML = rows.map(p => {
       const st = p.status || 'idle';
-      const tagCls = p.agent === 'codex' ? 'tag codex' : 'tag';
       const branch = p.branch ? `${ICON.branch}${esc(p.branch)}` : '';
       const folder = (p.dirName && p.dirName !== p.name) ? esc(p.dirName) : ''; // show folder only if it differs
       const sub = [folder, branch].filter(Boolean).join(' · ') || esc(p.target);
       const paneBadge = p.pane ? `<span class="pane">${esc(p.pane)}</span>` : '';
+      const profChip = (p.agent !== 'codex' && p.profile) ? `<span class="prof">${esc(p.profile)}</span>` : '';
+      const agentLabel = p.agent === 'codex' ? 'codex' : (p.profile ? 'claude · ' + p.profile : 'claude');
       return `<a class="row" href="/pip.html?m=1&target=${encodeURIComponent(p.target)}">
-        <span class="dot ${st}"></span>
-        <span class="meta">
-          <div class="nameline"><span class="name">${esc(p.name)}</span>${paneBadge}</div>
-          <div class="sub">${sub}</div>
-          <div class="status-word sw-${st}">${WORD[st] || st}</div>
-        </span>
-        <span class="${tagCls}">${ICON.term}${esc(p.agent)}</span>
-        <span class="chev">${ICON.chev}</span>
+        <div class="rowtop">
+          <button class="star ${favs.has(p.target) ? 'on' : ''}" data-t="${esc(p.target)}" title="Favorite" aria-label="Favorite">${ICON.star}</button>
+          <span class="meta">
+            <div class="nameline"><span class="name">${esc(p.name)}</span>${paneBadge}</div>
+            <div class="sub">${sub}</div>
+          </span>
+          ${profChip}
+          <span class="agent" title="${esc(agentLabel)}">${p.agent === 'codex' ? ICON.codex : ICON.claude}</span>
+        </div>
+        <div class="status-word sw-${st}"><span class="dot ${st}"></span><span class="sw-text">${st === 'working' && p.activity ? esc(p.activity) : (WORD[st] || st)}</span></div>
       </a>`;
     }).join('');
   }
@@ -385,6 +418,12 @@
     filter = c.dataset.f;
     syncChips();
     render();
+  });
+  // star toggles favorite without navigating into the session
+  listEl.addEventListener('click', e => {
+    const s = e.target.closest('.star'); if (!s) return;
+    e.preventDefault(); e.stopPropagation();
+    toggleFav(s.dataset.t);
   });
   syncChips();
 
