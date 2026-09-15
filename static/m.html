@@ -39,10 +39,10 @@
   .counts .c { display:inline-flex; align-items:center; gap:4px; }
   .counts svg { width:15px; height:15px; }
   .cwork { color:var(--working); } .cperm { color:var(--perm); } .cstale { color:var(--stale); } .cidle { color:var(--muted); }
-  #usage, #notify, #launch, #ports { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
+  #usage, #notify, #launch, #ports, #browser { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
     display:inline-flex; border-radius:8px; }
-  #usage:active, #notify:active, #launch:active, #ports:active { background:var(--card); }
-  #usage svg, #notify svg, #launch svg, #ports svg { width:19px; height:19px; }
+  #usage:active, #notify:active, #launch:active, #ports:active, #browser:active { background:var(--card); }
+  #usage svg, #notify svg, #launch svg, #ports svg, #browser svg { width:19px; height:19px; }
   #launch { color:var(--work); }
   #notify.on { color:var(--work); }
   @keyframes spin { to { transform:rotate(360deg); } }
@@ -218,6 +218,9 @@
       </button>
       <button id="ports" title="Local ports" onclick="location.href='/ports.html'">
         <svg class="ic" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg>
+      </button>
+      <button id="browser" title="Remote browser" onclick="location.href='/browser.html'">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/></svg>
       </button>
       <button id="notify" title="Notifications" hidden>
         <svg class="ic bell-off" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M17 17H4s3-2 3-9a5 5 0 0 1 .3-1.7"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="m2 2 20 20"/><path d="M16.5 9.5A8.6 8.6 0 0 0 17 8a5 5 0 0 0-9.3-2.5"/></svg>

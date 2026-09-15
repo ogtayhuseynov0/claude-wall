@@ -700,6 +700,10 @@ func runWeb(port int) {
 	http.HandleFunc("/api/ports", handlePorts)
 	http.HandleFunc("/proxy/", handleProxy)
 
+	// Remote browser control (CDP screencast + input) — do logins by hand
+	http.HandleFunc("/api/browser/start", handleBrowserStart)
+	http.HandleFunc("/ws/browser", handleBrowserWS)
+
 	// Serve static files (strip "static/" prefix from embedded FS)
 	mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	sub, _ := fs.Sub(staticFiles, "static")

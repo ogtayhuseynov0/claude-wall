@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+<title>Remote Browser · Claude Wall</title>
+<style>
+  :root { --bg:#0d0f14; --bar:#161922; --line:#262b36; --fg:#f0f2f6; --muted:#9aa0b0; --accent:#6ea1f7; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); overflow:hidden;
+    font:14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  body { display:flex; flex-direction:column; padding-top:env(safe-area-inset-top); }
+  .bar { display:flex; align-items:center; gap:6px; padding:7px 8px; background:var(--bar);
+    border-bottom:1px solid var(--line); flex:0 0 auto; }
+  .bar button { flex:0 0 auto; width:36px; height:36px; border-radius:8px; border:1px solid var(--line);
+    background:#20242e; color:var(--fg); font-size:16px; }
+  .bar button:active { background:#2f3340; }
+  #url { flex:1; min-width:0; height:36px; border-radius:8px; border:1px solid var(--line); background:#0f1218;
+    color:var(--fg); padding:0 10px; font-size:13px; -webkit-appearance:none; }
+  #stage { flex:1; position:relative; overflow:hidden; display:flex; align-items:flex-start; justify-content:center;
+    background:#000; }
+  #screen { width:100%; height:auto; display:block; touch-action:none; user-select:none; -webkit-user-drag:none; }
+  #status { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted);
+    text-align:center; padding:24px; }
+  #kbd { position:absolute; left:-9999px; top:0; width:1px; height:1px; opacity:0; }
+  .bar #keyboard.on { background:var(--accent); color:#0d1017; border-color:var(--accent); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <button id="back" title="Back">‹</button>
+    <button id="home" title="Dashboard">⌂</button>
+    <input id="url" type="text" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="URL…">
+    <button id="reload" title="Reload">⟳</button>
+    <button id="keyboard" title="Keyboard">⌨</button>
+  </div>
+  <div id="stage">
+    <img id="screen" alt="">
+    <div id="status">Connecting to Chrome…</div>
+  </div>
+  <textarea id="kbd" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false"></textarea>
+<script>
+  const screen = document.getElementById('screen');
+  const statusEl = document.getElementById('status');
+  const urlEl = document.getElementById('url');
+  const kbd = document.getElementById('kbd');
+  const kbBtn = document.getElementById('keyboard');
+  let fw = 420, fh = 900;          // frame (page) size in CSS px
+  let ws, urlFocused = false;
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(proto + '//' + location.host + '/ws/browser');
+    ws.onmessage = (e) => {
+      const m = JSON.parse(e.data);
+      if (m.type === 'frame') {
+        if (m.w) { fw = m.w; fh = m.h; }
+        screen.src = 'data:image/jpeg;base64,' + m.data;
+        statusEl.hidden = true;
+      } else if (m.type === 'url') {
+        if (!urlFocused) urlEl.value = m.url;
+      } else if (m.type === 'error') {
+        statusEl.hidden = false; statusEl.textContent = m.msg || 'Error';
+      }
+    };
+    ws.onclose = () => { statusEl.hidden = false; statusEl.textContent = 'Disconnected — reconnecting…'; setTimeout(connect, 1500); };
+    ws.onerror = () => {};
+  }
+  const send = (o) => { try { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); } catch (_) {} };
+
+  // map a touch/click on the <img> to page coordinates
+  function toPage(clientX, clientY) {
+    const r = screen.getBoundingClientRect();
+    const x = (clientX - r.left) / r.width * fw;
+    const y = (clientY - r.top) / r.height * fh;
+    return { x: Math.max(0, Math.min(fw, x)), y: Math.max(0, Math.min(fh, y)) };
+  }
+
+  // tap = click; drag = scroll
+  let start = null, moved = false, lastY = 0;
+  screen.addEventListener('touchstart', (e) => {
+    const t = e.touches[0]; start = { x: t.clientX, y: t.clientY, t: Date.now() }; lastY = t.clientY; moved = false;
+  }, { passive: true });
+  screen.addEventListener('touchmove', (e) => {
+    const t = e.touches[0];
+    if (Math.abs(t.clientY - start.y) > 6 || Math.abs(t.clientX - start.x) > 6) moved = true;
+    const dyCss = (lastY - t.clientY) / screen.getBoundingClientRect().height * fh; // finger up → scroll down
+    if (Math.abs(dyCss) > 0.5) { const p = toPage(t.clientX, t.clientY); send({ type: 'scroll', x: p.x, y: p.y, dy: dyCss }); }
+    lastY = t.clientY;
+    e.preventDefault();
+  }, { passive: false });
+  screen.addEventListener('touchend', (e) => {
+    if (!start) return;
+    if (!moved && Date.now() - start.t < 500) {
+      const p = toPage(start.x, start.y);
+      send({ type: 'click', x: p.x, y: p.y });
+    }
+    start = null;
+  });
+
+  // keyboard: focus hidden field to raise the soft keyboard; forward typing
+  kbBtn.onclick = () => { kbd.focus(); kbBtn.classList.add('on'); };
+  kbd.addEventListener('blur', () => kbBtn.classList.remove('on'));
+  kbd.addEventListener('input', (e) => {
+    if (e.data) send({ type: 'text', text: e.data });
+    kbd.value = '';
+  });
+  kbd.addEventListener('keydown', (e) => {
+    const map = { Enter: 'Enter', Backspace: 'Backspace', Tab: 'Tab', Escape: 'Escape',
+      ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight' };
+    if (map[e.key]) { send({ type: 'key', key: map[e.key] }); e.preventDefault(); }
+  });
+
+  // toolbar
+  document.getElementById('back').onclick = () => send({ type: 'back' });
+  document.getElementById('reload').onclick = () => send({ type: 'reload' });
+  document.getElementById('home').onclick = () => location.href = '/m.html';
+  urlEl.addEventListener('focus', () => { urlFocused = true; });
+  urlEl.addEventListener('blur', () => { urlFocused = false; });
+  urlEl.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    let u = urlEl.value.trim();
+    if (u && !/^[a-z]+:\/\//i.test(u)) u = 'https://' + u;
+    send({ type: 'nav', url: u });
+    urlEl.blur();
+  });
+
+  // ensure Chrome is up, then stream
+  statusEl.textContent = 'Starting Chrome…';
+  fetch('/api/browser/start').then((r) => r.json()).then((j) => {
+    if (!j.ok) { statusEl.textContent = j.error || 'Could not start Chrome'; return; }
+    statusEl.textContent = 'Connecting…';
+    connect();
+  }).catch(() => { statusEl.textContent = 'Server unreachable'; });
+</script>
+</body>
+</html>
