@@ -405,8 +405,16 @@
     if (pn) pn.textContent = (state === true) ? '' : state + '%';
   };
 
+  // SHA-256 (hex) of a file's bytes — the dedup key (original content).
+  async function sha256Hex(file) {
+    try {
+      const h = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+      return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    } catch (_) { return ''; }
+  }
+
   // XHR (not fetch) so we get real upload progress from upload.onprogress.
-  function xhrUpload(file, onProgress) {
+  function xhrUpload(file, hash, onProgress) {
     return new Promise((resolve) => {
       try {
         const xhr = new XMLHttpRequest();
@@ -416,6 +424,7 @@
         xhr.onerror = () => resolve('');
         const ext = (file.type && file.type.includes('/')) ? '.' + file.type.split('/')[1] : '';
         const fd = new FormData();
+        if (hash) fd.append('hash', hash);
         fd.append('file', file, file.name || ('paste-' + Date.now() + ext));
         xhr.send(fd);
       } catch (_) { resolve(''); }
@@ -446,19 +455,28 @@
   }
 
   async function uploadFiles(files) {
-    const prepared = [];
-    for (const f of files) prepared.push(await maybeCompress(f)); // spinner is showing during this
-    const total = prepared.reduce((s, f) => s + (f.size || 0), 0);
+    const results = new Array(files.length).fill('');
+    const jobs = []; // files that actually need uploading: {idx, file, hash}
+    for (let i = 0; i < files.length; i++) {
+      const hash = await sha256Hex(files[i]);
+      if (hash) {
+        try {
+          const j = await (await fetch('/api/upload/lookup?hash=' + hash)).json();
+          if (j && j.path) { results[i] = j.path; continue; } // already on server — reuse, no upload
+        } catch (_) {}
+      }
+      jobs.push({ idx: i, file: await maybeCompress(files[i]), hash });
+    }
+    const total = jobs.reduce((s, j) => s + (j.file.size || 0), 0);
     let done = 0;
-    const paths = [];
-    for (const f of prepared) {
-      const p = await xhrUpload(f, (loaded) => {
+    for (const j of jobs) {
+      const p = await xhrUpload(j.file, j.hash, (loaded) => {
         if (total > 0) setAttach(Math.min(99, Math.round((done + loaded) / total * 100)));
       });
-      done += f.size || 0;
-      if (p) paths.push(p);
+      done += j.file.size || 0;
+      results[j.idx] = p;
     }
-    return paths;
+    return results.filter(Boolean);
   }
 
   async function sendFiles(files) {

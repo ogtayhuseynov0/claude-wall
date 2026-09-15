@@ -599,6 +599,13 @@ func runWeb(port int) {
 			return
 		}
 		r.ParseMultipartForm(512 << 20) // 512MB — local only, no real limit needed
+		// Content-hash dedup: if the client's file is already on disk, reuse it.
+		hash := r.FormValue("hash")
+		if p := lookupUpload(hash); p != "" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"path": p})
+			return
+		}
 		file, header, err := r.FormFile("file")
 		if err != nil {
 			http.Error(w, "missing file", 400)
@@ -620,9 +627,13 @@ func runWeb(port int) {
 			return
 		}
 
+		rememberUpload(hash, dst.Name()) // dedup future uploads of the same content
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"path": dst.Name()})
 	})
+
+	// Upload dedup lookup: client asks whether a content hash is already stored.
+	http.HandleFunc("/api/upload/lookup", handleUploadLookup)
 
 	// Finance / cost tracking
 	http.HandleFunc("/api/finance", handleFinanceAPI)
