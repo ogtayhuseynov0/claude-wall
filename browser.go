@@ -17,10 +17,11 @@ import (
 )
 
 // Remote browser control via Chrome DevTools Protocol (CDP). A dedicated Chrome
-// runs with a debug port (no sudo, its own profile). The phone gets a live
-// screencast and forwards taps/scroll/typing back — so YOU do a login by hand
-// from the phone. Chrome renders its own surface, so this works even when the
-// Mac's display is asleep or the screen is locked. Keystrokes flow
+// runs headed with a debug port on a cloned profile (no sudo), so your logins
+// AND extensions are available. The phone gets a live screencast and forwards
+// taps/scroll/typing back — so YOU do a login by hand from the phone. We keep
+// the display awake so the headed window keeps compositing while you're away;
+// a manual screen lock can still pause the view until unlock. Keystrokes flow
 // phone → this server → Chrome; the model never sees them.
 
 const chromeDebugPort = 9222
@@ -60,19 +61,19 @@ func syncProfile() error {
 	return exec.Command("rsync", args...).Run()
 }
 
-// launchChromeDebug starts a HEADLESS Chrome on the clone dir with the debug
-// port. Headless renders its own offscreen surface, so the screencast produces
-// frames no matter what the Mac's physical display is doing (asleep, locked,
-// lid shut) — a headed window only composites while visible, which is why the
-// live view went black before. It's also a separate process on a separate
-// user-data-dir, so your real, headed Chrome keeps running untouched.
+// launchChromeDebug starts a HEADED Chrome on the clone dir with the debug port.
+// Headed (not --headless=new) so your extensions load — headless mode disables
+// all extensions. A headed window only produces screencast frames while it's
+// visible, so we open it on-screen (not minimized) and keep the display awake
+// (see keepDisplayAwake) for as long as it runs, so the live view keeps flowing
+// even when you're away from the Mac. It's a separate process on a separate
+// user-data-dir, so your real Chrome is never touched.
 func launchChromeDebug(profile string) error {
 	bin := chromePath()
 	if bin == "" {
 		return fmt.Errorf("Google Chrome not found in /Applications")
 	}
 	args := []string{
-		"--headless=new",
 		"--remote-debugging-port=" + strconv.Itoa(chromeDebugPort),
 		"--remote-allow-origins=*",
 		"--user-data-dir=" + attachDir(),
@@ -80,11 +81,28 @@ func launchChromeDebug(profile string) error {
 		// Do NOT let the clone's activity sync up to your Google account (which
 		// would flow back into your real profile). Keep it a local snapshot.
 		"--disable-sync",
+		// Keep the window on-screen and small; a visible window is required for
+		// the compositor to emit screencast frames.
+		"--window-position=0,0", "--window-size=500,1000",
 	}
 	if profile != "" {
 		args = append(args, "--profile-directory="+profile)
 	}
-	return exec.Command(bin, args...).Start()
+	cmd := exec.Command(bin, args...)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	keepDisplayAwake(cmd.Process.Pid)
+	return nil
+}
+
+// keepDisplayAwake holds the display on for as long as the given process lives,
+// so a headed Chrome keeps compositing (and thus emitting screencast frames)
+// while the Mac is unattended. `caffeinate -w` exits when the pid does, so no
+// lingering assertion. Note: it can't defeat a manual screen LOCK on Apple
+// Silicon — if you lock the Mac, the live view may pause until it's unlocked.
+func keepDisplayAwake(pid int) {
+	exec.Command("caffeinate", "-d", "-w", strconv.Itoa(pid)).Start()
 }
 
 // killChromeDebug stops the headless clone by its debug-port PID (safe: only the

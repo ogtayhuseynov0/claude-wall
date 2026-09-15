@@ -57,7 +57,7 @@
 
   // On-screen diagnostics: this page runs on a phone with no console, so surface
   // build tag / WS state / frame count / errors right in the status overlay.
-  const BUILD = 'b5';
+  const BUILD = 'b6';
   let frames = 0;
   function diag(line) { statusEl.hidden = false; statusEl.textContent = '[' + BUILD + '] ' + line; }
   window.addEventListener('error', (e) => diag('JS error: ' + (e.message || e.type)));
