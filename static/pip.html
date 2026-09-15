@@ -67,6 +67,7 @@
   #keys button .spin { display:inline-block; width:14px; height:14px; border:2px solid #ffffff33;
     border-top-color:var(--accent); border-radius:50%; animation:kspin .7s linear infinite; flex:0 0 auto; }
   #keys button .pn { font-size:12px; font-weight:700; }
+  #keys button .pn:empty { display:none; }
   @keyframes kspin { to { transform:rotate(360deg); } }
   [hidden] { display:none !important; }
   /* restart confirm modal */
@@ -384,11 +385,24 @@
   const kattach = document.getElementById('kattach');
   const attachLabel = '📎';
   // state: false = idle, true = indeterminate spinner, number = percent
+  // Build the spinner+label DOM ONCE when entering the busy state; later % ticks
+  // update only the number. (Rebuilding innerHTML every tick restarted the CSS
+  // animation each time, so the spinner looked frozen.)
+  let attachBusy = false;
   const setAttach = (state) => {
-    kattach.disabled = state !== false;
-    if (state === false) kattach.textContent = attachLabel;
-    else if (state === true) kattach.innerHTML = '<span class="spin"></span>';
-    else kattach.innerHTML = '<span class="spin"></span><span class="pn">' + state + '%</span>'; // spin + %
+    if (state === false) {
+      attachBusy = false;
+      kattach.disabled = false;
+      kattach.textContent = attachLabel;
+      return;
+    }
+    kattach.disabled = true;
+    if (!attachBusy) {
+      attachBusy = true;
+      kattach.innerHTML = '<span class="spin"></span><span class="pn"></span>';
+    }
+    const pn = kattach.querySelector('.pn');
+    if (pn) pn.textContent = (state === true) ? '' : state + '%';
   };
 
   // XHR (not fetch) so we get real upload progress from upload.onprogress.
