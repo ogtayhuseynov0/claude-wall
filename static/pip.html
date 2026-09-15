@@ -96,6 +96,8 @@
   <textarea id="kbd" rows="1" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" inputmode="text"></textarea>
   <div id="keys">
     <button data-k="bottom" id="kbottom" title="Jump to latest" hidden>⤓</button>
+    <button data-k="attach" id="kattach" title="Attach photo / file">📎</button>
+    <button data-k="paste">paste</button>
     <button data-k="esc">esc</button>
     <button data-k="ctrl" id="kctrl">ctrl</button>
     <button data-k="tab">tab</button>
@@ -104,11 +106,11 @@
     <button data-k="left">←</button>
     <button data-k="right">→</button>
     <button data-k="bs">⌫</button>
-    <button data-k="paste">paste</button>
     <button data-k="cc">^C</button>
     <button data-k="enter">⏎</button>
     <button data-k="restart" id="krestart" title="Restart & resume">↻</button>
   </div>
+  <input type="file" id="fileInput" multiple hidden>
 
   <div id="restartModal" class="rm-overlay" hidden>
     <div class="rm-card">
@@ -329,6 +331,7 @@
     if (k === 'ctrl') { setCtrl(!ctrlArmed); kbd.focus({ preventScroll: true }); return; }
     if (k === 'bottom') { jumpBottom(); kbd.focus({ preventScroll: true }); return; } // jump to latest
     if (k === 'restart') { openRestart(); return; }   // confirm modal picks the account
+    if (k === 'attach') { fileInput.click(); return; } // pick photo/file → upload → type its path
     if (k === 'paste') {                          // paste clipboard into the pane
       if (navigator.clipboard && navigator.clipboard.readText) {
         navigator.clipboard.readText().then((t) => { if (t) send(t); }).catch(() => {});
@@ -365,6 +368,32 @@
       body: JSON.stringify({ account: rmAcct }),
     }).catch(() => {});
   };
+
+  // ── attach photo / file ────────────────────────────────────────────────────
+  // Upload the picked files to the server, then type their saved paths into the
+  // pane so Claude can read them (it reads images and files by absolute path).
+  const fileInput = document.getElementById('fileInput');
+  const kattach = document.getElementById('kattach');
+  fileInput.addEventListener('change', async () => {
+    const files = [...fileInput.files];
+    fileInput.value = '';
+    if (!files.length) return;
+    const label = kattach.textContent;
+    kattach.textContent = '…'; kattach.disabled = true;
+    const paths = [];
+    for (const f of files) {
+      try {
+        const fd = new FormData();
+        fd.append('file', f, f.name || 'upload');
+        const r = await fetch('/api/upload', { method: 'POST', body: fd });
+        const j = await r.json();
+        if (j && j.path) paths.push(j.path);
+      } catch (_) {}
+    }
+    kattach.textContent = label; kattach.disabled = false;
+    if (paths.length) send(paths.join(' ') + ' ');
+    kbd.focus({ preventScroll: true });
+  });
 
   // focus: desktop keeps body focused; mobile focuses the hidden field to raise
   // the keyboard. preventScroll stops the browser jumping to the 1px field.
