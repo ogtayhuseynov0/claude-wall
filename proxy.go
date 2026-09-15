@@ -109,14 +109,51 @@ var lsofAddrRe = regexp.MustCompile(`(\S+):(\d+) \(LISTEN\)`)
 
 type portInfo struct {
 	Port int    `json:"port"`
-	Proc string `json:"proc"`
-	All  bool   `json:"all"` // listens on all interfaces (reachable directly over Tailscale too)
+	Name string `json:"name"` // folder it runs from (cwd basename), else the process name
+	Proc string `json:"proc"` // process command
+	All  bool   `json:"all"`  // listens on all interfaces (reachable directly over Tailscale too)
 }
 
-// handlePorts lists local TCP listeners so the Ports page can offer them.
+// cwdByPID returns pid → working directory via one lsof call.
+func cwdByPID(pids []int) map[int]string {
+	if len(pids) == 0 {
+		return nil
+	}
+	ps := make([]string, len(pids))
+	for i, p := range pids {
+		ps[i] = strconv.Itoa(p)
+	}
+	out, err := exec.Command("lsof", "-a", "-d", "cwd", "-Fpn", "-p", strings.Join(ps, ",")).Output()
+	if err != nil {
+		return nil
+	}
+	m := map[int]string{}
+	cur := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		if line == "" {
+			continue
+		}
+		switch line[0] {
+		case 'p':
+			cur, _ = strconv.Atoi(line[1:])
+		case 'n':
+			if cur != 0 {
+				m[cur] = line[1:]
+			}
+		}
+	}
+	return m
+}
+
+// handlePorts lists local TCP listeners (labelled by the folder they run from)
+// so the Ports page can offer them.
 func handlePorts(w http.ResponseWriter, r *http.Request) {
 	out, _ := exec.Command("lsof", "-nP", "-iTCP", "-sTCP:LISTEN").Output()
-	byPort := map[int]portInfo{}
+	type raw struct {
+		portInfo
+		pid int
+	}
+	byPort := map[int]raw{}
 	for _, line := range strings.Split(string(out), "\n") {
 		am := lsofAddrRe.FindStringSubmatch(line)
 		if am == nil {
@@ -126,20 +163,35 @@ func handlePorts(w http.ResponseWriter, r *http.Request) {
 		if port <= 0 {
 			continue
 		}
+		f := strings.Fields(line)
+		if len(f) < 2 {
+			continue
+		}
+		pid, _ := strconv.Atoi(f[1])
 		host := am[1]
 		all := host == "*" || host == "0.0.0.0" || host == "[::]"
-		proc := ""
-		if f := strings.Fields(line); len(f) > 0 {
-			proc = strings.ReplaceAll(f[0], `\x20`, " ")
-		}
+		proc := strings.ReplaceAll(f[0], `\x20`, " ")
 		if ex, ok := byPort[port]; !ok || (!ex.All && all) {
-			byPort[port] = portInfo{Port: port, Proc: proc, All: all}
+			byPort[port] = raw{portInfo{Port: port, Proc: proc, All: all}, pid}
 		}
 	}
+	pids := make([]int, 0, len(byPort))
+	for _, r := range byPort {
+		pids = append(pids, r.pid)
+	}
+	cwds := cwdByPID(pids)
+
 	list := make([]portInfo, 0, len(byPort))
-	for _, p := range byPort {
-		if p.Port == 7685 { // that's us
+	for _, r := range byPort {
+		if r.Port == 7685 { // that's us
 			continue
+		}
+		p := r.portInfo
+		p.Name = p.Proc
+		if dir := cwds[r.pid]; dir != "" && dir != "/" {
+			if b := baseName(dir); b != "" && b != "/" {
+				p.Name = b // the project folder the server runs from
+			}
 		}
 		list = append(list, p)
 	}

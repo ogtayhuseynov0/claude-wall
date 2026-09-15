@@ -28,7 +28,8 @@
     background:var(--card); border:1px solid var(--line); }
   .port { font-family:"SFMono-Regular",Menlo,monospace; font-size:16px; font-weight:700; flex:0 0 auto;
     min-width:58px; }
-  .proc { flex:1; min-width:0; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .proc { flex:1; min-width:0; color:var(--fg); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pdim { color:var(--dim); font-weight:400; font-size:12px; }
   .tag { flex:0 0 auto; font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.4px;
     padding:2px 6px; border-radius:5px; background:rgba(87,217,119,.15); color:var(--ok); }
   .copy, .open { flex:0 0 auto; width:40px; height:36px; display:inline-flex; align-items:center; justify-content:center;
@@ -64,7 +65,7 @@
       listEl.innerHTML = ports.map((p) => `
         <div class="row">
           <span class="port">:${p.port}</span>
-          <span class="proc">${esc(p.proc)}</span>
+          <span class="proc">${esc(p.name)}${(p.proc && p.proc !== p.name) ? ' <span class="pdim">' + esc(p.proc) + '</span>' : ''}</span>
           ${p.all ? '<span class="tag">all</span>' : ''}
           <button class="copy" data-port="${p.port}" title="Copy URL" aria-label="Copy URL">⧉</button>
           <a class="open" href="${urlFor(p.port)}" target="_blank" rel="noopener" title="Open" aria-label="Open">↗</a>
