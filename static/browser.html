@@ -22,6 +22,12 @@
   #screen { width:100%; height:auto; display:block; touch-action:none; user-select:none; -webkit-user-drag:none; }
   #status { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted);
     text-align:center; padding:24px; }
+  .pfrow { display:flex; flex-wrap:wrap; gap:7px; justify-content:center; margin-bottom:14px; }
+  #status .pf { background:#20242e; border:1px solid var(--line); color:var(--fg); border-radius:8px;
+    padding:8px 11px; font-size:13px; }
+  #status .pf.on { background:var(--accent); color:#0d1017; border-color:var(--accent); }
+  #status .prim { width:100%; background:var(--accent); color:#0d1017; border:0; font-weight:700;
+    border-radius:10px; padding:12px; font-size:14px; }
   #kbd { position:absolute; left:-9999px; top:0; width:1px; height:1px; opacity:0; }
   .bar #keyboard.on { background:var(--accent); color:#0d1017; border-color:var(--accent); }
   [hidden] { display:none !important; }
@@ -126,12 +132,43 @@
     urlEl.blur();
   });
 
-  // ensure Chrome is up, then stream
-  statusEl.textContent = 'Starting Chrome…';
+  // ensure Chrome (your real profiles) is attachable, then stream. If it's
+  // running without the debug port, offer to restart it to attach.
+  function setStatusHTML(html) { statusEl.hidden = false; statusEl.innerHTML = html; }
+
+  async function relaunch(profile) {
+    setStatusHTML('Restarting Chrome…');
+    try {
+      const j = await (await fetch('/api/browser/relaunch' + (profile ? '?profile=' + encodeURIComponent(profile) : ''), { method: 'POST' })).json();
+      if (j.ok) { statusEl.textContent = 'Connecting…'; connect(); }
+      else setStatusHTML((j.error || 'Failed to attach') + '');
+    } catch (_) { setStatusHTML('Server unreachable'); }
+  }
+
+  async function showRelaunchPrompt() {
+    let profiles = [];
+    try { profiles = await (await fetch('/api/browser/profiles')).json(); } catch (_) {}
+    const chips = profiles.map((p) => `<button class="pf" data-dir="${p.dir}">${(p.name || p.dir).replace(/[<>&"]/g, '')}</button>`).join('');
+    setStatusHTML(
+      '<div style="max-width:320px">' +
+      '<div style="font-size:15px;font-weight:700;color:#f0f2f6;margin-bottom:8px">Attach to your Chrome</div>' +
+      '<div style="font-size:13px;line-height:1.45;margin-bottom:14px">Your Chrome is open without a debug port. To control your real, logged-in profiles it must restart once (tabs are restored).</div>' +
+      (chips ? '<div style="font-size:11px;color:#9aa0b0;margin-bottom:6px">Pick a profile (optional):</div><div class="pfrow">' + chips + '</div>' : '') +
+      '<button id="doRelaunch" class="prim">Restart Chrome &amp; attach</button>' +
+      '</div>');
+    let picked = '';
+    statusEl.querySelectorAll('.pf').forEach((b) => b.onclick = () => {
+      picked = b.dataset.dir;
+      statusEl.querySelectorAll('.pf').forEach((x) => x.classList.toggle('on', x === b));
+    });
+    document.getElementById('doRelaunch').onclick = () => relaunch(picked);
+  }
+
+  statusEl.textContent = 'Checking Chrome…';
   fetch('/api/browser/start').then((r) => r.json()).then((j) => {
-    if (!j.ok) { statusEl.textContent = j.error || 'Could not start Chrome'; return; }
-    statusEl.textContent = 'Connecting…';
-    connect();
+    if (j.ok) { statusEl.textContent = 'Connecting…'; connect(); }
+    else if (j.needsRelaunch) showRelaunchPrompt();
+    else setStatusHTML(j.error || 'Could not start Chrome');
   }).catch(() => { statusEl.textContent = 'Server unreachable'; });
 </script>
 </body>

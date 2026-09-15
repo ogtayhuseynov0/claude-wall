@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,8 +25,53 @@ import (
 
 const chromeDebugPort = 9222
 
-func chromeUserDataDir() string {
-	return filepath.Join(os.Getenv("HOME"), ".claude", "claude-wall", "chrome-remote")
+// errNeedsRelaunch: Chrome is running but without a debug port, so we can't
+// attach to your real (logged-in) profiles without restarting it.
+var errNeedsRelaunch = fmt.Errorf("chrome-needs-relaunch")
+
+// realChromeDir is your normal Chrome profile directory (all your logins/profiles).
+func realChromeDir() string {
+	return filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "Google", "Chrome")
+}
+
+const chromeMainProc = "Google Chrome.app/Contents/MacOS/Google Chrome"
+
+func chromeRunning() bool {
+	out, _ := exec.Command("pgrep", "-f", chromeMainProc).Output()
+	return len(strings.TrimSpace(string(out))) > 0
+}
+
+// quitChrome asks Chrome to quit (so it saves the session for --restore-last-session),
+// then force-kills if it lingers.
+func quitChrome() {
+	exec.Command("osascript", "-e", `tell application "Google Chrome" to quit`).Run()
+	for i := 0; i < 40; i++ {
+		if !chromeRunning() {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	exec.Command("pkill", "-f", chromeMainProc).Run()
+	time.Sleep(500 * time.Millisecond)
+}
+
+// launchChromeDebug starts your real Chrome (default profile dir) with the debug
+// port, restoring the previous session. profile selects a specific profile dir
+// (e.g. "Default", "Profile 2") or "" for the last used.
+func launchChromeDebug(profile string) error {
+	bin := chromePath()
+	if bin == "" {
+		return fmt.Errorf("Google Chrome not found in /Applications")
+	}
+	args := []string{
+		"--remote-debugging-port=" + strconv.Itoa(chromeDebugPort),
+		"--remote-allow-origins=*",
+		"--restore-last-session",
+	}
+	if profile != "" {
+		args = append(args, "--profile-directory="+profile)
+	}
+	return exec.Command(bin, args...).Start() // no --user-data-dir → your real profiles
 }
 
 func chromePath() string {
@@ -50,28 +97,23 @@ func chromeDebugReady() bool {
 	return resp.StatusCode == 200
 }
 
-// ensureChrome launches the dedicated debug Chrome if it isn't already up.
-func ensureChrome() error {
+// ensureChrome makes the debug endpoint available on your real Chrome. If
+// Chrome is already running WITHOUT the debug port, it returns errNeedsRelaunch
+// unless allowRelaunch is set (then it quits+relaunches, restoring the session).
+func ensureChrome(allowRelaunch bool, profile string) error {
 	if chromeDebugReady() {
 		return nil
 	}
-	bin := chromePath()
-	if bin == "" {
-		return fmt.Errorf("Google Chrome not found in /Applications")
+	if chromeRunning() {
+		if !allowRelaunch {
+			return errNeedsRelaunch
+		}
+		quitChrome()
 	}
-	dir := chromeUserDataDir()
-	os.MkdirAll(dir, 0700)
-	cmd := exec.Command(bin,
-		"--remote-debugging-port="+strconv.Itoa(chromeDebugPort),
-		"--user-data-dir="+dir,
-		"--no-first-run", "--no-default-browser-check",
-		"--remote-allow-origins=*",
-		"about:blank",
-	)
-	if err := cmd.Start(); err != nil {
+	if err := launchChromeDebug(profile); err != nil {
 		return err
 	}
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 60; i++ {
 		if chromeDebugReady() {
 			return nil
 		}
@@ -121,10 +163,28 @@ func chromePageWS() (string, error) {
 	return "", fmt.Errorf("no page target available")
 }
 
-// handleBrowserStart launches Chrome and reports readiness (used by the page
-// before opening the socket).
+// handleBrowserStart reports whether the debug endpoint is ready, or that Chrome
+// must be relaunched to attach to your real profiles. It does NOT restart Chrome
+// on its own — that's the explicit /api/browser/relaunch step.
 func handleBrowserStart(w http.ResponseWriter, r *http.Request) {
-	err := ensureChrome()
+	err := ensureChrome(false, "")
+	w.Header().Set("Content-Type", "application/json")
+	switch {
+	case err == nil:
+		json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	case err == errNeedsRelaunch:
+		json.NewEncoder(w).Encode(map[string]any{"ok": false, "needsRelaunch": true})
+	default:
+		w.WriteHeader(500)
+		json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error()})
+	}
+}
+
+// handleBrowserRelaunch quits your Chrome and relaunches it with the debug port
+// (session restored). Destructive-ish (closes current windows briefly), so the
+// UI confirms first. Optional ?profile=<dir> opens a specific profile.
+func handleBrowserRelaunch(w http.ResponseWriter, r *http.Request) {
+	err := ensureChrome(true, r.URL.Query().Get("profile"))
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		w.WriteHeader(500)
@@ -132,6 +192,32 @@ func handleBrowserStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
+// handleBrowserProfiles lists your Chrome profiles (dir + display name).
+func handleBrowserProfiles(w http.ResponseWriter, r *http.Request) {
+	type prof struct {
+		Dir  string `json:"dir"`
+		Name string `json:"name"`
+	}
+	out := []prof{}
+	if data, err := os.ReadFile(filepath.Join(realChromeDir(), "Local State")); err == nil {
+		var ls struct {
+			Profile struct {
+				InfoCache map[string]struct {
+					Name string `json:"name"`
+				} `json:"info_cache"`
+			} `json:"profile"`
+		}
+		if json.Unmarshal(data, &ls) == nil {
+			for dir, info := range ls.Profile.InfoCache {
+				out = append(out, prof{dir, info.Name})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Dir < out[j].Dir })
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
 }
 
 // keyEvent maps a named special key to CDP key-event fields.
@@ -152,7 +238,7 @@ var keyEvents = map[string]struct {
 // handleBrowserWS bridges the phone and Chrome CDP: screencast frames out,
 // input in.
 func handleBrowserWS(w http.ResponseWriter, r *http.Request) {
-	if err := ensureChrome(); err != nil {
+	if err := ensureChrome(false, ""); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}

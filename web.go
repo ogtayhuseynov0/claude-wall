@@ -702,6 +702,8 @@ func runWeb(port int) {
 
 	// Remote browser control (CDP screencast + input) — do logins by hand
 	http.HandleFunc("/api/browser/start", handleBrowserStart)
+	http.HandleFunc("/api/browser/relaunch", handleBrowserRelaunch)
+	http.HandleFunc("/api/browser/profiles", handleBrowserProfiles)
 	http.HandleFunc("/ws/browser", handleBrowserWS)
 
 	// Serve static files (strip "static/" prefix from embedded FS)
