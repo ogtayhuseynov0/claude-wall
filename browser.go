@@ -25,53 +25,76 @@ import (
 
 const chromeDebugPort = 9222
 
-// errNeedsRelaunch: Chrome is running but without a debug port, so we can't
-// attach to your real (logged-in) profiles without restarting it.
-var errNeedsRelaunch = fmt.Errorf("chrome-needs-relaunch")
-
 // realChromeDir is your normal Chrome profile directory (all your logins/profiles).
 func realChromeDir() string {
 	return filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "Google", "Chrome")
 }
 
-const chromeMainProc = "Google Chrome.app/Contents/MacOS/Google Chrome"
-
-func chromeRunning() bool {
-	out, _ := exec.Command("pgrep", "-f", chromeMainProc).Output()
-	return len(strings.TrimSpace(string(out))) > 0
+// attachDir is a dedicated user-data-dir cloned from your real profile. Chrome
+// 136+ IGNORES --remote-debugging-port on the default dir, so we debug a clone
+// instead — same-Mac Keychain decrypts the copied cookies, so your logins work.
+func attachDir() string {
+	return filepath.Join(os.Getenv("HOME"), ".claude", "claude-wall", "chrome-attach")
 }
 
-// quitChrome asks Chrome to quit (so it saves the session for --restore-last-session),
-// then force-kills if it lingers.
-func quitChrome() {
-	exec.Command("osascript", "-e", `tell application "Google Chrome" to quit`).Run()
-	for i := 0; i < 40; i++ {
-		if !chromeRunning() {
-			return
-		}
-		time.Sleep(200 * time.Millisecond)
+// syncProfile clones your real Chrome profile into attachDir, minus caches and
+// lock files. Chrome must be quit first for a consistent copy.
+func syncProfile() error {
+	src := realChromeDir()
+	if _, err := os.Stat(src); err != nil {
+		return fmt.Errorf("chrome profile not found at %s", src)
 	}
-	exec.Command("pkill", "-f", chromeMainProc).Run()
-	time.Sleep(500 * time.Millisecond)
+	dst := attachDir()
+	// Absolute safety: never let the clone target be, contain, or sit inside the
+	// real profile — otherwise --delete could wipe real data.
+	if dst == src || strings.HasPrefix(dst+"/", src+"/") || strings.HasPrefix(src+"/", dst+"/") {
+		return fmt.Errorf("refusing unsafe clone paths (%s ↔ %s)", src, dst)
+	}
+	os.MkdirAll(dst, 0700)
+	// --no-links: don't copy symlinks (a preserved symlink could point back into
+	// the real profile and let the clone's Chrome write through it).
+	args := []string{"-a", "--no-links", "--delete",
+		"--exclude=*Cache*", "--exclude=Singleton*", "--exclude=Crashpad",
+		"--exclude=*/Service Worker/CacheStorage", "--exclude=component_crx_cache",
+		src + "/", dst + "/"}
+	return exec.Command("rsync", args...).Run()
 }
 
-// launchChromeDebug starts your real Chrome (default profile dir) with the debug
-// port, restoring the previous session. profile selects a specific profile dir
-// (e.g. "Default", "Profile 2") or "" for the last used.
+// launchChromeDebug starts a HEADLESS Chrome on the clone dir with the debug
+// port. Headless renders its own offscreen surface, so the screencast produces
+// frames no matter what the Mac's physical display is doing (asleep, locked,
+// lid shut) — a headed window only composites while visible, which is why the
+// live view went black before. It's also a separate process on a separate
+// user-data-dir, so your real, headed Chrome keeps running untouched.
 func launchChromeDebug(profile string) error {
 	bin := chromePath()
 	if bin == "" {
 		return fmt.Errorf("Google Chrome not found in /Applications")
 	}
 	args := []string{
+		"--headless=new",
 		"--remote-debugging-port=" + strconv.Itoa(chromeDebugPort),
 		"--remote-allow-origins=*",
-		"--restore-last-session",
+		"--user-data-dir=" + attachDir(),
+		"--no-first-run", "--no-default-browser-check",
+		// Do NOT let the clone's activity sync up to your Google account (which
+		// would flow back into your real profile). Keep it a local snapshot.
+		"--disable-sync",
 	}
 	if profile != "" {
 		args = append(args, "--profile-directory="+profile)
 	}
-	return exec.Command(bin, args...).Start() // no --user-data-dir → your real profiles
+	return exec.Command(bin, args...).Start()
+}
+
+// killChromeDebug stops the headless clone by its debug-port PID (safe: only the
+// clone listens on 9222 — your real Chrome doesn't). Used to switch profiles.
+func killChromeDebug() {
+	out, _ := exec.Command("lsof", "-ti", "tcp:"+strconv.Itoa(chromeDebugPort)).Output()
+	if pids := strings.Fields(string(out)); len(pids) > 0 {
+		exec.Command("kill", pids...).Run()
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 func chromePath() string {
@@ -97,23 +120,22 @@ func chromeDebugReady() bool {
 	return resp.StatusCode == 200
 }
 
-// ensureChrome makes the debug endpoint available on your real Chrome. If
-// Chrome is already running WITHOUT the debug port, it returns errNeedsRelaunch
-// unless allowRelaunch is set (then it quits+relaunches, restoring the session).
-func ensureChrome(allowRelaunch bool, profile string) error {
+// ensureChrome makes the debug endpoint available. Because the debug Chrome is
+// a SEPARATE headless process on a cloned user-data-dir, we never quit or touch
+// your real Chrome — we clone the profile (read-only source) and launch the
+// headless instance. If it's already up we just reuse it (no re-sync while it's
+// running, so we never rsync --delete over a live clone dir).
+func ensureChrome(profile string) error {
 	if chromeDebugReady() {
 		return nil
 	}
-	if chromeRunning() {
-		if !allowRelaunch {
-			return errNeedsRelaunch
-		}
-		quitChrome()
+	if err := syncProfile(); err != nil { // clone your profile (logins) into the debug dir
+		return err
 	}
 	if err := launchChromeDebug(profile); err != nil {
 		return err
 	}
-	for i := 0; i < 60; i++ {
+	for i := 0; i < 80; i++ {
 		if chromeDebugReady() {
 			return nil
 		}
@@ -163,28 +185,26 @@ func chromePageWS() (string, error) {
 	return "", fmt.Errorf("no page target available")
 }
 
-// handleBrowserStart reports whether the debug endpoint is ready, or that Chrome
-// must be relaunched to attach to your real profiles. It does NOT restart Chrome
-// on its own — that's the explicit /api/browser/relaunch step.
+// handleBrowserStart clones your profile (if needed) and launches the headless
+// debug Chrome, then reports ready. Optional ?profile=<dir> picks a profile.
+// Your real Chrome is never touched, so there's no relaunch prompt.
 func handleBrowserStart(w http.ResponseWriter, r *http.Request) {
-	err := ensureChrome(false, "")
+	err := ensureChrome(r.URL.Query().Get("profile"))
 	w.Header().Set("Content-Type", "application/json")
-	switch {
-	case err == nil:
-		json.NewEncoder(w).Encode(map[string]any{"ok": true})
-	case err == errNeedsRelaunch:
-		json.NewEncoder(w).Encode(map[string]any{"ok": false, "needsRelaunch": true})
-	default:
+	if err != nil {
 		w.WriteHeader(500)
 		json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error()})
+		return
 	}
+	json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
-// handleBrowserRelaunch quits your Chrome and relaunches it with the debug port
-// (session restored). Destructive-ish (closes current windows briefly), so the
-// UI confirms first. Optional ?profile=<dir> opens a specific profile.
+// handleBrowserRelaunch restarts the headless clone, optionally on a different
+// profile (?profile=<dir>) or with a fresh cookie snapshot. It kills only the
+// clone (by debug-port PID) and re-clones — your real Chrome is untouched.
 func handleBrowserRelaunch(w http.ResponseWriter, r *http.Request) {
-	err := ensureChrome(true, r.URL.Query().Get("profile"))
+	killChromeDebug()
+	err := ensureChrome(r.URL.Query().Get("profile"))
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		w.WriteHeader(500)
@@ -238,7 +258,7 @@ var keyEvents = map[string]struct {
 // handleBrowserWS bridges the phone and Chrome CDP: screencast frames out,
 // input in.
 func handleBrowserWS(w http.ResponseWriter, r *http.Request) {
-	if err := ensureChrome(false, ""); err != nil {
+	if err := ensureChrome(""); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
