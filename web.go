@@ -2,19 +2,20 @@ package main
 
 import (
 	"embed"
-	"io/fs"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"mime"
 	"net"
 	"net/http"
-	"path/filepath"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,7 +29,7 @@ import (
 var staticFiles embed.FS
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin:  func(r *http.Request) bool { return true },
+	CheckOrigin:     func(r *http.Request) bool { return true },
 	ReadBufferSize:  4096,
 	WriteBufferSize: 16384,
 }
@@ -45,15 +46,49 @@ var everWorked = map[string]bool{}
 var publicMode bool
 
 func runWeb(port int) {
-	panes, err := findClaudePanes()
-	if err != nil {
-		fatal("detection failed: %v", err)
+	// Claim the port before anything else. Everything below this point attaches
+	// to tmux, and a duplicate that does that work only to discover the port is
+	// taken leaves its control-mode client behind on the way out.
+	if port == 0 {
+		port = 7685
 	}
-	if len(panes) == 0 {
-		fatal("no Claude Code or Codex panes found")
+	host := "127.0.0.1"
+	if publicMode {
+		host = "0.0.0.0"
+	}
+	addr := fmt.Sprintf("%s:%d", host, port)
+
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		// Never fall back to a random port. A second server that "starts fine"
+		// on :61234 is invisible: nothing points at it, but it still attaches
+		// its own tmux control-mode client and competes with the real one for
+		// the same event stream. Refusing to start is the only safe answer.
+		if who := probeExisting(port); who != "" {
+			fatal("port %d is already serving claude-wall (%s)\n"+
+				"  Use `claude-wall restart` instead of starting another one.", port, who)
+		}
+		fatal("cannot listen on %s: %v", addr, err)
 	}
 
-	fmt.Printf("▸ Found %d agent instance(s)\n", len(panes))
+	// Record the owner of the port. Written here rather than only by
+	// `claude-wall start`, because the macOS app spawns the server directly —
+	// without this, the CLI thinks nothing is running and starts a second one.
+	os.WriteFile(pidFile(), []byte(strconv.Itoa(os.Getpid())), 0644)
+	defer os.Remove(pidFile())
+
+	panes, err := findClaudePanes()
+	if err != nil {
+		log.Printf("[web] pane detection failed: %v", err)
+	}
+	// Exiting on an empty tmux used to look reasonable, but the macOS app
+	// respawns the server whenever it dies — so "no panes yet" turned into a
+	// respawn loop. Panes come and go; the server outlives them.
+	if len(panes) == 0 {
+		fmt.Println("▸ No agent panes yet — watching for them")
+	} else {
+		fmt.Printf("▸ Found %d agent instance(s)\n", len(panes))
+	}
 
 	// Register pane directories for hook matching
 	for _, p := range panes {
@@ -142,6 +177,7 @@ func runWeb(port int) {
 			Target    string `json:"target"`
 			DirName   string `json:"dirName"`
 			Status    string `json:"status"`
+			Activity  string `json:"activity,omitempty"`  // e.g. "Compacting… 1m 12s" (working panes only)
 			StoppedAt int64  `json:"stoppedAt,omitempty"` // unix secs an agent that had worked went idle
 		}
 		out := struct {
@@ -152,10 +188,16 @@ func runWeb(port int) {
 			Panes   []paneStatus `json:"panes"`
 		}{Panes: []paneStatus{}}
 		var snap map[string]string
+		var actSnap map[string]string
 		if hub != nil {
 			snap = hub.statusSnapshot()
+			actSnap = hub.activitySnapshot()
 		}
 		statuses := make(map[string]string, len(panes))
+		activities := make(map[string]string, len(panes))
+		for t, a := range actSnap {
+			activities[t] = a
+		}
 		var missing []string
 		for _, p := range panes {
 			status := ""
@@ -165,6 +207,9 @@ func runWeb(port int) {
 			if status == "" && hooks != nil {
 				if hs := hooks.getStateForPane(p.Target, p.Dir); hs != nil && hs.Status != "" {
 					status = hs.Status
+					if activities[p.Target] == "" && hs.Activity != "" {
+						activities[p.Target] = hs.Activity // tool label; spinner label added below
+					}
 				}
 			}
 			statuses[p.Target] = status
@@ -176,8 +221,28 @@ func runWeb(port int) {
 		if len(missing) > 0 {
 			caps := batchCapture(missing)
 			for _, t := range missing {
-				if s, _ := parseTerminalStatus(caps[t]); s != "" {
+				if s, a := parseTerminalStatus(caps[t]); s != "" {
 					statuses[t] = s
+					if a != "" {
+						activities[t] = a
+					}
+				}
+			}
+		}
+		// Fill the live spinner label ("Compacting… 1m 12s") for working panes we
+		// only know via hooks (not live-captured) — one batch capture parses the
+		// gerund + elapsed the hook activity lacks.
+		var needAct []string
+		for t, s := range statuses {
+			if s == "working" && activities[t] == "" {
+				needAct = append(needAct, t)
+			}
+		}
+		if len(needAct) > 0 {
+			caps := batchCapture(needAct)
+			for _, t := range needAct {
+				if _, a := parseTerminalStatus(caps[t]); a != "" {
+					activities[t] = a
 				}
 			}
 		}
@@ -233,7 +298,11 @@ func runWeb(port int) {
 					stoppedAt = s.Unix()
 				}
 			}
-			out.Panes = append(out.Panes, paneStatus{Target: p.Target, DirName: p.DirName, Status: status, StoppedAt: stoppedAt})
+			activity := ""
+			if status == "working" {
+				activity = activities[p.Target]
+			}
+			out.Panes = append(out.Panes, paneStatus{Target: p.Target, DirName: p.DirName, Status: status, Activity: activity, StoppedAt: stoppedAt})
 		}
 		// prune trackers for panes that no longer exist
 		for t := range idleSince {
@@ -562,13 +631,28 @@ func runWeb(port int) {
 	http.HandleFunc("/api/usage", handleUsage)
 	http.HandleFunc("/api/limits", handleLimits)
 
-	// Health check
+	// Health check.
+	//
+	// 200 answers exactly one question: is a claude-wall server alive on this
+	// port. It deliberately does NOT depend on tmux. The macOS app spawns a
+	// bundled server whenever this probe fails, so returning 503 during a tmux
+	// restart made it start a second server against a port it could not have —
+	// which is how duplicate instances appeared. tmux state is reported as a
+	// field for anyone who actually needs it.
 	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
-		if err := exec.Command("tmux", "info").Run(); err != nil {
-			http.Error(w, "tmux not running", 503)
-			return
+		tmuxUp := exec.Command("tmux", "info").Run() == nil
+		ctl := false
+		if hub != nil {
+			ctl = hub.control() != nil
 		}
-		w.Write([]byte("ok"))
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"ok":          true,
+			"service":     "claude-wall",
+			"pid":         os.Getpid(),
+			"tmux":        tmuxUp,
+			"controlMode": ctl,
+		})
 	})
 
 	// WebSocket: stream pane content + accept input
@@ -598,31 +682,13 @@ func runWeb(port int) {
 	http.HandleFunc("/api/projects", handleProjects)
 	http.HandleFunc("/api/launch", handleLaunch)
 
+	// Restart an agent resuming its last session (GET = default account, POST = do it)
+	http.HandleFunc("/api/restart-agent/", handleRestartAgent)
+
 	// Serve static files (strip "static/" prefix from embedded FS)
 	mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	sub, _ := fs.Sub(staticFiles, "static")
 	http.Handle("/", http.FileServer(http.FS(sub)))
-
-	// Find port
-	if port == 0 {
-		port = 7685
-	}
-	host := "127.0.0.1"
-	if publicMode {
-		host = "0.0.0.0"
-	}
-	addr := fmt.Sprintf("%s:%d", host, port)
-
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		ln, err = net.Listen("tcp", fmt.Sprintf("%s:0", host))
-		if err != nil {
-			fatal("cannot listen: %v", err)
-		}
-		addr = ln.Addr().String()
-	}
-
-	fmt.Printf("▸ Dashboard at http://%s\n", addr)
 
 	// Background watcher for PWA push notifications (uses the real bound port)
 	if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
@@ -635,12 +701,21 @@ func runWeb(port int) {
 		fmt.Println("▸ Auth enabled (--token)")
 		handler = authMiddleware(http.DefaultServeMux)
 	}
+	fmt.Printf("▸ Dashboard at http://%s\n", addr)
+
 	srv := &http.Server{Handler: handler}
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 		<-sigCh
 		fmt.Println("\n▸ Shutting down...")
+		// Detach the tmux control client before dropping the socket. Skipping
+		// this orphans a `tmux -C attach` that stays registered on the tmux
+		// server, and they pile up across restarts.
+		if hub != nil {
+			hub.shutdown()
+		}
+		os.Remove(pidFile())
 		srv.Close()
 	}()
 
@@ -671,9 +746,9 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 	done := make(chan struct{})
 
 	// Track whether client has this tile focused (zoomed/active)
-	var historyEnabled int32  // atomic: 0 = off, 1 = on
-	var contentChanged int32  // atomic: set to 1 when live content updates arrive
-	var historyRequest int32  // atomic: set to 1 for immediate one-time catchup
+	var historyEnabled int32 // atomic: 0 = off, 1 = on
+	var contentChanged int32 // atomic: set to 1 when live content updates arrive
+	var historyRequest int32 // atomic: set to 1 for immediate one-time catchup
 
 	// Reader: browser input → tmux send-keys
 	go func() {
@@ -961,3 +1036,21 @@ func resolveTmuxPane(paneID string) string {
 	return ""
 }
 
+// probeExisting reports who is already holding the port, so a failed bind can
+// say "claude-wall is already running" instead of "address in use".
+func probeExisting(port int) string {
+	c := &http.Client{Timeout: 1500 * time.Millisecond}
+	resp, err := c.Get(fmt.Sprintf("http://127.0.0.1:%d/api/health", port))
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var h struct {
+		Service string `json:"service"`
+		PID     int    `json:"pid"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&h) != nil || h.Service != "claude-wall" {
+		return ""
+	}
+	return fmt.Sprintf("PID %d", h.PID)
+}

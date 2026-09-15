@@ -157,15 +157,16 @@ type claudePane struct {
 	Dir     string `json:"dir"`     // full path
 	DirName string `json:"dirName"` // basename
 	Branch  string `json:"branch"`
-	Agent   string `json:"agent"`          // "claude" | "codex"
-	Cols    string `json:"cols,omitempty"` // pane width
-	Rows    string `json:"rows,omitempty"` // pane height
+	Agent   string `json:"agent"`             // "claude" | "codex"
+	Profile string `json:"profile,omitempty"` // claude account: "" personal, "work", …
+	Cols    string `json:"cols,omitempty"`    // pane width
+	Rows    string `json:"rows,omitempty"`    // pane height
 }
 
 func findClaudePanes() ([]claudePane, error) {
 	out, err := tmuxOutput(
 		"list-panes", "-a", "-F",
-		"#{session_name}:#{window_index}.#{pane_index}\t#{session_name}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}",
+		"#{session_name}:#{window_index}.#{pane_index}\t#{session_name}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{pane_tty}",
 	)
 	if err != nil {
 		return nil, err
@@ -178,11 +179,11 @@ func findClaudePanes() ([]claudePane, error) {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\t", 5)
-		if len(parts) < 5 {
+		parts := strings.SplitN(line, "\t", 6)
+		if len(parts) < 6 {
 			continue
 		}
-		target, session, dir, cmd, title := parts[0], parts[1], parts[2], parts[3], parts[4]
+		target, session, dir, cmd, title, tty := parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
 
 		// Title check only if command is NOT a regular shell (stale titles persist after exit)
 		shells := map[string]bool{"zsh": true, "bash": true, "sh": true, "fish": true}
@@ -216,6 +217,11 @@ func findClaudePanes() ([]claudePane, error) {
 		branch := gitBranch(dir)
 		dirName := baseName(dir)
 
+		profile := ""
+		if agent == "claude" {
+			profile = paneProfile(tty) // "" personal, "work", …
+		}
+
 		panes = append(panes, claudePane{
 			Target:  target,
 			SessWin: sessWin,
@@ -224,6 +230,7 @@ func findClaudePanes() ([]claudePane, error) {
 			DirName: dirName,
 			Branch:  branch,
 			Agent:   agent,
+			Profile: profile,
 		})
 	}
 	return panes, nil
