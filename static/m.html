@@ -181,7 +181,10 @@
   .status-word { display:flex; align-items:center; gap:8px; font-size:11px; font-weight:700; width:100%;
     border-top:1px solid var(--line); padding-top:7px; }
   .status-word .dot { margin:0; }
-  .sw-text { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sw-text { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:0 1 auto; min-width:0; }
+  .pbar { flex:1 1 auto; height:5px; min-width:36px; max-width:170px; border-radius:3px; background:var(--card2); overflow:hidden; }
+  .pbar-fill { display:block; height:100%; background:var(--working); border-radius:3px; transition:width .3s ease; }
+  .pct { flex:0 0 auto; font-size:10px; font-weight:700; color:var(--muted); }
   .sw-working{color:var(--working)} .sw-permission{color:var(--perm)} .sw-stale{color:var(--stale)} .sw-idle{color:var(--muted)}
 </style>
 </head>
@@ -393,6 +396,16 @@
       const paneBadge = p.pane ? `<span class="pane">${esc(p.pane)}</span>` : '';
       const profChip = (p.agent !== 'codex' && p.profile) ? `<span class="prof">${esc(p.profile)}</span>` : '';
       const agentLabel = p.agent === 'codex' ? 'codex' : (p.profile ? 'claude · ' + p.profile : 'claude');
+      // status text; if the activity carries a trailing % (compaction), split off
+      // a visual progress bar
+      let stText = (st === 'working' && p.activity) ? esc(p.activity) : (WORD[st] || st);
+      let stBar = '';
+      const pm = (st === 'working' && p.activity) ? p.activity.match(/^(.*?)\s*(\d{1,3})%\s*$/) : null;
+      if (pm) {
+        stText = esc(pm[1]);
+        const w = Math.max(0, Math.min(100, +pm[2]));
+        stBar = `<span class="pbar"><span class="pbar-fill" style="width:${w}%"></span></span><span class="pct">${pm[2]}%</span>`;
+      }
       return `<a class="row" href="/pip.html?m=1&target=${encodeURIComponent(p.target)}">
         <div class="rowtop">
           <button class="star ${favs.has(p.target) ? 'on' : ''}" data-t="${esc(p.target)}" title="Favorite" aria-label="Favorite">${ICON.star}</button>
@@ -403,7 +416,7 @@
           ${profChip}
           <span class="agent" title="${esc(agentLabel)}">${p.agent === 'codex' ? ICON.codex : ICON.claude}</span>
         </div>
-        <div class="status-word sw-${st}"><span class="dot ${st}"></span><span class="sw-text">${st === 'working' && p.activity ? esc(p.activity) : (WORD[st] || st)}</span></div>
+        <div class="status-word sw-${st}"><span class="dot ${st}"></span><span class="sw-text">${stText}</span>${stBar}</div>
       </a>`;
     }).join('');
   }

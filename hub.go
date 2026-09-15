@@ -372,6 +372,11 @@ func (h *captureHub) resolveStatus(target, content string) (string, string, stri
 var spinnerRe = regexp.MustCompile(
 	`^[^\s\p{L}\p{N}\x{23fa}\x{23bf}\x{2500}-\x{257f}]\s+(\p{Lu}[\p{L}]+(?:\s+[\p{L}]+){0,2})\x{2026}\s*\(([^)]+)\)`)
 
+// progressRe matches the progress-bar line Claude renders under some spinners
+// (compaction shows "▰▰▰▱▱▱ 47%"). The bar glyphs (▰ U+25B0 / ▱ U+25B1) anchor
+// it so a bare "47%" in prose doesn't match. Group 1 = the percentage.
+var progressRe = regexp.MustCompile(`[\x{25b0}\x{25b1}][\x{25b0}\x{25b1}\s]*(\d{1,3})%`)
+
 // spinnerActivity builds a short card label from the spinner verb + the leading
 // part of the parenthetical (the elapsed timer, before the first " · ").
 // e.g. verb="Compacting", paren="1m 12s · ↓ 3.1k tokens" → "Compacting… 1m 12s".
@@ -390,6 +395,7 @@ func spinnerActivity(verb, paren string) string {
 
 func parseTerminalStatus(content string) (string, string) {
 	lines := strings.Split(content, "\n")
+	pct := "" // progress-bar % seen below the spinner (compaction), if any
 	checked := 0
 	for i := len(lines) - 1; i >= 0 && checked < 15; i-- {
 		plain := ansiRegex.ReplaceAllString(lines[i], "")
@@ -403,9 +409,20 @@ func parseTerminalStatus(content string) (string, string) {
 			continue
 		}
 		checked++
+		// Progress bar under the spinner (compaction). Scanned first going up,
+		// so pct is set by the time we reach the spinner line above it.
+		if m := progressRe.FindStringSubmatch(plain); m != nil {
+			pct = m[1] + "%"
+			continue
+		}
 		// Working spinner: "<glyph> <Gerund>\u2026 (<elapsed> \u00b7 \u2193 <tokens>[\u00b7 effort])".
 		// Claude cycles glyphs (\u00b7\u2722\u2733\u2736\u273b\u273d \u2026), so match the line STRUCTURE.
 		if m := spinnerRe.FindStringSubmatch(plain); m != nil {
+			// A progress bar (compaction) means the % is the real progress \u2014
+			// show it instead of the elapsed timer.
+			if pct != "" {
+				return "working", m[1] + "\u2026 " + pct
+			}
 			return "working", spinnerActivity(m[1], m[2])
 		}
 		// Tool actively running (e.g. "Bash Running\u2026")
