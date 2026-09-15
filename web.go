@@ -709,6 +709,24 @@ func runWeb(port int) {
 	// Serve static files (strip "static/" prefix from embedded FS)
 	mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	sub, _ := fs.Sub(staticFiles, "static")
+
+	// Fresh-path aliases served no-store: a phone that cached the old .html
+	// under cacheable headers won't revalidate it, but it has never cached these
+	// paths, so they always load the current page. Linked from the header.
+	noStorePage := func(name string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			b, err := fs.ReadFile(sub, name)
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			w.Write(b)
+		}
+	}
+	http.HandleFunc("/browser", noStorePage("browser.html"))
+	http.HandleFunc("/ports", noStorePage("ports.html"))
 	fileSrv := http.FileServer(http.FS(sub))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// SPA asset fallback: a page opened via /proxy/<port>/ requests its

@@ -2,6 +2,16 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
+// Network-first for page navigations so a deploy is picked up on next open
+// instead of iOS serving a stale cached page (this dashboard is always online
+// over Tailscale, so there's no offline case to cache for).
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.mode === 'navigate') {
+    event.respondWith(fetch(req).catch(() => new Response('offline', { status: 503 })));
+  }
+});
+
 self.addEventListener('push', (event) => {
   let d = {};
   try { d = event.data ? event.data.json() : {}; } catch (_) {}
