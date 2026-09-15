@@ -720,6 +720,12 @@ func runWeb(port int) {
 				return
 			}
 		}
+		// HTML and the service worker have no modtime/ETag (embed.FS), so iOS
+		// caches them and the PWA keeps serving stale pages after a deploy. Force
+		// revalidation so a reopen always gets the current version.
+		if p := r.URL.Path; p == "/" || strings.HasSuffix(p, ".html") || strings.HasSuffix(p, "sw.js") {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		fileSrv.ServeHTTP(w, r)
 	})
 
