@@ -317,9 +317,14 @@
     flushKbd();
   });
 
-  document.addEventListener('paste', (e) => {
+  document.addEventListener('paste', async (e) => {
+    const dt = e.clipboardData || window.clipboardData;
+    if (!dt) return;
     e.preventDefault();
-    send((e.clipboardData || window.clipboardData).getData('text'));
+    let files = [...(dt.files || [])];
+    if (!files.length) files = [...(dt.items || [])].filter((i) => i.kind === 'file').map((i) => i.getAsFile()).filter(Boolean);
+    if (files.length) { await sendFiles(files); return; }
+    send(dt.getData('text'));
   });
 
   // key toolbar
@@ -332,10 +337,8 @@
     if (k === 'bottom') { jumpBottom(); kbd.focus({ preventScroll: true }); return; } // jump to latest
     if (k === 'restart') { openRestart(); return; }   // confirm modal picks the account
     if (k === 'attach') { fileInput.click(); return; } // pick photo/file → upload → type its path
-    if (k === 'paste') {                          // paste clipboard into the pane
-      if (navigator.clipboard && navigator.clipboard.readText) {
-        navigator.clipboard.readText().then((t) => { if (t) send(t); }).catch(() => {});
-      }
+    if (k === 'paste') {                          // paste image/file (upload) or text
+      pasteClipboard();
       kbd.focus({ preventScroll: true }); return;
     }
     send(KEYSEQ[k]);
@@ -369,31 +372,69 @@
     }).catch(() => {});
   };
 
-  // ── attach photo / file ────────────────────────────────────────────────────
-  // Upload the picked files to the server, then type their saved paths into the
-  // pane so Claude can read them (it reads images and files by absolute path).
+  // ── attach / paste photo / file ─────────────────────────────────────────────
+  // Upload picked or pasted files to the server, then type their saved paths
+  // into the pane so Claude can read them (it reads images and files by path).
   const fileInput = document.getElementById('fileInput');
   const kattach = document.getElementById('kattach');
-  fileInput.addEventListener('change', async () => {
-    const files = [...fileInput.files];
-    fileInput.value = '';
-    if (!files.length) return;
-    const label = kattach.textContent;
-    kattach.textContent = '…'; kattach.disabled = true;
+  let attachLabel = '📎';
+  const setAttachBusy = (b) => { kattach.textContent = b ? '…' : attachLabel; kattach.disabled = b; };
+
+  async function uploadFiles(files) {
     const paths = [];
     for (const f of files) {
       try {
+        const ext = (f.type && f.type.includes('/')) ? '.' + f.type.split('/')[1] : '';
         const fd = new FormData();
-        fd.append('file', f, f.name || 'upload');
+        fd.append('file', f, f.name || ('paste-' + Date.now() + ext));
         const r = await fetch('/api/upload', { method: 'POST', body: fd });
         const j = await r.json();
         if (j && j.path) paths.push(j.path);
       } catch (_) {}
     }
-    kattach.textContent = label; kattach.disabled = false;
+    return paths;
+  }
+
+  async function sendFiles(files) {
+    if (!files.length) return false;
+    setAttachBusy(true);
+    const paths = await uploadFiles(files);
+    setAttachBusy(false);
     if (paths.length) send(paths.join(' ') + ' ');
+    return paths.length > 0;
+  }
+
+  fileInput.addEventListener('change', async () => {
+    const files = [...fileInput.files];
+    fileInput.value = '';
+    await sendFiles(files);
     kbd.focus({ preventScroll: true });
   });
+
+  // Paste: prefer image/file on the clipboard (upload it), else fall back to text.
+  async function pasteClipboard() {
+    if (navigator.clipboard && navigator.clipboard.read) {
+      try {
+        const items = await navigator.clipboard.read();
+        const blobs = [];
+        let text = '';
+        for (const it of items) {
+          const imgType = it.types.find((t) => t.startsWith('image/'));
+          if (imgType) {
+            const b = await it.getType(imgType);
+            blobs.push(new File([b], 'paste.' + (imgType.split('/')[1] || 'png'), { type: imgType }));
+          } else if (it.types.includes('text/plain')) {
+            text += await (await it.getType('text/plain')).text();
+          }
+        }
+        if (blobs.length) { await sendFiles(blobs); return; }
+        if (text) { send(text); return; }
+      } catch (_) { /* fall through to text */ }
+    }
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      try { const t = await navigator.clipboard.readText(); if (t) send(t); } catch (_) {}
+    }
+  }
 
   // focus: desktop keeps body focused; mobile focuses the hidden field to raise
   // the keyboard. preventScroll stops the browser jumping to the 1px field.
