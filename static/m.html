@@ -40,8 +40,7 @@
   .cwork { color:var(--working); } .cperm { color:var(--perm); } .cstale { color:var(--stale); } .cidle { color:var(--muted); }
   /* system stats (cpu/ram/disk/gpu) on the counts line */
   .sys-sep { width:1px; height:15px; background:var(--line); margin:0 2px; }
-  .counts .sys { color:var(--dim); font-weight:600; gap:3px; }
-  .counts .sys i { font-style:normal; font-size:9.5px; letter-spacing:.4px; opacity:.75; }
+  .counts .sys { color:var(--dim); font-weight:600; }
   #usage, #notify, #launch, #ports, #browser { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
     display:inline-flex; border-radius:8px; }
   #usage:active, #notify:active, #launch:active, #ports:active, #browser:active { background:var(--card); }
@@ -233,10 +232,14 @@
       <span class="c cidle" title="Idle">
         <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span id="cIdle">0</span></span>
       <span class="sys-sep"></span>
-      <span class="c sys" title="CPU busy"><i>CPU</i><span id="sCpu">–</span></span>
-      <span class="c sys" title="Memory used"><i>RAM</i><span id="sMem">–</span></span>
-      <span class="c sys" title="Disk used"><i>SSD</i><span id="sDisk">–</span></span>
-      <span class="c sys" id="sGpuC" title="GPU utilization"><i>GPU</i><span id="sGpu">–</span></span>
+      <span class="c sys" title="CPU busy">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg><span id="sCpu">–</span></span>
+      <span class="c sys" title="Memory used">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="10" rx="1"/><path d="M7 17v2M11 17v2M15 17v2M19 17v2"/><path d="M6.5 11h.01M9.5 11h.01M12.5 11h.01"/></svg><span id="sMem">–</span></span>
+      <span class="c sys" title="Disk used">
+        <svg class="ic" viewBox="0 0 24 24"><line x1="22" x2="2" y1="12" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" x2="6.01" y1="16" y2="16"/><line x1="10" x2="10.01" y1="16" y2="16"/></svg><span id="sDisk">–</span></span>
+      <span class="c sys" id="sGpuC" title="GPU utilization">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="11" rx="2"/><circle cx="8" cy="12.5" r="2.2"/><circle cx="15" cy="12.5" r="2.2"/><path d="M5 18v2M9 18v2"/></svg><span id="sGpu">–</span></span>
     </div>
     <div class="chips" id="chips">
       <div class="chip on" data-f="all">All</div>
