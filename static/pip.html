@@ -96,6 +96,9 @@
     display:inline-flex; align-items:center; gap:4px; cursor:pointer; }
   .ptab i { font-style:normal; opacity:.5; font-size:10px; }
   .ptab.on { background:#6ea1f7; color:#0d1017; border-color:#6ea1f7; }
+  .pspace { flex:1 1 auto; }
+  .ptab.pctl { color:var(--fg); font-weight:700; min-width:34px; justify-content:center; }
+  .ptab.pkill.armed { background:#e5484d; border-color:#e5484d; color:#fff; }
 </style>
 </head>
 <body tabindex="0">
@@ -233,16 +236,52 @@
   // for running commands, the editor pane shows nvim, etc.
   const panebar = document.getElementById('panebar');
   function markTabs() { panebar.querySelectorAll('.ptab').forEach((b) => b.classList.toggle('on', b.dataset.t === target)); }
+  let killArmed = false, killTimer = null;
   async function loadPanes() {
     try {
       const list = await (await fetch('/api/panes/' + encodeURIComponent(target))).json();
-      if (!Array.isArray(list) || list.length <= 1) { panebar.hidden = true; return; }
-      panebar.hidden = false;
-      panebar.innerHTML = list.map((p) =>
+      const panes = Array.isArray(list) ? list : [];
+      // Always show the bar (so the +/✕ controls are reachable), even with one pane.
+      panebar.hidden = panes.length === 0;
+      const tabs = panes.map((p) =>
         `<button class="ptab" data-t="${p.target}">${(p.label || '').replace(/[<>&"]/g, '')}<i>.${p.target.split('.').pop()}</i></button>`).join('');
-      panebar.querySelectorAll('.ptab').forEach((b) => b.onclick = () => switchTo(b.dataset.t));
+      const canKill = panes.length > 1; // never kill the last pane (would close the window)
+      panebar.innerHTML = tabs +
+        '<span class="pspace"></span>' +
+        '<button class="ptab pctl" id="paneAdd" title="New pane">＋</button>' +
+        (canKill ? '<button class="ptab pctl pkill" id="paneKill" title="Remove current pane">✕</button>' : '');
+      panebar.querySelectorAll('.ptab:not(.pctl)').forEach((b) => b.onclick = () => switchTo(b.dataset.t));
+      const add = document.getElementById('paneAdd'); if (add) add.onclick = newPane;
+      const kill = document.getElementById('paneKill'); if (kill) kill.onclick = armKill;
+      killArmed = false;
       markTabs();
     } catch (_) {}
+  }
+  async function newPane() {
+    try {
+      const j = await (await fetch('/api/pane/new?target=' + encodeURIComponent(target), { method: 'POST' })).json();
+      await loadPanes();
+      if (j && j.target) switchTo(j.target);
+    } catch (_) {}
+  }
+  function armKill() {
+    const btn = document.getElementById('paneKill'); if (!btn) return;
+    if (!killArmed) { // first tap arms; second within 3s confirms
+      killArmed = true; btn.textContent = 'kill?'; btn.classList.add('armed');
+      clearTimeout(killTimer);
+      killTimer = setTimeout(() => { killArmed = false; btn.textContent = '✕'; btn.classList.remove('armed'); }, 3000);
+      return;
+    }
+    clearTimeout(killTimer); killArmed = false;
+    removePane(target);
+  }
+  async function removePane(t) {
+    try { await fetch('/api/pane/kill?target=' + encodeURIComponent(t), { method: 'POST' }); } catch (_) {}
+    let list = [];
+    try { list = await (await fetch('/api/panes/' + encodeURIComponent(t))).json(); } catch (_) {}
+    const remain = (Array.isArray(list) ? list : []).filter((p) => p.target !== t);
+    if (remain.length) switchTo((remain.find((p) => p.active) || remain[0]).target);
+    else { panebar.hidden = true; const bk = document.getElementById('back'); if (bk) bk.click(); }
   }
   function switchTo(t) {
     if (!t || t === target) return;

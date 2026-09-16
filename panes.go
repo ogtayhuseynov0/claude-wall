@@ -55,6 +55,60 @@ func handlePanes(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(list)
 }
 
+// handlePaneNew splits the given pane's window to create a new shell pane
+// (inheriting the source pane's cwd) and returns its target so the phone can
+// switch to it.
+func handlePaneNew(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	target := r.URL.Query().Get("target")
+	if target == "" {
+		http.Error(w, "missing target", http.StatusBadRequest)
+		return
+	}
+	win := target
+	if i := strings.LastIndex(target, "."); i >= 0 {
+		win = target[:i]
+	}
+	args := []string{"split-window", "-t", win, "-P", "-F", "#{session_name}:#{window_index}.#{pane_index}"}
+	if dir, err := tmuxOutput("display-message", "-p", "-t", target, "#{pane_current_path}"); err == nil {
+		if d := strings.TrimSpace(dir); d != "" {
+			args = append(args, "-c", d)
+		}
+	}
+	out, err := tmuxOutput(args...)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Re-tile so the new pane isn't a sliver (harmless on the phone, tidy on the Mac).
+	tmuxExec("select-layout", "-t", win, "tiled")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"target": strings.TrimSpace(out)})
+}
+
+// handlePaneKill removes a pane. Destructive (killing an agent pane stops that
+// agent), so the UI arms it with a two-tap confirm before calling this.
+func handlePaneKill(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	target := r.URL.Query().Get("target")
+	if target == "" {
+		http.Error(w, "missing target", http.StatusBadRequest)
+		return
+	}
+	if err := tmuxExec("kill-pane", "-t", target); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"ok": true})
+}
+
 // paneLabel gives a short, friendly name for a pane from its command/title.
 func paneLabel(cmd, title string) string {
 	shells := map[string]bool{"zsh": true, "bash": true, "sh": true, "fish": true}
