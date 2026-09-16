@@ -99,6 +99,49 @@ func killChromeDebug() {
 	}
 }
 
+// Viewer tracking: the headless clone is launched on first connect and kept
+// running only while at least one phone is watching. browserIdleGrace after the
+// last viewer disconnects it's quit, so it never idles in the background (a
+// reconnect within the grace window reuses the still-running Chrome; after that
+// the next open relaunches it in a few seconds).
+const browserIdleGrace = 2 * time.Minute
+
+var (
+	browserMu        sync.Mutex
+	browserViewers   int
+	browserIdleTimer *time.Timer
+)
+
+func browserViewerJoin() {
+	browserMu.Lock()
+	defer browserMu.Unlock()
+	browserViewers++
+	if browserIdleTimer != nil {
+		browserIdleTimer.Stop()
+		browserIdleTimer = nil
+	}
+}
+
+func browserViewerLeave() {
+	browserMu.Lock()
+	defer browserMu.Unlock()
+	browserViewers--
+	if browserViewers <= 0 {
+		browserViewers = 0
+		if browserIdleTimer != nil {
+			browserIdleTimer.Stop()
+		}
+		browserIdleTimer = time.AfterFunc(browserIdleGrace, func() {
+			browserMu.Lock()
+			idle := browserViewers == 0
+			browserMu.Unlock()
+			if idle {
+				killChromeDebug()
+			}
+		})
+	}
+}
+
 func chromePath() string {
 	for _, c := range []string{
 		"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -274,6 +317,11 @@ func handleBrowserWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer phone.Close()
+
+	// Track viewers: idle Chrome is quit shortly after the last one leaves, so
+	// nothing runs in the background when you're not watching.
+	browserViewerJoin()
+	defer browserViewerLeave()
 
 	chrome, _, err := websocket.DefaultDialer.Dial(pageWS, nil)
 	if err != nil {
