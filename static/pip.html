@@ -280,8 +280,12 @@
     let list = [];
     try { list = await (await fetch('/api/panes/' + encodeURIComponent(t))).json(); } catch (_) {}
     const remain = (Array.isArray(list) ? list : []).filter((p) => p.target !== t);
-    if (remain.length) switchTo((remain.find((p) => p.active) || remain[0]).target);
-    else { panebar.hidden = true; const bk = document.getElementById('back'); if (bk) bk.click(); }
+    if (remain.length) {
+      // Prefer the agent pane (claude, then codex), else the active/first one.
+      const pick = remain.find((p) => p.label === 'claude') || remain.find((p) => p.label === 'codex')
+        || remain.find((p) => p.active) || remain[0];
+      switchTo(pick.target);
+    } else { panebar.hidden = true; const bk = document.getElementById('back'); if (bk) bk.click(); }
   }
   function switchTo(t) {
     if (!t || t === target) return;
