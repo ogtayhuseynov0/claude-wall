@@ -32,13 +32,16 @@
   .logo { width:28px; height:28px; border-radius:8px; flex:0 0 auto; display:block; }
   h1 { font-size:16px; font-weight:700; margin:0; letter-spacing:-.2px; white-space:nowrap; flex:0 0 auto; }
   .top .search { flex:1; min-width:0; margin-top:0; }
-  .btnrow { display:flex; align-items:center; gap:8px; margin-top:10px; }
-  .btnrow #launch { margin-left:auto; }
-  .counts { display:flex; gap:12px; font-size:13px; font-weight:700;
-    font-variant-numeric:tabular-nums; align-items:center; }
+  .btnrow { display:flex; align-items:center; gap:8px; margin-top:10px; justify-content:flex-end; }
+  .counts { display:flex; gap:12px; font-size:13px; font-weight:700; margin-top:9px;
+    font-variant-numeric:tabular-nums; align-items:center; flex-wrap:wrap; row-gap:6px; }
   .counts .c { display:inline-flex; align-items:center; gap:4px; }
   .counts svg { width:15px; height:15px; }
   .cwork { color:var(--working); } .cperm { color:var(--perm); } .cstale { color:var(--stale); } .cidle { color:var(--muted); }
+  /* system stats (cpu/ram/disk/gpu) on the counts line */
+  .sys-sep { width:1px; height:15px; background:var(--line); margin:0 2px; }
+  .counts .sys { color:var(--dim); font-weight:600; gap:3px; }
+  .counts .sys i { font-style:normal; font-size:9.5px; letter-spacing:.4px; opacity:.75; }
   #usage, #notify, #launch, #ports, #browser { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
     display:inline-flex; border-radius:8px; }
   #usage:active, #notify:active, #launch:active, #ports:active, #browser:active { background:var(--card); }
@@ -203,16 +206,6 @@
       </div>
     </div>
     <div class="btnrow">
-      <div class="counts">
-        <span class="c cwork" title="Working">
-          <svg class="ic" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span id="cWork">0</span></span>
-        <span class="c cperm" title="Waiting for you">
-          <svg class="ic" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span id="cPerm">0</span></span>
-        <span class="c cstale" title="Idle 30m+">
-          <svg class="ic" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg><span id="cStale">0</span></span>
-        <span class="c cidle" title="Idle">
-          <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span id="cIdle">0</span></span>
-      </div>
       <button id="launch" title="New session">
         <svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
       </button>
@@ -229,6 +222,21 @@
       <button id="usage" title="Usage">
         <svg class="ic" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>
       </button>
+    </div>
+    <div class="counts">
+      <span class="c cwork" title="Working">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg><span id="cWork">0</span></span>
+      <span class="c cperm" title="Waiting for you">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span id="cPerm">0</span></span>
+      <span class="c cstale" title="Idle 30m+">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg><span id="cStale">0</span></span>
+      <span class="c cidle" title="Idle">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span id="cIdle">0</span></span>
+      <span class="sys-sep"></span>
+      <span class="c sys" title="CPU busy"><i>CPU</i><span id="sCpu">–</span></span>
+      <span class="c sys" title="Memory used"><i>RAM</i><span id="sMem">–</span></span>
+      <span class="c sys" title="Disk used"><i>SSD</i><span id="sDisk">–</span></span>
+      <span class="c sys" id="sGpuC" title="GPU utilization"><i>GPU</i><span id="sGpu">–</span></span>
     </div>
     <div class="chips" id="chips">
       <div class="chip on" data-f="all">All</div>
@@ -660,10 +668,22 @@
   [usageSheet, notifSheet, launchSheet].forEach(sh => sh.addEventListener('click', e => { if (e.target === sh) sh.hidden = true; }));
   document.addEventListener('keydown', e => { if (e.key === 'Escape') { usageSheet.hidden = true; notifSheet.hidden = true; launchSheet.hidden = true; } });
 
+  // System stats (cpu/ram/disk/gpu) on the counts line
+  async function pollSys() {
+    try {
+      const s = await (await fetch('/api/sysstats')).json();
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = (v == null || v < 0) ? '–' : v + '%'; };
+      set('sCpu', s.cpu); set('sMem', s.mem); set('sDisk', s.disk); set('sGpu', s.gpu);
+      document.getElementById('sGpuC').hidden = (s.gpu == null || s.gpu < 0);
+    } catch (_) {}
+  }
+
   initPush();
   load();
+  pollSys();
   setInterval(load, 4000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
+  setInterval(pollSys, 4000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { load(); pollSys(); } });
 </script>
 </body>
 </html>

@@ -698,6 +698,7 @@ func runWeb(port int) {
 
 	// Reverse-proxy local ports to the phone (Ports page)
 	http.HandleFunc("/api/ports", handlePorts)
+	http.HandleFunc("/api/sysstats", handleSysStats)
 	http.HandleFunc("/proxy/", handleProxy)
 
 	// Remote browser control (CDP screencast + input) — do logins by hand
@@ -751,6 +752,7 @@ func runWeb(port int) {
 	if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
 		startNotifyWatcher(tcp.Port)
 	}
+	startSysSampler() // CPU/RAM/disk/GPU for the mobile header
 
 	// Graceful shutdown
 	var handler http.Handler = http.DefaultServeMux
