@@ -88,17 +88,21 @@
     color:var(--fg); font-size:14px; font-weight:650; font-family:inherit; }
   .rm-danger { background:#e5484d; border-color:#e5484d; color:#fff; }
   /* sibling-pane switcher */
-  #panebar { display:flex; gap:6px; padding:6px 8px; overflow-x:auto; background:var(--bar);
-    border-bottom:1px solid var(--line); flex:0 0 auto; -webkit-overflow-scrolling:touch; }
-  #panebar::-webkit-scrollbar { display:none; }
+  #panebar { display:flex; align-items:center; gap:6px; padding:6px 8px; background:var(--bar);
+    border-bottom:1px solid var(--line); flex:0 0 auto; }
+  #panetabs { display:flex; gap:6px; overflow-x:auto; flex:1 1 auto; min-width:0; -webkit-overflow-scrolling:touch; }
+  #panetabs::-webkit-scrollbar { display:none; }
   .ptab { flex:0 0 auto; background:#20242e; border:1px solid var(--line); color:var(--muted);
     border-radius:8px; padding:5px 10px; font:600 12px/1 inherit; font-family:inherit;
-    display:inline-flex; align-items:center; gap:4px; cursor:pointer; }
+    display:inline-flex; align-items:center; gap:4px; cursor:pointer; white-space:nowrap; }
   .ptab i { font-style:normal; opacity:.5; font-size:10px; }
   .ptab.on { background:#6ea1f7; color:#0d1017; border-color:#6ea1f7; }
-  .pspace { flex:1 1 auto; }
-  .ptab.pctl { color:var(--fg); font-weight:700; min-width:34px; justify-content:center; }
-  .ptab.pkill.armed { background:#e5484d; border-color:#e5484d; color:#fff; }
+  /* fixed controls (do not scroll with the tabs) */
+  #panectl { display:flex; gap:6px; flex:0 0 auto; padding-left:6px; border-left:1px solid var(--line); }
+  .pctl { flex:0 0 auto; background:#20242e; border:1px solid var(--line); color:var(--fg);
+    border-radius:8px; padding:5px 8px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
+  .pctl svg { width:16px; height:16px; }
+  .pctl.armed { background:#e5484d; border-color:#e5484d; color:#fff; }
 </style>
 </head>
 <body tabindex="0">
@@ -246,11 +250,15 @@
       const tabs = panes.map((p) =>
         `<button class="ptab" data-t="${p.target}">${(p.label || '').replace(/[<>&"]/g, '')}<i>.${p.target.split('.').pop()}</i></button>`).join('');
       const canKill = panes.length > 1; // never kill the last pane (would close the window)
-      panebar.innerHTML = tabs +
-        '<span class="pspace"></span>' +
-        '<button class="ptab pctl" id="paneAdd" title="New pane">＋</button>' +
-        (canKill ? '<button class="ptab pctl pkill" id="paneKill" title="Remove current pane">✕</button>' : '');
-      panebar.querySelectorAll('.ptab:not(.pctl)').forEach((b) => b.onclick = () => switchTo(b.dataset.t));
+      const ICON_ADD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>';
+      const ICON_X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+      panebar.innerHTML =
+        '<div id="panetabs">' + tabs + '</div>' +
+        '<div id="panectl">' +
+        '<button class="pctl" id="paneAdd" title="New pane">' + ICON_ADD + '</button>' +
+        (canKill ? '<button class="pctl pkill" id="paneKill" title="Remove current pane">' + ICON_X + '</button>' : '') +
+        '</div>';
+      panebar.querySelectorAll('#panetabs .ptab').forEach((b) => b.onclick = () => switchTo(b.dataset.t));
       const add = document.getElementById('paneAdd'); if (add) add.onclick = newPane;
       const kill = document.getElementById('paneKill'); if (kill) kill.onclick = armKill;
       killArmed = false;
@@ -266,10 +274,10 @@
   }
   function armKill() {
     const btn = document.getElementById('paneKill'); if (!btn) return;
-    if (!killArmed) { // first tap arms; second within 3s confirms
-      killArmed = true; btn.textContent = 'kill?'; btn.classList.add('armed');
+    if (!killArmed) { // first tap arms (turns red); second within 3s confirms
+      killArmed = true; btn.classList.add('armed'); btn.title = 'Tap again to remove';
       clearTimeout(killTimer);
-      killTimer = setTimeout(() => { killArmed = false; btn.textContent = '✕'; btn.classList.remove('armed'); }, 3000);
+      killTimer = setTimeout(() => { killArmed = false; btn.classList.remove('armed'); btn.title = 'Remove current pane'; }, 3000);
       return;
     }
     clearTimeout(killTimer); killArmed = false;
