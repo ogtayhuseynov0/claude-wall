@@ -698,6 +698,7 @@ func runWeb(port int) {
 
 	// Reverse-proxy local ports to the phone (Ports page)
 	http.HandleFunc("/api/ports", handlePorts)
+	http.HandleFunc("/api/panes/", handlePanes)
 	http.HandleFunc("/api/sysstats", handleSysStats)
 	http.HandleFunc("/proxy/", handleProxy)
 

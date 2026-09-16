@@ -87,6 +87,15 @@
   .rm-btn { flex:1; padding:12px; border-radius:11px; border:1px solid #2f3340; background:#20242e;
     color:var(--fg); font-size:14px; font-weight:650; font-family:inherit; }
   .rm-danger { background:#e5484d; border-color:#e5484d; color:#fff; }
+  /* sibling-pane switcher */
+  #panebar { display:flex; gap:6px; padding:6px 8px; overflow-x:auto; background:var(--bar);
+    border-bottom:1px solid var(--line); flex:0 0 auto; -webkit-overflow-scrolling:touch; }
+  #panebar::-webkit-scrollbar { display:none; }
+  .ptab { flex:0 0 auto; background:#20242e; border:1px solid var(--line); color:var(--muted);
+    border-radius:8px; padding:5px 10px; font:600 12px/1 inherit; font-family:inherit;
+    display:inline-flex; align-items:center; gap:4px; cursor:pointer; }
+  .ptab i { font-style:normal; opacity:.5; font-size:10px; }
+  .ptab.on { background:#6ea1f7; color:#0d1017; border-color:#6ea1f7; }
 </style>
 </head>
 <body tabindex="0">
@@ -98,6 +107,7 @@
     <span class="btn" id="goto" title="Focus this pane in the terminal"><svg class="ic" viewBox="0 0 24 24"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></span>
     <span class="btn" id="close" title="Close"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span>
   </div>
+  <div id="panebar" hidden></div>
   <div id="term"><pre id="history"></pre><pre id="live"></pre></div>
   <textarea id="kbd" rows="1" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" inputmode="text"></textarea>
   <div id="keys">
@@ -135,7 +145,7 @@
   </div>
 <script>
   const params = new URLSearchParams(location.search);
-  const target = params.get('target') || '';
+  let target = params.get('target') || '';
   const MOBILE = params.get('m') === '1' || matchMedia('(pointer:coarse)').matches;
   const ansi = new AnsiUp();
   const stripOSC = (t) => t.replace(/\x1b\]8;[^]*?(?:\x1b\\|\x07)(.*?)\x1b\]8;[^]*?(?:\x1b\\|\x07)/g,'$1').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g,'');
@@ -216,6 +226,34 @@
       // doesn't stop us mid-transcript
       if (lastContent === before) { if (++stable >= 2) break; } else stable = 0;
     }
+  }
+
+  // Sibling-pane switcher: list panes in this window (claude / nvim / shell / …)
+  // and let the user flip the streamed target. The shell pane is a full terminal
+  // for running commands, the editor pane shows nvim, etc.
+  const panebar = document.getElementById('panebar');
+  function markTabs() { panebar.querySelectorAll('.ptab').forEach((b) => b.classList.toggle('on', b.dataset.t === target)); }
+  async function loadPanes() {
+    try {
+      const list = await (await fetch('/api/panes/' + encodeURIComponent(target))).json();
+      if (!Array.isArray(list) || list.length <= 1) { panebar.hidden = true; return; }
+      panebar.hidden = false;
+      panebar.innerHTML = list.map((p) =>
+        `<button class="ptab" data-t="${p.target}">${(p.label || '').replace(/[<>&"]/g, '')}<i>.${p.target.split('.').pop()}</i></button>`).join('');
+      panebar.querySelectorAll('.ptab').forEach((b) => b.onclick = () => switchTo(b.dataset.t));
+      markTabs();
+    } catch (_) {}
+  }
+  function switchTo(t) {
+    if (!t || t === target) return;
+    try { if (ws) { ws.onclose = null; ws.close(); } } catch (_) {}
+    target = t;
+    historyPre.innerHTML = ''; livePre.innerHTML = ''; lastContent = ''; isAlt = false;
+    document.title = 'PiP · ' + target;
+    subEl.textContent = '· ' + target;
+    reconnectDelay = 500; follow = true;
+    markTabs();
+    connect();
   }
 
   function connect() {
@@ -573,7 +611,7 @@
   document.addEventListener('visibilitychange', () => { if (!document.hidden) acquireWake(); });
   acquireWake();
 
-  if (!target) { livePre.textContent = 'no ?target= given'; } else { connect(); }
+  if (!target) { livePre.textContent = 'no ?target= given'; } else { connect(); loadPanes(); setInterval(loadPanes, 10000); }
 </script>
 </body>
 </html>
