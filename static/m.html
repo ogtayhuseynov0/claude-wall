@@ -41,10 +41,10 @@
   /* system stats (cpu/ram/disk/gpu) on the counts line */
   .sys-sep { width:1px; height:15px; background:var(--line); margin:0 2px; }
   .counts .sys { color:var(--dim); font-weight:600; }
-  #usage, #notify, #launch, #ports, #browser { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
+  #usage, #notify, #launch, #ports, #browser, #redeploy { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
     display:inline-flex; border-radius:8px; }
-  #usage:active, #notify:active, #launch:active, #ports:active, #browser:active { background:var(--card); }
-  #usage svg, #notify svg, #launch svg, #ports svg, #browser svg { width:19px; height:19px; }
+  #usage:active, #notify:active, #launch:active, #ports:active, #browser:active, #redeploy:active { background:var(--card); }
+  #usage svg, #notify svg, #launch svg, #ports svg, #browser svg, #redeploy svg { width:19px; height:19px; }
   #launch { color:var(--work); }
   #notify.on { color:var(--work); }
   @keyframes spin { to { transform:rotate(360deg); } }
@@ -96,6 +96,14 @@
   .disable-btn { width:100%; margin-top:14px; background:none; border:1px solid var(--line); color:var(--perm);
     font-weight:600; font-size:14px; font-family:inherit; padding:11px; border-radius:11px; cursor:pointer; }
 
+  .rd-body { font-size:14px; line-height:1.5; color:var(--fg); margin-bottom:16px; }
+  .rd-body.busy { color:var(--muted); display:flex; align-items:center; gap:10px; }
+  .rd-body .rd-spin { width:18px; height:18px; border:2px solid var(--line); border-top-color:var(--work);
+    border-radius:50%; animation:spin .8s linear infinite; flex:0 0 auto; }
+  .rd-actions { display:flex; gap:10px; }
+  .rd-btn { flex:1; padding:12px; border-radius:11px; font-weight:700; font-size:14px; font-family:inherit; cursor:pointer; }
+  .rd-cancel { background:var(--card2); border:1px solid var(--line); color:var(--fg); }
+  .rd-go { background:var(--work); border:1px solid var(--work); color:#1a1206; }
   .agent-seg { display:flex; gap:6px; margin-bottom:12px; }
   .agent-seg button { flex:1; padding:9px 6px; border-radius:10px; border:1px solid var(--line); background:var(--card2);
     color:var(--muted); font-weight:600; font-size:13px; font-family:inherit; cursor:pointer; }
@@ -205,6 +213,9 @@
       </div>
     </div>
     <div class="btnrow">
+      <button id="redeploy" title="Rebuild & restart server">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+      </button>
       <button id="launch" title="New session">
         <svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
       </button>
@@ -286,6 +297,20 @@
       <div class="search lsearch"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
         <input id="projSearch" type="search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" placeholder="Search projects…"></div>
       <div id="projList"><div class="u-empty">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="sheet" id="redeploySheet" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <h2>Rebuild &amp; restart</h2>
+        <button id="redeployClose" title="Close"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <div id="redeployBody" class="rd-body">Rebuild the claude-wall binary and restart the server. Sessions keep running; the dashboard drops for ~20–40s, then reloads.</div>
+      <div id="redeployActions" class="rd-actions">
+        <button id="redeployCancel" class="rd-btn rd-cancel">Cancel</button>
+        <button id="redeployGo" class="rd-btn rd-go">Rebuild &amp; restart</button>
+      </div>
     </div>
   </div>
 
@@ -642,6 +667,38 @@
   document.getElementById('usageClose').onclick = () => usageSheet.hidden = true;
   usageRefresh.onclick = () => loadUsage(true);
 
+  // ---- rebuild & restart server ----
+  const redeploySheet = document.getElementById('redeploySheet');
+  const redeployBody = document.getElementById('redeployBody');
+  const redeployActions = document.getElementById('redeployActions');
+  function resetRedeploy() {
+    redeployBody.className = 'rd-body';
+    redeployBody.textContent = 'Rebuild the claude-wall binary and restart the server. Sessions keep running; the dashboard drops for ~20–40s, then reloads.';
+    redeployActions.hidden = false;
+  }
+  document.getElementById('redeploy').onclick = () => { resetRedeploy(); redeploySheet.hidden = false; };
+  document.getElementById('redeployClose').onclick = () => redeploySheet.hidden = true;
+  document.getElementById('redeployCancel').onclick = () => redeploySheet.hidden = true;
+  document.getElementById('redeployGo').onclick = async () => {
+    redeployActions.hidden = true;
+    redeployBody.className = 'rd-body busy';
+    redeployBody.innerHTML = '<span class="rd-spin"></span><span>Rebuilding &amp; restarting…</span>';
+    try { await fetch('/api/redeploy', { method: 'POST' }); } catch (_) {}
+    let sawDown = false; const t0 = Date.now();
+    const iv = setInterval(async () => {
+      try {
+        const r = await fetch('/api/health', { cache: 'no-store' });
+        if (r.ok && (sawDown || Date.now() - t0 > 22000)) { clearInterval(iv); location.reload(); return; }
+      } catch (_) { sawDown = true; }
+      if (Date.now() - t0 > 90000) {
+        clearInterval(iv);
+        redeployBody.className = 'rd-body';
+        redeployBody.textContent = 'Timed out — check the Mac (build may have failed).';
+        redeployActions.hidden = false;
+      }
+    }, 2000);
+  };
+
   // ---- session launcher ----
   const launchSheet = document.getElementById('launchSheet');
   const agentSeg = document.getElementById('agentSeg');
@@ -683,8 +740,8 @@
   document.getElementById('launchClose').onclick = () => launchSheet.hidden = true;
 
   // tap backdrop or Esc closes any open sheet
-  [usageSheet, notifSheet, launchSheet].forEach(sh => sh.addEventListener('click', e => { if (e.target === sh) sh.hidden = true; }));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { usageSheet.hidden = true; notifSheet.hidden = true; launchSheet.hidden = true; } });
+  [usageSheet, notifSheet, launchSheet, redeploySheet].forEach(sh => sh.addEventListener('click', e => { if (e.target === sh) sh.hidden = true; }));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { usageSheet.hidden = true; notifSheet.hidden = true; launchSheet.hidden = true; redeploySheet.hidden = true; } });
 
   // System stats (cpu/ram/disk/gpu) on the counts line
   async function pollSys() {
