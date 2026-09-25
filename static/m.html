@@ -312,6 +312,23 @@
     </div>
   </div>
 <script>
+  // Self-heal stale caches: if the shipped front-end changed since this page was
+  // loaded, reload once to pick it up (guards against a loop with sessionStorage).
+  (async () => {
+    try {
+      const { version } = await (await fetch('/api/version', { cache: 'no-store' })).json();
+      const prev = localStorage.getItem('cw_ver');
+      if (prev && prev !== version && !sessionStorage.getItem('cw_reloaded')) {
+        sessionStorage.setItem('cw_reloaded', '1');
+        localStorage.setItem('cw_ver', version);
+        location.reload();
+        return;
+      }
+      localStorage.setItem('cw_ver', version);
+      if (prev === version) sessionStorage.removeItem('cw_reloaded');
+    } catch (_) {}
+  })();
+
   const listEl = document.getElementById('list');
   const chipsEl = document.getElementById('chips');
   const searchEl = document.getElementById('search');

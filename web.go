@@ -702,6 +702,7 @@ func runWeb(port int) {
 	http.HandleFunc("/api/pane/new", handlePaneNew)
 	http.HandleFunc("/api/pane/kill", handlePaneKill)
 	http.HandleFunc("/api/sysstats", handleSysStats)
+	http.HandleFunc("/api/version", handleVersion)
 	http.HandleFunc("/proxy/", handleProxy)
 
 	// Remote browser control (CDP screencast + input) — do logins by hand
@@ -756,6 +757,7 @@ func runWeb(port int) {
 		startNotifyWatcher(tcp.Port)
 	}
 	startSysSampler() // CPU/RAM/disk/GPU for the mobile header
+	computeBuildVer() // front-end version so the PWA can self-heal stale caches
 
 	// Graceful shutdown
 	var handler http.Handler = http.DefaultServeMux
