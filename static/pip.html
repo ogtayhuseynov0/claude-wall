@@ -415,11 +415,13 @@
   document.addEventListener('paste', async (e) => {
     const dt = e.clipboardData || window.clipboardData;
     if (!dt) return;
-    e.preventDefault();
     let files = [...(dt.files || [])];
     if (!files.length) files = [...(dt.items || [])].filter((i) => i.kind === 'file').map((i) => i.getAsFile()).filter(Boolean);
-    if (files.length) { await sendFiles(files); return; }
-    send(dt.getData('text'));
+    if (files.length) { e.preventDefault(); await sendFiles(files); return; }
+    const text = dt.getData('text');
+    if (text) { e.preventDefault(); send(text); return; }
+    // No text/files readable here (common on mobile long-press paste): let it
+    // land in the hidden field so the input handler flushes it — don't swallow.
   });
 
   // key toolbar
