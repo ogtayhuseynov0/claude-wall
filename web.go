@@ -704,6 +704,10 @@ func runWeb(port int) {
 	http.HandleFunc("/api/sysstats", handleSysStats)
 	http.HandleFunc("/api/version", handleVersion)
 	http.HandleFunc("/api/redeploy", handleRedeploy)
+	http.HandleFunc("/api/drive", handleDriveList)
+	http.HandleFunc("/api/drive/file", handleDriveDownload)
+	http.HandleFunc("/api/drive/upload", handleDriveUpload)
+	http.HandleFunc("/api/drive/delete", handleDriveDelete)
 	http.HandleFunc("/proxy/", handleProxy)
 
 	// Remote browser control (CDP screencast + input) — do logins by hand

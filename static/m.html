@@ -41,10 +41,10 @@
   /* system stats (cpu/ram/disk/gpu) on the counts line */
   .sys-sep { width:1px; height:15px; background:var(--line); margin:0 2px; }
   .counts .sys { color:var(--dim); font-weight:600; }
-  #usage, #notify, #launch, #ports, #browser, #redeploy { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
+  #usage, #notify, #launch, #ports, #browser, #redeploy, #drive { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
     display:inline-flex; border-radius:8px; }
-  #usage:active, #notify:active, #launch:active, #ports:active, #browser:active, #redeploy:active { background:var(--card); }
-  #usage svg, #notify svg, #launch svg, #ports svg, #browser svg, #redeploy svg { width:19px; height:19px; }
+  #usage:active, #notify:active, #launch:active, #ports:active, #browser:active, #redeploy:active, #drive:active { background:var(--card); }
+  #usage svg, #notify svg, #launch svg, #ports svg, #browser svg, #redeploy svg, #drive svg { width:19px; height:19px; }
   #launch { color:var(--work); }
   #notify.on { color:var(--work); }
   @keyframes spin { to { transform:rotate(360deg); } }
@@ -104,6 +104,27 @@
   .rd-btn { flex:1; padding:12px; border-radius:11px; font-weight:700; font-size:14px; font-family:inherit; cursor:pointer; }
   .rd-cancel { background:var(--card2); border:1px solid var(--line); color:var(--fg); }
   .rd-go { background:var(--work); border:1px solid var(--work); color:#1a1206; }
+  /* shared drive */
+  .sheet-head .dr-up, #driveUpload { background:var(--card2); border:0; color:var(--muted); width:30px; height:30px;
+    border-radius:8px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
+  .sheet-head .dr-up svg, #driveUpload svg { width:17px; height:17px; }
+  #driveUpload { color:var(--work); }
+  .dr-path { font-size:12px; color:var(--muted); margin-bottom:10px; word-break:break-all; font-variant-numeric:tabular-nums; }
+  #driveList { display:flex; flex-direction:column; gap:6px; max-height:60vh; overflow-y:auto; }
+  .dr-row { display:flex; align-items:center; gap:10px; padding:11px 12px; border-radius:11px; background:var(--card2);
+    border:1px solid var(--line); }
+  .dr-row:active { background:var(--line); }
+  .dr-row .dr-ic { width:18px; height:18px; flex:0 0 auto; color:var(--work); }
+  .dr-row .dr-ic.file { color:var(--muted); }
+  .dr-main { flex:1; min-width:0; cursor:pointer; }
+  .dr-name { font-size:14px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dr-meta { font-size:11px; color:var(--dim); margin-top:1px; }
+  .dr-act { background:none; border:0; color:var(--muted); padding:6px; cursor:pointer; display:inline-flex; }
+  .dr-act svg { width:17px; height:17px; }
+  .dr-act.dr-del { color:var(--perm); }
+  .dr-act.dr-del.armed { background:var(--perm); color:#fff; border-radius:8px; }
+  .dr-prog { height:3px; background:var(--card2); border-radius:3px; overflow:hidden; margin-bottom:10px; }
+  .dr-prog > span { display:block; height:100%; background:var(--work); width:0; transition:width .15s; }
   .agent-seg { display:flex; gap:6px; margin-bottom:12px; }
   .agent-seg button { flex:1; padding:9px 6px; border-radius:10px; border:1px solid var(--line); background:var(--card2);
     color:var(--muted); font-weight:600; font-size:13px; font-family:inherit; cursor:pointer; }
@@ -213,6 +234,9 @@
       </div>
     </div>
     <div class="btnrow">
+      <button id="drive" title="Shared drive">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>
+      </button>
       <button id="redeploy" title="Rebuild & restart server">
         <svg class="ic" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
       </button>
@@ -311,6 +335,20 @@
         <button id="redeployCancel" class="rd-btn rd-cancel">Cancel</button>
         <button id="redeployGo" class="rd-btn rd-go">Rebuild &amp; restart</button>
       </div>
+    </div>
+  </div>
+
+  <div class="sheet" id="driveSheet" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <button id="driveUp" class="dr-up" title="Up" hidden><svg class="ic" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
+        <h2 id="driveTitle">Drive</h2>
+        <button id="driveUpload" title="Upload"><svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg></button>
+        <button id="driveClose" title="Close"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <div id="drivePath" class="dr-path">/</div>
+      <div id="driveList"><div class="u-empty">Loading…</div></div>
+      <input id="driveFile" type="file" multiple hidden>
     </div>
   </div>
 
@@ -699,6 +737,70 @@
     }, 2000);
   };
 
+  // ---- shared drive ----
+  const driveSheet = document.getElementById('driveSheet');
+  const driveListEl = document.getElementById('driveList');
+  const drivePathEl = document.getElementById('drivePath');
+  const driveUpBtn = document.getElementById('driveUp');
+  const driveFileInput = document.getElementById('driveFile');
+  let drivePath = '';
+  const drvSize = (n) => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : n < 1073741824 ? (n / 1048576).toFixed(1) + ' MB' : (n / 1073741824).toFixed(1) + ' GB';
+  const drvTime = (s) => { const d = new Date(s * 1000); return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); };
+  const IC_FOLDER = '<svg class="dr-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>';
+  const IC_FILE = '<svg class="dr-ic file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
+  const IC_DL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>';
+  const IC_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>';
+  async function loadDrive(path) {
+    drivePath = path || '';
+    drivePathEl.textContent = '/' + drivePath;
+    driveUpBtn.hidden = !drivePath;
+    driveListEl.innerHTML = '<div class="u-empty">Loading…</div>';
+    let list = [];
+    try { list = await (await fetch('/api/drive?path=' + encodeURIComponent(drivePath), { cache: 'no-store' })).json(); } catch (_) {}
+    if (!Array.isArray(list) || !list.length) {
+      driveListEl.innerHTML = '<div class="u-empty">Empty. Upload a file, or agents can drop files in <b>~/claude-wall-drive</b>.</div>';
+      return;
+    }
+    driveListEl.innerHTML = '';
+    list.forEach((e) => {
+      const row = document.createElement('div'); row.className = 'dr-row';
+      const rel = (drivePath ? drivePath + '/' : '') + e.name;
+      row.innerHTML = (e.isDir ? IC_FOLDER : IC_FILE) +
+        `<div class="dr-main"><div class="dr-name">${esc(e.name)}</div><div class="dr-meta">${e.isDir ? 'folder' : drvSize(e.size)} · ${drvTime(e.mtime)}</div></div>` +
+        (e.isDir ? '' : `<button class="dr-act dr-dl" title="Download">${IC_DL}</button>`) +
+        `<button class="dr-act dr-del" title="Delete">${IC_TRASH}</button>`;
+      row.querySelector('.dr-main').onclick = () => { if (e.isDir) loadDrive(rel); else downloadDrive(rel); };
+      const dl = row.querySelector('.dr-dl'); if (dl) dl.onclick = () => downloadDrive(rel);
+      const del = row.querySelector('.dr-del'); let armed = false, t;
+      del.onclick = () => {
+        if (!armed) { armed = true; del.classList.add('armed'); clearTimeout(t); t = setTimeout(() => { armed = false; del.classList.remove('armed'); }, 3000); return; }
+        clearTimeout(t); deleteDrive(rel);
+      };
+      driveListEl.appendChild(row);
+    });
+  }
+  function downloadDrive(rel) {
+    // open in a new browser context so the standalone PWA hands off the download
+    window.open('/api/drive/file?dl=1&path=' + encodeURIComponent(rel), '_blank');
+  }
+  async function deleteDrive(rel) {
+    try { await fetch('/api/drive/delete?path=' + encodeURIComponent(rel), { method: 'POST' }); } catch (_) {}
+    loadDrive(drivePath);
+  }
+  async function uploadDrive(files) {
+    driveListEl.innerHTML = '<div class="u-empty">Uploading ' + files.length + ' file(s)…</div>';
+    for (const f of files) {
+      const fd = new FormData(); fd.append('file', f, f.name);
+      try { await fetch('/api/drive/upload?path=' + encodeURIComponent(drivePath), { method: 'POST', body: fd }); } catch (_) {}
+    }
+    loadDrive(drivePath);
+  }
+  document.getElementById('drive').onclick = () => { driveSheet.hidden = false; loadDrive(''); };
+  document.getElementById('driveClose').onclick = () => driveSheet.hidden = true;
+  driveUpBtn.onclick = () => loadDrive(drivePath.includes('/') ? drivePath.slice(0, drivePath.lastIndexOf('/')) : '');
+  document.getElementById('driveUpload').onclick = () => driveFileInput.click();
+  driveFileInput.onchange = () => { if (driveFileInput.files.length) uploadDrive([...driveFileInput.files]); driveFileInput.value = ''; };
+
   // ---- session launcher ----
   const launchSheet = document.getElementById('launchSheet');
   const agentSeg = document.getElementById('agentSeg');
@@ -740,8 +842,8 @@
   document.getElementById('launchClose').onclick = () => launchSheet.hidden = true;
 
   // tap backdrop or Esc closes any open sheet
-  [usageSheet, notifSheet, launchSheet, redeploySheet].forEach(sh => sh.addEventListener('click', e => { if (e.target === sh) sh.hidden = true; }));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { usageSheet.hidden = true; notifSheet.hidden = true; launchSheet.hidden = true; redeploySheet.hidden = true; } });
+  [usageSheet, notifSheet, launchSheet, redeploySheet, driveSheet].forEach(sh => sh.addEventListener('click', e => { if (e.target === sh) sh.hidden = true; }));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { usageSheet.hidden = true; notifSheet.hidden = true; launchSheet.hidden = true; redeploySheet.hidden = true; driveSheet.hidden = true; } });
 
   // System stats (cpu/ram/disk/gpu) on the counts line
   async function pollSys() {
