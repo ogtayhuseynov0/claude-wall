@@ -105,9 +105,10 @@
   .rd-cancel { background:var(--card2); border:1px solid var(--line); color:var(--fg); }
   .rd-go { background:var(--work); border:1px solid var(--work); color:#1a1206; }
   /* shared drive */
-  .sheet-head .dr-up, #driveUpload { background:var(--card2); border:0; color:var(--muted); width:30px; height:30px;
+  .sheet-head .dr-up, #driveUpload, #driveCopy { background:var(--card2); border:0; color:var(--muted); width:30px; height:30px;
     border-radius:8px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; }
-  .sheet-head .dr-up svg, #driveUpload svg { width:17px; height:17px; }
+  .sheet-head .dr-up svg, #driveUpload svg, #driveCopy svg { width:17px; height:17px; }
+  #driveCopy.ok, .dr-cp.ok { color:var(--idle); }
   #driveUpload { color:var(--work); }
   .dr-path { font-size:12px; color:var(--muted); margin-bottom:10px; word-break:break-all; font-variant-numeric:tabular-nums; }
   #driveList { display:flex; flex-direction:column; gap:6px; max-height:60vh; overflow-y:auto; }
@@ -343,6 +344,7 @@
       <div class="sheet-head">
         <button id="driveUp" class="dr-up" title="Up" hidden><svg class="ic" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></button>
         <h2 id="driveTitle">Drive</h2>
+        <button id="driveCopy" title="Copy this folder's path"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
         <button id="driveUpload" title="Upload"><svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg></button>
         <button id="driveClose" title="Close"><svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
       </div>
@@ -750,26 +752,42 @@
   const IC_FILE = '<svg class="dr-ic file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>';
   const IC_DL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>';
   const IC_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>';
+  const IC_COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+  let driveDirAbs = '';
+  // Copy text to clipboard (writeText works on mobile in a secure context; fall
+  // back to a hidden textarea + execCommand). Flashes the button green on ok.
+  async function copyText(text, btn) {
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (_) {
+      try { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); ok = document.execCommand('copy'); ta.remove(); } catch (_) {}
+    }
+    if (ok && btn) { btn.classList.add('ok'); setTimeout(() => btn.classList.remove('ok'), 1200); }
+  }
   async function loadDrive(path) {
     drivePath = path || '';
     drivePathEl.textContent = '/' + drivePath;
     driveUpBtn.hidden = !drivePath;
     driveListEl.innerHTML = '<div class="u-empty">Loading…</div>';
-    let list = [];
-    try { list = await (await fetch('/api/drive?path=' + encodeURIComponent(drivePath), { cache: 'no-store' })).json(); } catch (_) {}
-    if (!Array.isArray(list) || !list.length) {
-      driveListEl.innerHTML = '<div class="u-empty">Empty. Upload a file, or agents can drop files in <b>~/claude-wall-drive</b>.</div>';
+    let data = {};
+    try { data = await (await fetch('/api/drive?path=' + encodeURIComponent(drivePath), { cache: 'no-store' })).json(); } catch (_) {}
+    driveDirAbs = data.dir || '';
+    const list = data.entries || [];
+    if (!list.length) {
+      driveListEl.innerHTML = '<div class="u-empty">Empty. Upload a file, or give an agent this folder’s path (copy button above) to create files here.</div>';
       return;
     }
     driveListEl.innerHTML = '';
     list.forEach((e) => {
       const row = document.createElement('div'); row.className = 'dr-row';
       const rel = (drivePath ? drivePath + '/' : '') + e.name;
+      const abs = driveDirAbs ? driveDirAbs + '/' + e.name : '';
       row.innerHTML = (e.isDir ? IC_FOLDER : IC_FILE) +
         `<div class="dr-main"><div class="dr-name">${esc(e.name)}</div><div class="dr-meta">${e.isDir ? 'folder' : drvSize(e.size)} · ${drvTime(e.mtime)}</div></div>` +
+        `<button class="dr-act dr-cp" title="Copy path">${IC_COPY}</button>` +
         (e.isDir ? '' : `<button class="dr-act dr-dl" title="Download">${IC_DL}</button>`) +
         `<button class="dr-act dr-del" title="Delete">${IC_TRASH}</button>`;
       row.querySelector('.dr-main').onclick = () => { if (e.isDir) loadDrive(rel); else downloadDrive(rel); };
+      const cp = row.querySelector('.dr-cp'); cp.onclick = () => copyText(abs, cp);
       const dl = row.querySelector('.dr-dl'); if (dl) dl.onclick = () => downloadDrive(rel);
       const del = row.querySelector('.dr-del'); let armed = false, t;
       del.onclick = () => {
@@ -797,6 +815,7 @@
   }
   document.getElementById('drive').onclick = () => { driveSheet.hidden = false; loadDrive(''); };
   document.getElementById('driveClose').onclick = () => driveSheet.hidden = true;
+  document.getElementById('driveCopy').onclick = (e) => { if (driveDirAbs) copyText(driveDirAbs, e.currentTarget); };
   driveUpBtn.onclick = () => loadDrive(drivePath.includes('/') ? drivePath.slice(0, drivePath.lastIndexOf('/')) : '');
   document.getElementById('driveUpload').onclick = () => driveFileInput.click();
   driveFileInput.onchange = () => { if (driveFileInput.files.length) uploadDrive([...driveFileInput.files]); driveFileInput.value = ''; };

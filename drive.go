@@ -70,7 +70,9 @@ func handleDriveList(w http.ResponseWriter, r *http.Request) {
 	})
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-cache")
-	json.NewEncoder(w).Encode(list)
+	// `dir` is this folder's absolute path so the phone can copy a real path to
+	// hand to an agent (so it writes files here).
+	json.NewEncoder(w).Encode(map[string]any{"dir": abs, "entries": list})
 }
 
 func handleDriveDownload(w http.ResponseWriter, r *http.Request) {
