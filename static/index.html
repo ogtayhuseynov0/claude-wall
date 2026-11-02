@@ -517,13 +517,19 @@
   /* ── Grid ── */
   #grid {
     flex: 1;
-    display: grid;
-    gap: 3px;
-    padding: 6px;
-    overflow-y: auto;
-    overflow-x: hidden;
+    position: relative;
+    overflow: hidden;
     background: var(--bg-deep);
   }
+  /* Tiles are placed from their layout rect (--x/--y/--w/--h in 0..1): 6px outer padding, 3px gaps */
+  #grid > .tile {
+    position: absolute;
+    left: calc(6px + var(--x, 0) * (100% - 9px));
+    top: calc(6px + var(--y, 0) * (100% - 9px));
+    width: calc(var(--w, 1) * (100% - 9px) - 3px);
+    height: calc(var(--h, 1) * (100% - 9px) - 3px);
+  }
+  #grid > .tile.zoomed { position: fixed; left: 0; top: 0; width: 100%; height: 100%; }
   /* Group filter dropdown in header */
   #group-filter {
     padding: 3px 8px;
@@ -571,6 +577,36 @@
     border: none;
   }
   .tile.removing { opacity: 0; transition: opacity 0.3s; }
+
+  /* Free-form resize handles — drag a tile edge to resize its column/row */
+  .rz { position: absolute; z-index: 7; }
+  .rz-e { top: 0; bottom: 0; right: -5px; width: 8px; cursor: col-resize; }
+  .rz-w { top: 0; bottom: 0; left: -5px; width: 8px; cursor: col-resize; }
+  .rz-s { left: 0; right: 0; bottom: -5px; height: 8px; cursor: row-resize; }
+  .rz-n { left: 0; right: 0; top: -5px; height: 8px; cursor: row-resize; }
+  .rz-se, .rz-sw, .rz-ne, .rz-nw { width: 12px; height: 12px; z-index: 8; }
+  .rz-se { right: -6px; bottom: -6px; cursor: nwse-resize; }
+  .rz-nw { left: -6px; top: -6px; cursor: nwse-resize; }
+  .rz-sw { left: -6px; bottom: -6px; cursor: nesw-resize; }
+  .rz-ne { right: -6px; top: -6px; cursor: nesw-resize; }
+  .rz::after {
+    content: ''; position: absolute; border-radius: 2px;
+    background: var(--accent); opacity: 0; transition: opacity 0.12s;
+  }
+  .rz-e::after, .rz-w::after { top: 20%; bottom: 20%; left: 3px; width: 2px; }
+  .rz-s::after, .rz-n::after { left: 20%; right: 20%; top: 3px; height: 2px; }
+  .rz:hover::after, .rz.dragging::after { opacity: 0.8; }
+  .tile.no-e .rz-e, .tile.no-e .rz-se, .tile.no-e .rz-ne,
+  .tile.no-w .rz-w, .tile.no-w .rz-sw, .tile.no-w .rz-nw,
+  .tile.no-s .rz-s, .tile.no-s .rz-se, .tile.no-s .rz-sw,
+  .tile.no-n .rz-n, .tile.no-n .rz-ne, .tile.no-n .rz-nw,
+  .tile.zoomed .rz, #minimized-bar .rz { display: none; }
+  body.grid-resizing, body.grid-resizing * { user-select: none !important; }
+  body.grid-resizing.rz-col, body.grid-resizing.rz-col * { cursor: col-resize !important; }
+  body.grid-resizing.rz-row, body.grid-resizing.rz-row * { cursor: row-resize !important; }
+  body.grid-resizing.rz-both, body.grid-resizing.rz-both * { cursor: nwse-resize !important; }
+  body.grid-resizing.rz-both-alt, body.grid-resizing.rz-both-alt * { cursor: nesw-resize !important; }
+  @media (max-width: 768px) { .rz { display: none; } }
   .tile-ghost { opacity: 0.2; }
 
   /* Permission status */
@@ -1151,13 +1187,14 @@
 
     /* Stack tiles vertically on mobile */
     #grid {
-      grid-template-columns: 1fr !important;
-      grid-template-rows: none !important;
+      display: grid;
+      grid-template-columns: 1fr;
       grid-auto-rows: minmax(200px, 1fr);
       overflow-y: auto;
       padding: 4px;
       gap: 4px;
     }
+    #grid > .tile { position: relative; left: auto; top: auto; width: auto; height: auto; }
 
     /* Side panel becomes bottom sheet */
     #side-panel {
@@ -1317,6 +1354,8 @@
       <div class="kbd-row"><span>Expand / collapse active pane</span><span class="kbd-keys"><kbd>⌥Z</kbd></span></div>
       <div class="kbd-row"><span>Minimize / restore active pane</span><span class="kbd-keys"><kbd>⌥M</kbd></span></div>
       <div class="kbd-row"><span>Unfocus pane (enable plain keys)</span><span class="kbd-keys"><kbd>⇧Esc</kbd></span></div>
+      <div class="kbd-row"><span>Resize — drag any pane edge or corner</span><span class="kbd-keys"><kbd>drag</kbd></span></div>
+      <div class="kbd-row"><span>Reset to even grid — double-click an edge</span><span class="kbd-keys"><kbd>dbl-click</kbd></span></div>
       <div class="kbd-sec">Plain keys — when not typing in a pane or input</div>
       <div class="kbd-row"><span>Focus pane 1–9</span><span class="kbd-keys"><kbd>1</kbd><kbd>…</kbd><kbd>9</kbd></span></div>
       <div class="kbd-row"><span>Switch panes (incl. minimized)</span><span class="kbd-keys"><kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd></span></div>
@@ -1479,22 +1518,149 @@ function applyGroupFilter() {
   updateGridLayout();
 }
 
-function updateGridLayout() {
-  const tiles = Array.from(grid.querySelectorAll('.tile')).filter(t => t.style.display !== 'none');
-  const visible = tiles.length;
-  if (visible === 0) return;
-  const cols = Math.ceil(Math.sqrt(visible));
-  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  grid.style.gridTemplateRows = '';
-  grid.style.gridAutoRows = '1fr';
-  // Last tile in an incomplete row spans remaining columns
-  tiles.forEach(t => t.style.gridColumn = '');
-  const remainder = visible % cols;
-  if (remainder !== 0) {
-    const lastTile = tiles[visible - 1];
-    lastTile.style.gridColumn = `span ${cols - remainder + 1}`;
-  }
+// Free-form layout: every visible tile is a rect {x,y,w,h} in 0..1 units of the grid.
+// Dragging an edge moves only the tiles that share that exact edge segment, so
+// resizing one window takes space from its neighbour and leaves the rest alone.
+let gridShape = { cols: 1, rows: 1, rects: [] };
+const layoutKey = (n) => `cw-rects-${n}`;
+const EPS = 1e-4;
+const near = (a, b) => Math.abs(a - b) < EPS;
+
+function defaultRects(n, cols, rows) {
+  return Array.from({ length: n }, (_, i) => {
+    const col = i % cols, row = Math.floor(i / cols);
+    const span = i === n - 1 ? cols - col : 1; // last tile fills the rest of its row
+    return { x: col / cols, y: row / rows, w: span / cols, h: 1 / rows };
+  });
 }
+
+function loadRects(n, cols, rows) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(layoutKey(n)) || 'null');
+    if (Array.isArray(saved) && saved.length === n &&
+        saved.every(r => r && r.w > 0 && r.h > 0 && r.x >= -EPS && r.y >= -EPS)) return saved;
+  } catch (e) {}
+  return defaultRects(n, cols, rows);
+}
+
+function placeTiles(tiles) {
+  tiles.forEach((t, i) => {
+    const r = gridShape.rects[i];
+    t.style.setProperty('--x', r.x); t.style.setProperty('--y', r.y);
+    t.style.setProperty('--w', r.w); t.style.setProperty('--h', r.h);
+    t.classList.toggle('no-w', r.x <= EPS);
+    t.classList.toggle('no-n', r.y <= EPS);
+    t.classList.toggle('no-e', r.x + r.w >= 1 - EPS);
+    t.classList.toggle('no-s', r.y + r.h >= 1 - EPS);
+  });
+}
+
+function updateGridLayout() {
+  const tiles = visibleGridTiles();
+  const n = tiles.length;
+  if (n === 0) return;
+  const cols = Math.ceil(Math.sqrt(n));
+  const rows = Math.ceil(n / cols);
+  gridShape = { cols, rows, rects: loadRects(n, cols, rows) };
+  placeTiles(tiles);
+}
+
+// Tiles on the far side of `coord` (along axis) whose edges line up and overlap —
+// the closure of edge segments that must move together to avoid gaps/overlap.
+function edgeGroups(rects, start, side, axis) {
+  const [p, s, q, t] = axis === 'x' ? ['x', 'w', 'y', 'h'] : ['y', 'h', 'x', 'w'];
+  const r0 = rects[start];
+  const coord = side === 'end' ? r0[p] + r0[s] : r0[p];
+  const before = new Set(), after = new Set(); // before = tiles ending at coord
+  (side === 'end' ? before : after).add(start);
+  const overlaps = (a, b) => a[q] < b[q] + b[t] - EPS && b[q] < a[q] + a[t] - EPS;
+  let grew = true;
+  while (grew) {
+    grew = false;
+    rects.forEach((r, i) => {
+      if (before.has(i) || after.has(i)) return;
+      if (near(r[p] + r[s], coord) && [...after].some(j => overlaps(r, rects[j]))) { before.add(i); grew = true; }
+      else if (near(r[p], coord) && [...before].some(j => overlaps(r, rects[j]))) { after.add(i); grew = true; }
+    });
+  }
+  return { coord, before: [...before], after: [...after], p, s };
+}
+
+grid.addEventListener('pointerdown', (e) => {
+  const handle = e.target.closest('.rz');
+  if (!handle || e.button !== 0) return;
+  const tile = handle.closest('.tile');
+  if (!tile || tile.parentElement !== grid) return;
+  e.preventDefault(); e.stopPropagation();
+
+  const tilesArr = visibleGridTiles();
+  const idx = tilesArr.indexOf(tile);
+  if (idx < 0) return;
+  const dir = handle.dataset.rz;
+  const start = gridShape.rects.map(r => ({ ...r }));
+  const r0 = start[idx];
+  const groups = [];
+  if (dir.includes('e') && r0.x + r0.w < 1 - EPS) groups.push(edgeGroups(start, idx, 'end', 'x'));
+  if (dir.includes('w') && r0.x > EPS) groups.push(edgeGroups(start, idx, 'start', 'x'));
+  if (dir.includes('s') && r0.y + r0.h < 1 - EPS) groups.push(edgeGroups(start, idx, 'end', 'y'));
+  if (dir.includes('n') && r0.y > EPS) groups.push(edgeGroups(start, idx, 'start', 'y'));
+  if (!groups.length) return;
+
+  const gb = grid.getBoundingClientRect();
+  const usable = { x: gb.width - 9, y: gb.height - 9 };
+  const minFrac = { x: 160 / usable.x, y: 90 / usable.y };
+
+  const x0 = e.clientX, y0 = e.clientY;
+  handle.classList.add('dragging');
+  handle.setPointerCapture(e.pointerId);
+  const hasX = groups.some(g => g.p === 'x'), hasY = groups.some(g => g.p === 'y');
+  const bothCls = (dir === 'ne' || dir === 'sw') ? 'rz-both-alt' : 'rz-both';
+  document.body.classList.add('grid-resizing', hasX && hasY ? bothCls : hasX ? 'rz-col' : 'rz-row');
+
+  let raf = 0, lastX = x0, lastY = y0;
+  const onMove = (ev) => {
+    lastX = ev.clientX; lastY = ev.clientY;
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      const rects = start.map(r => ({ ...r }));
+      for (const g of groups) {
+        const { p, s, coord } = g;
+        const min = minFrac[p];
+        const delta = (p === 'x' ? lastX - x0 : lastY - y0) / usable[p];
+        let lo = -Infinity, hi = Infinity;
+        g.before.forEach(i => { lo = Math.max(lo, start[i][p] + Math.min(min, start[i][s] / 2)); });
+        g.after.forEach(i => { hi = Math.min(hi, start[i][p] + start[i][s] - Math.min(min, start[i][s] / 2)); });
+        const c = Math.max(lo, Math.min(hi, coord + delta));
+        g.before.forEach(i => { rects[i][s] = c - start[i][p]; });
+        g.after.forEach(i => { rects[i][s] = start[i][p] + start[i][s] - c; rects[i][p] = c; });
+      }
+      gridShape.rects = rects;
+      placeTiles(tilesArr);
+    });
+  };
+  const onUp = () => {
+    handle.removeEventListener('pointermove', onMove);
+    handle.removeEventListener('pointerup', onUp);
+    handle.removeEventListener('pointercancel', onUp);
+    handle.classList.remove('dragging');
+    document.body.classList.remove('grid-resizing', 'rz-both', 'rz-both-alt', 'rz-col', 'rz-row');
+    localStorage.setItem(layoutKey(tilesArr.length), JSON.stringify(gridShape.rects));
+  };
+  handle.addEventListener('pointermove', onMove);
+  handle.addEventListener('pointerup', onUp);
+  handle.addEventListener('pointercancel', onUp);
+});
+
+// Double-click any resize handle — back to an even grid
+grid.addEventListener('dblclick', (e) => {
+  if (!e.target.closest('.rz')) return;
+  e.stopPropagation();
+  localStorage.removeItem(layoutKey(visibleGridTiles().length));
+  updateGridLayout();
+});
+// Keep the tile's own click handler (focus/select) from firing after a drag
+grid.addEventListener('click', (e) => { if (e.target.closest('.rz')) e.stopPropagation(); }, true);
 
 function updateGrid() {
   countEl.textContent = `${tiles.size} instances`;
@@ -1564,6 +1730,8 @@ function createTile(pane) {
     <div class="tile-fab scroll-fab" title="Scroll to bottom">↓</div>
     <div class="tile-fab mic-fab" title="Voice input">🎤</div>
     <div class="tile-close" title="Close session (Ctrl+C×2)">✕</div>
+    ${['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map(d =>
+      `<div class="rz rz-${d}" data-rz="${d}" title="Drag to resize · double-click to reset"></div>`).join('')}
   `;
   grid.appendChild(tile);
 
@@ -2049,16 +2217,19 @@ async function init() {
       const s = tiles.get(target);
       if (s) grid.appendChild(s.tile);
     }
+    updateGridLayout();
   }
 
   Sortable.create(grid, {
     animation: 200,
     handle: '.tile-header',
     ghostClass: 'tile-ghost',
+    onChange: () => updateGridLayout(), // tiles are absolutely placed by slot — re-place on each swap
     onEnd: () => {
       localStorage.setItem('cw-tile-order', JSON.stringify(
         Array.from(grid.children).map(t => t.id.replace('tile-', ''))
       ));
+      updateGridLayout();
     }
   });
 
@@ -2072,6 +2243,7 @@ searchInput.addEventListener('input', () => {
     const text = state.tile.querySelector('.tile-header').textContent.toLowerCase();
     state.tile.style.display = (!q || text.includes(q)) ? '' : 'none';
   }
+  updateGridLayout();
 });
 document.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.key === 'f') { e.preventDefault(); searchInput.focus(); searchInput.select(); }
@@ -2150,7 +2322,7 @@ function navTiles() {
 }
 
 function gridColCount() {
-  return Math.max(getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length, 1);
+  return Math.max(gridShape.cols, 1);
 }
 
 function moveFocus(delta, focusBody = true) {
