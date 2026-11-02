@@ -840,6 +840,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     let popover = NSPopover()
     var serverProcess: Process?   // the claude-wall server we spawned (nil if we reused a running one)
     var recentSpawns: [Date] = [] // spawn timestamps, to stop a crash-loop respawning forever
+    var healthMisses = 0          // consecutive failed /api/summary polls (server watchdog)
     var lastUsage: Usage?
     var lastLimits: Limits?
 
@@ -961,6 +962,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             return
         }
         recentSpawns.append(now)
+        NSLog("Claude Wall: spawning server")
         let p = Process()
         p.executableURL = URL(fileURLWithPath: bin)
         p.arguments = ["--serve", "--port", "7685"]
@@ -968,6 +970,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Finder-launched apps get a minimal PATH; the server needs tmux/git.
         env["PATH"] = (env["PATH"].map { $0 + ":" } ?? "") + "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
         p.environment = env
+        // Keep the server's output: without it a server that dies at login leaves no trace.
+        if let log = serverLog() {
+            p.standardOutput = log
+            p.standardError = log
+        }
         p.terminationHandler = { [weak self] _ in
             // respawn if our owned server dies while we're still running
             guard let self = self, self.serverProcess != nil else { return }
@@ -982,6 +989,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             }
         }
         do { try p.run(); serverProcess = p } catch { NSLog("Claude Wall: server spawn failed \(error)") }
+    }
+
+    // ~/Library/Logs/claude-wall-server.log, appended per spawn; rotated past 5 MB.
+    func serverLog() -> FileHandle? {
+        let fm = FileManager.default
+        let url = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/claude-wall-server.log")
+        if let size = (try? fm.attributesOfItem(atPath: url.path))?[.size] as? Int, size > 5_000_000 {
+            let old = url.deletingPathExtension().appendingPathExtension("old.log")
+            try? fm.removeItem(at: old)
+            try? fm.moveItem(at: url, to: old)
+        }
+        if !fm.fileExists(atPath: url.path) { fm.createFile(atPath: url.path, contents: nil) }
+        guard let fh = try? FileHandle(forWritingTo: url) else { return nil }
+        fh.seekToEndOfFile()
+        fh.write("\n--- spawn \(Date())\n".data(using: .utf8)!)
+        return fh
+    }
+
+    // Watchdog: the spawn at launch can fail or give up (crash-loop guard), and
+    // nothing retried it — the menubar app stayed up with no server behind it.
+    // After ~10 s of failed polls with no live server of ours, try again; the
+    // crash-loop guard still caps it at 3 spawns a minute.
+    func serverMissed() {
+        healthMisses += 1
+        guard healthMisses >= 4, serverProcess?.isRunning != true else { return }
+        healthMisses = 0
+        ensureServer()
     }
 
     func applicationWillTerminate(_ note: Notification) {
@@ -1079,8 +1113,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func applyStatus(_ s: Summary?) {
         guard let s = s else {
             statusItem.button?.title = ""
+            serverMissed()
             return
         }
+        healthMisses = 0
         var idle = 0, working = 0, pending = 0, stale = 0
         var map: [String: String] = [:]
         for p in s.panes {
