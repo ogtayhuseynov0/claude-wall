@@ -1,0 +1,443 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Fleet Log</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<meta name="theme-color" content="#0d0f14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  :root {
+    --bg:#0d0f14; --card:#161922; --card2:#1c2029; --line:#262b36;
+    --fg:#f0f2f6; --muted:#8b91a3; --dim:#5b6172;
+    --work:#f5a742; --perm:#e5566a; --stale:#e8b93b; --idle:#57d977; --codex:#8b7cf0;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  [hidden] { display:none !important; }
+  html,body { margin:0; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; }
+  body { padding:0 0 calc(24px + env(safe-area-inset-bottom)); }
+  a { color:inherit; text-decoration:none; }
+  button { font:inherit; color:inherit; }
+
+  header { position:sticky; top:0; z-index:5; background:rgba(13,15,20,0.92);
+    backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+    padding:calc(10px + env(safe-area-inset-top)) 16px 10px; border-bottom:1px solid var(--line); }
+  .top { max-width:1180px; margin:0 auto; display:flex; align-items:center; gap:10px; }
+  .iconbtn { background:none; border:0; color:var(--muted); padding:6px; border-radius:8px; cursor:pointer;
+    display:inline-flex; align-items:center; gap:4px; font-size:13px; }
+  .iconbtn:active { background:var(--card); }
+  .iconbtn svg { width:19px; height:19px; }
+  h1 { font-size:16px; font-weight:700; margin:0; letter-spacing:-.2px; white-space:nowrap; }
+  .crumb { color:var(--muted); font-weight:600; font-size:15px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .status { margin-left:auto; color:var(--dim); font-size:12px; white-space:nowrap; }
+  .status.busy { color:var(--work); }
+  svg.ic { fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+
+  main { max-width:1180px; margin:0 auto; padding:14px 16px 0; }
+  .cols { display:grid; gap:14px; align-items:start; }
+  .col { display:grid; gap:14px; min-width:0; }
+  @media (min-width:980px) { .cols { grid-template-columns:1fr 1fr; } }
+
+  .sec { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; min-width:0; }
+  .sec h2 { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted);
+    margin:0 0 6px; display:flex; align-items:center; gap:8px; }
+  .sec h2 .n { color:var(--fg); background:var(--card2); border-radius:6px; padding:1px 7px; font-size:11.5px;
+    letter-spacing:0; font-variant-numeric:tabular-nums; }
+  .sec h2 .more { margin-left:auto; text-transform:none; letter-spacing:0; font-weight:600; color:var(--dim);
+    background:none; border:0; cursor:pointer; font-size:12px; padding:2px 0; }
+  .sec.warn { border-color:rgba(245,167,66,.35); }
+  .empty { color:var(--dim); font-size:13.5px; padding:6px 0 4px; }
+  .showmore { display:block; width:100%; margin-top:4px; padding:8px 0 2px; background:none; border:0;
+    border-top:1px solid var(--line); color:var(--muted); font-size:12.5px; font-weight:600; cursor:pointer; text-align:left; }
+
+  /* items */
+  .it { display:flex; gap:10px; align-items:flex-start; padding:9px 0; border-top:1px solid var(--line); }
+  .it:first-of-type { border-top:0; }
+  .dot { width:8px; height:8px; border-radius:50%; margin-top:6px; flex:0 0 auto; background:var(--dim); }
+  .k-done .dot { background:var(--idle); } .k-waiting .dot { background:var(--work); }
+  .k-decision .dot { background:var(--codex); } .k-lesson .dot { background:var(--stale); }
+  .chk { flex:0 0 auto; width:20px; height:20px; margin-top:1px; border-radius:6px; border:1.5px solid var(--dim);
+    background:none; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; padding:0; }
+  .chk svg { width:13px; height:13px; opacity:0; }
+  .k-waiting .chk { border-color:var(--work); }
+  .closed .chk { background:var(--idle); border-color:var(--idle); color:#0d0f14; }
+  .closed .chk svg { opacity:1; }
+  .closed .txt { color:var(--dim); text-decoration:line-through; }
+  .body { flex:1; min-width:0; }
+  .txt { font-size:14.5px; line-height:1.4; overflow-wrap:anywhere; }
+  .fix { font-size:13.5px; color:var(--muted); margin-top:3px; line-height:1.4; overflow-wrap:anywhere; }
+  .fix b { color:var(--idle); font-weight:600; }
+  .meta { font-size:12px; color:var(--dim); margin-top:3px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .pchip { color:var(--muted); background:var(--card2); border-radius:6px; padding:1px 7px; font-weight:600; }
+  .pchip:active { color:var(--fg); }
+  .src-you { color:var(--codex); } .src-agent { color:var(--work); }
+  .del { flex:0 0 auto; background:none; border:0; color:var(--dim); width:26px; height:26px; border-radius:7px;
+    cursor:pointer; display:inline-flex; align-items:center; justify-content:center; padding:0; opacity:.6; }
+  .del svg { width:14px; height:14px; }
+  .del.armed { opacity:1; background:var(--perm); color:#fff; }
+  @media (hover:hover) { .it .del { opacity:0; } .it:hover .del { opacity:.7; } .it .del.armed { opacity:1; } }
+
+  /* teach-once rule cards */
+  .rule { padding:10px 0; border-top:1px solid var(--line); }
+  .rule:first-of-type { border-top:0; }
+  .rule .txt { font-weight:600; }
+  .ra { display:flex; gap:8px; flex-wrap:wrap; margin-top:9px; }
+  .btn { border:1px solid var(--line); background:var(--card2); color:var(--fg); border-radius:9px; padding:7px 11px;
+    font-size:13px; font-weight:600; cursor:pointer; }
+  .btn:active { filter:brightness(1.2); }
+  .btn.primary { background:var(--work); border-color:var(--work); color:#1a1206; }
+  .btn.ghost { background:none; color:var(--muted); }
+  .btn:disabled { opacity:.5; }
+  .saved { font-size:12px; color:var(--idle); }
+
+  /* project cards */
+  .pgrid { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:10px; margin-top:4px; }
+  .pcard { background:var(--card2); border:1px solid var(--line); border-radius:12px; padding:11px 12px 10px;
+    display:grid; gap:8px; min-width:0; }
+  .pcard:active { border-color:var(--muted); }
+  .pc-top { display:flex; align-items:baseline; gap:8px; min-width:0; }
+  .pc-top b { font-size:14.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .pc-top span { margin-left:auto; color:var(--dim); font-size:12px; flex:0 0 auto; }
+  .spark { display:flex; align-items:flex-end; gap:2px; height:22px; }
+  .spark i { flex:1; background:var(--line); border-radius:2px; min-height:2px; }
+  .spark i.on { background:#3d6b4d; } .spark i.today { background:var(--idle); }
+  .pc-stats { display:flex; gap:10px; flex-wrap:wrap; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .pc-stats .w { color:var(--work); font-weight:700; }
+
+  /* project view */
+  .phead { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .phead h2 { font-size:22px; margin:0; letter-spacing:-.3px; }
+  .path { display:inline-flex; align-items:center; gap:6px; color:var(--dim); font-size:12.5px; font-family:ui-monospace,Menlo,monospace;
+    background:var(--card); border:1px solid var(--line); border-radius:8px; padding:4px 6px 4px 9px; min-width:0; max-width:100%; }
+  .path span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .path button { background:none; border:0; color:var(--muted); cursor:pointer; padding:2px; display:inline-flex; }
+  .path button svg { width:14px; height:14px; }
+  .addbar { display:flex; gap:8px; margin-bottom:14px; }
+  .addbar select, .addbar input { background:var(--card); color:var(--fg); border:1px solid var(--line);
+    border-radius:10px; padding:9px 10px; font-size:14.5px; min-width:0; }
+  .addbar input { flex:1; }
+  .addbar select { flex:0 0 auto; }
+  .day { font-size:12px; font-weight:700; color:var(--muted); margin:10px 0 0; }
+  .day:first-of-type { margin-top:2px; }
+
+  .hero-empty { text-align:center; padding:42px 16px; color:var(--muted); }
+  .hero-empty h2 { color:var(--fg); font-size:18px; margin:0 0 6px; }
+  .hero-empty p { margin:0 auto 16px; max-width:46ch; line-height:1.5; font-size:14px; }
+  .foot { text-align:center; margin:18px 0 0; }
+  .toast { position:fixed; left:50%; bottom:calc(18px + env(safe-area-inset-bottom)); transform:translateX(-50%);
+    background:var(--card2); border:1px solid var(--line); color:var(--fg); padding:9px 14px; border-radius:10px;
+    font-size:13.5px; z-index:30; max-width:calc(100% - 32px); }
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <a class="iconbtn" href="/" title="Back to the wall" aria-label="Back to the wall">
+      <svg class="ic" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
+    </a>
+    <a href="#" id="home"><h1>Fleet Log</h1></a>
+    <span class="crumb" id="crumb"></span>
+    <span class="status" id="status"></span>
+    <button class="iconbtn" id="refresh" title="Refresh" aria-label="Refresh">
+      <svg class="ic" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+    </button>
+  </div>
+</header>
+<main id="app"></main>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const app = document.getElementById('app');
+const ICON_CHECK = '<svg class="ic" viewBox="0 0 24 24" style="stroke-width:3"><path d="M20 6 9 17l-5-5"/></svg>';
+const ICON_X = '<svg class="ic" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+const ICON_COPY = '<svg class="ic" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+let cache = { overview: null, project: {} };
+let showClosed = false;
+const expanded = new Set(); // section keys the viewer opened
+
+// Render at most `limit` items unless the section was opened; adds the toggle.
+function capped(key, arr, limit, fn) {
+  const open = expanded.has(key);
+  let html = (open ? arr : arr.slice(0, limit)).map(fn).join('');
+  if (arr.length > limit) html += `<button class="showmore" data-act="expand" data-key="${key}">${open ? 'Show less' : 'Show all ' + arr.length}</button>`;
+  return html;
+}
+// Header toggle for a section that starts collapsed.
+const toggle = key => `<button class="more" data-act="expand" data-key="${key}">${expanded.has(key) ? 'Hide' : 'Show'}</button>`;
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function ago(ms) {
+  const s = (Date.now() - ms) / 1000;
+  if (s < 60) return 'now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+function route() {
+  const m = location.hash.match(/^#p\/(.+)$/);
+  return m ? { project: decodeURIComponent(m[1]) } : {};
+}
+const projLink = name => '#p/' + encodeURIComponent(name);
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, 2800);
+}
+async function api(path, body) {
+  const opt = body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : { cache: 'no-store' };
+  const r = await fetch(path, opt);
+  if (!r.ok) throw new Error((await r.text()).trim() || ('HTTP ' + r.status));
+  return r.json();
+}
+
+const SRC = { auto: 'auto', agent: 'agent', you: 'you' };
+function item(e, opt = {}) {
+  const tick = e.kind === 'todo' || e.kind === 'waiting';
+  const closed = e.status === 'closed';
+  return `<div class="it k-${e.kind}${closed ? ' closed' : ''}" data-id="${e.id}">
+    ${tick ? `<button class="chk" data-act="toggle" data-status="${closed ? 'open' : 'closed'}" aria-label="${closed ? 'Reopen' : 'Mark done'}">${ICON_CHECK}</button>` : '<span class="dot"></span>'}
+    <div class="body">
+      <div class="txt">${esc(e.text)}</div>
+      ${e.kind === 'lesson' && e.detail ? `<div class="fix"><b>Fix:</b> ${esc(e.detail)}</div>` : ''}
+      <div class="meta">${opt.project ? `<a class="pchip" href="${projLink(e.project)}">${esc(e.project)}</a>` : ''}
+        <span class="src-${e.source}">${SRC[e.source] || e.source}</span><span>·</span><span>${ago(e.closedAt || e.at)}</span></div>
+    </div>
+    <button class="del" data-act="del" title="Delete" aria-label="Delete">${ICON_X}</button>
+  </div>`;
+}
+function ruleCard(e, opt = {}) {
+  if (e.status === 'saved') {
+    return `<div class="rule" data-id="${e.id}"><div class="txt">${esc(e.text)}</div>
+      <div class="meta"><span class="saved">Saved to ${e.detail === 'global' ? 'all projects' : esc(e.project)}</span><span>·</span><span>${ago(e.at)}</span></div></div>`;
+  }
+  const g = e.detail === 'global';
+  return `<div class="rule" data-id="${e.id}">
+    <div class="txt">${esc(e.text)}</div>
+    <div class="meta">${opt.project ? `from <a class="pchip" href="${projLink(e.project)}">${esc(e.project)}</a><span>·</span>` : ''}<span>${ago(e.at)}</span></div>
+    <div class="ra">
+      <button class="btn${g ? '' : ' primary'}" data-act="rule" data-a="project">Save to ${esc(e.project)}</button>
+      <button class="btn${g ? ' primary' : ''}" data-act="rule" data-a="global">Save for all projects</button>
+      <button class="btn ghost" data-act="rule" data-a="dismiss">Dismiss</button>
+    </div>
+  </div>`;
+}
+function section(title, n, inner, cls = '', extra = '') {
+  return `<section class="sec ${cls}"><h2>${title}${n != null ? ` <span class="n">${n}</span>` : ''}${extra}</h2>${inner}</section>`;
+}
+function spark(arr) {
+  const max = Math.max(1, ...arr);
+  return '<div class="spark" aria-hidden="true">' + arr.map((v, i) =>
+    `<i class="${v ? (i === arr.length - 1 ? 'today' : 'on') : ''}" style="height:${v ? Math.max(18, Math.round(v / max * 100)) : 8}%"></i>`).join('') + '</div>';
+}
+
+function renderOverview(d) {
+  document.getElementById('crumb').textContent = '';
+  if (!d.projects.length) {
+    app.innerHTML = `<div class="hero-empty"><h2>Nothing logged yet</h2>
+      <p>After each agent run, a quick read of what happened lands here: what got done, what's left, what's waiting on you, decisions, lessons and rules to save. Agents can also report with <code>cw log</code>.</p>
+      <button class="btn primary" data-act="backfill">Read the last 24 hours</button></div>`;
+    return;
+  }
+  const waiting = d.waiting.length
+    ? d.waiting.map(e => item(e, { project: 1 })).join('')
+    : '<div class="empty">Nothing is waiting on you.</div>';
+  const rules = d.rules.map(e => ruleCard(e, { project: 1 })).join('');
+  const projects = '<div class="pgrid">' + d.projects.map(p => `<a class="pcard" href="${projLink(p.name)}">
+      <div class="pc-top"><b>${esc(p.name)}</b><span>${ago(p.lastAt)}</span></div>
+      ${spark(p.spark)}
+      <div class="pc-stats">${p.waiting ? `<span class="w">${p.waiting} waiting</span>` : ''}<span>${p.open} to-do</span><span>${p.done7} done this week</span></div>
+    </a>`).join('') + '</div>';
+  const recent = d.recent.length ? capped('recent', d.recent, 5, e => item(e, { project: 1 })) : '<div class="empty">Nothing shipped yet.</div>';
+  const lessons = expanded.has('lessons') ? d.lessons.map(e => item(e, { project: 1 })).join('') : '';
+
+  app.innerHTML = `<div class="cols">
+    <div class="col">
+      ${section('Waiting on you', d.waiting.length, waiting, d.waiting.length ? 'warn' : '')}
+      ${d.rules.length ? section('Teach once', d.rules.length, rules) : ''}
+      ${section('Recently shipped', null, recent)}
+    </div>
+    <div class="col">
+      ${section('Projects', d.projects.length, projects)}
+      ${d.lessons.length ? section('Lessons', d.lessons.length, lessons, '', toggle('lessons')) : ''}
+    </div>
+  </div>
+  <div class="foot"><button class="btn ghost" data-act="backfill">Read sessions from the last 24 hours</button></div>`;
+}
+
+function dayLabel(ms) {
+  const d = new Date(ms), t = new Date();
+  const y = new Date(); y.setDate(t.getDate() - 1);
+  if (d.toDateString() === t.toDateString()) return 'Today';
+  if (d.toDateString() === y.toDateString()) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function renderProject(name, d) {
+  document.getElementById('crumb').textContent = '/ ' + name;
+  const by = k => d.entries.filter(e => e.kind === k);
+  const open = k => by(k).filter(e => e.status === 'open');
+  const closedTicks = d.entries.filter(e => (e.kind === 'todo' || e.kind === 'waiting') && e.status === 'closed')
+    .sort((a, b) => (b.closedAt || b.at) - (a.closedAt || a.at));
+  const list = (arr, empty) => arr.length ? arr.map(e => item(e)).join('') : `<div class="empty">${empty}</div>`;
+
+  let done = '';
+  let last = '';
+  const doneAll = by('done');
+  const doneShown = expanded.has('done') ? doneAll : doneAll.slice(0, 6);
+  for (const e of doneShown) {
+    const l = dayLabel(e.at);
+    if (l !== last) { done += `<div class="day">${l}</div>`; last = l; }
+    done += item(e);
+  }
+  if (!done) done = '<div class="empty">Nothing shipped yet.</div>';
+  if (doneAll.length > 6) done += `<button class="showmore" data-act="expand" data-key="done">${expanded.has('done') ? 'Show less' : 'Show all ' + doneAll.length}</button>`;
+
+  const todoMore = closedTicks.length
+    ? `<button class="more" data-act="closed">${showClosed ? 'Hide' : 'Show'} ${closedTicks.length} finished</button>` : '';
+  const rules = by('rule').filter(e => e.status !== 'dismissed');
+  const root = d.project && d.project.root;
+
+  app.innerHTML = `<div class="phead"><h2>${esc(name)}</h2>
+      ${root ? `<span class="path"><span>${esc(root)}</span><button data-act="copy" data-text="${esc(root)}" title="Copy path" aria-label="Copy path">${ICON_COPY}</button></span>` : ''}</div>
+    <form class="addbar" id="addform">
+      <select id="addkind" aria-label="Kind">
+        <option value="todo">To-do</option><option value="waiting">Waiting on me</option>
+        <option value="done">Done</option><option value="decision">Decision</option><option value="note">Note</option>
+      </select>
+      <input id="addtext" placeholder="Add to ${esc(name)}…" autocomplete="off" aria-label="Text">
+      <button class="btn primary" type="submit">Add</button>
+    </form>
+    <div class="cols">
+      <div class="col">
+        ${section('Waiting on you', open('waiting').length, list(open('waiting'), 'Nothing is waiting on you.'), open('waiting').length ? 'warn' : '')}
+        ${section('To-do', open('todo').length, (open('todo').length ? capped('todo', open('todo'), 6, e => item(e)) : '<div class="empty">No open to-dos.</div>') + (showClosed ? closedTicks.map(e => item(e)).join('') : ''), '', todoMore)}
+        ${rules.length ? section('Rules', null, rules.map(e => ruleCard(e)).join('')) : ''}
+      </div>
+      <div class="col">
+        ${section('Done', null, done)}
+        ${by('decision').length ? section('Decisions', by('decision').length, capped('dec', by('decision'), 3, e => item(e))) : ''}
+        ${by('lesson').length ? section('Lessons', by('lesson').length, expanded.has('plessons') ? list(by('lesson')) : '', '', toggle('plessons')) : ''}
+        ${by('note').length ? section('Notes', by('note').length, capped('notes', by('note'), 4, e => item(e))) : ''}
+      </div>
+    </div>`;
+}
+
+let loading = false;
+async function load() {
+  if (loading) return;
+  loading = true;
+  const r = route();
+  try {
+    if (r.project) {
+      const d = await api('/api/log?project=' + encodeURIComponent(r.project));
+      cache.project[r.project] = d;
+      if (route().project === r.project && !editing()) renderProject(r.project, d);
+    } else {
+      const d = await api('/api/log');
+      cache.overview = d;
+      if (!route().project) renderOverview(d);
+      const st = document.getElementById('status');
+      st.textContent = d.queued ? `reading ${d.queued} session${d.queued > 1 ? 's' : ''}…` : '';
+      st.className = 'status' + (d.queued ? ' busy' : '');
+    }
+  } catch (e) {
+    toast('Could not load: ' + e.message);
+  } finally {
+    loading = false;
+  }
+}
+// Don't redraw under someone typing into the add bar.
+const editing = () => document.activeElement && document.activeElement.id === 'addtext' && document.activeElement.value;
+
+function redraw() {
+  const r = route();
+  if (r.project && cache.project[r.project]) renderProject(r.project, cache.project[r.project]);
+  else if (!r.project && cache.overview) renderOverview(cache.overview);
+}
+
+function show() {
+  const r = route();
+  if (r.project && cache.project[r.project]) renderProject(r.project, cache.project[r.project]);
+  else if (!r.project && cache.overview) renderOverview(cache.overview);
+  window.scrollTo(0, 0);
+  load();
+}
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast('Path copied'); return; } catch (e) {}
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); toast('Path copied'); } catch (e) { toast(text); }
+  ta.remove();
+}
+
+app.addEventListener('click', async ev => {
+  const b = ev.target.closest('[data-act]');
+  if (!b) return;
+  const row = b.closest('[data-id]');
+  const id = row && row.dataset.id;
+  const act = b.dataset.act;
+  try {
+    if (act === 'toggle') {
+      row.classList.toggle('closed');
+      await api('/api/log/update', { id, status: b.dataset.status });
+    } else if (act === 'del') {
+      if (!b.classList.contains('armed')) {
+        b.classList.add('armed');
+        setTimeout(() => b.classList.remove('armed'), 2500);
+        return;
+      }
+      row.remove();
+      await api('/api/log/delete', { id });
+    } else if (act === 'rule') {
+      b.disabled = true;
+      const r = await api('/api/log/rule', { id, action: b.dataset.a });
+      toast(r.status === 'dismissed' ? 'Dismissed' : 'Saved to ' + r.files.map(f => f.split('/').slice(-2).join('/')).join(' and '));
+    } else if (act === 'backfill') {
+      b.disabled = true;
+      const r = await api('/api/log/backfill?hours=24', {});
+      toast(r.queued ? `Reading ${r.queued} recent session${r.queued > 1 ? 's' : ''}. Entries appear over the next few minutes.` : 'No new sessions in the last 24 hours.');
+    } else if (act === 'closed' || act === 'expand') {
+      if (act === 'closed') showClosed = !showClosed;
+      else expanded.has(b.dataset.key) ? expanded.delete(b.dataset.key) : expanded.add(b.dataset.key);
+      return redraw();
+    } else if (act === 'copy') {
+      return copyText(b.dataset.text);
+    }
+  } catch (e) {
+    toast(e.message);
+  }
+  load();
+});
+
+app.addEventListener('submit', async ev => {
+  if (ev.target.id !== 'addform') return;
+  ev.preventDefault();
+  const input = document.getElementById('addtext');
+  const text = input.value.trim();
+  if (!text) return;
+  try {
+    await api('/api/log/add', { project: route().project, kind: document.getElementById('addkind').value, text, source: 'you' });
+    input.value = '';
+    input.blur();
+  } catch (e) {
+    toast(e.message);
+  }
+  load();
+});
+
+document.getElementById('refresh').addEventListener('click', load);
+document.getElementById('home').addEventListener('click', ev => { ev.preventDefault(); location.hash = ''; });
+window.addEventListener('hashchange', show);
+setInterval(() => { if (document.visibilityState === 'visible') load(); }, 15000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });
+show();
+</script>
+</body>
+</html>

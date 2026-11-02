@@ -102,6 +102,7 @@ func runWeb(port int) {
 	webhooks = newWebhookStore()
 	secrets.load()
 	initFinance()
+	initFleetLog() // central per-project logbook fed by agent runs
 	go hub.run()
 	sched.load()
 	go sched.run()
@@ -431,6 +432,10 @@ func runWeb(port int) {
 		if (event.EventName == "Stop" || event.EventName == "StopFailure") && event.TranscriptPath != "" {
 			go finance.processTranscript(event)
 		}
+		// Fleet Log: queue this session to be read once it goes quiet.
+		if event.EventName == "Stop" {
+			fleetLog.onStop(event)
+		}
 
 		// Notify the hub to push a status update to matching panes
 		hub.pushHookStatus(hooks)
@@ -642,6 +647,15 @@ func runWeb(port int) {
 	http.HandleFunc("/api/usage", handleUsage)
 	http.HandleFunc("/api/limits", handleLimits)
 
+	// Fleet Log: central per-project logbook (todo / done / waiting / decisions /
+	// lessons / rule suggestions), written by agents and by after-run capture.
+	http.HandleFunc("/api/log", handleLogGet)
+	http.HandleFunc("/api/log/add", handleLogAdd)
+	http.HandleFunc("/api/log/update", handleLogUpdate)
+	http.HandleFunc("/api/log/delete", handleLogDelete)
+	http.HandleFunc("/api/log/rule", handleLogRule)
+	http.HandleFunc("/api/log/backfill", handleLogBackfill)
+
 	// Health check.
 	//
 	// 200 answers exactly one question: is a claude-wall server alive on this
@@ -737,6 +751,7 @@ func runWeb(port int) {
 	}
 	http.HandleFunc("/browser", noStorePage("browser.html"))
 	http.HandleFunc("/ports", noStorePage("ports.html"))
+	http.HandleFunc("/log", noStorePage("log.html"))
 	fileSrv := http.FileServer(http.FS(sub))
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// SPA asset fallback: a page opened via /proxy/<port>/ requests its

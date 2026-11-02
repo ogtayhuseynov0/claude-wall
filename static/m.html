@@ -41,10 +41,10 @@
   /* system stats (cpu/ram/disk/gpu) on the counts line */
   .sys-sep { width:1px; height:15px; background:var(--line); margin:0 2px; }
   .counts .sys { color:var(--dim); font-weight:600; }
-  #usage, #notify, #launch, #ports, #browser, #redeploy, #drive { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
+  #usage, #notify, #launch, #ports, #browser, #redeploy, #drive, #fleetlog { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
     display:inline-flex; border-radius:8px; }
-  #usage:active, #notify:active, #launch:active, #ports:active, #browser:active, #redeploy:active, #drive:active { background:var(--card); }
-  #usage svg, #notify svg, #launch svg, #ports svg, #browser svg, #redeploy svg, #drive svg { width:19px; height:19px; }
+  #usage:active, #notify:active, #launch:active, #ports:active, #browser:active, #redeploy:active, #drive:active, #fleetlog:active { background:var(--card); }
+  #usage svg, #notify svg, #launch svg, #ports svg, #browser svg, #redeploy svg, #drive svg, #fleetlog svg { width:19px; height:19px; }
   #launch { color:var(--work); }
   #notify.on { color:var(--work); }
   @keyframes spin { to { transform:rotate(360deg); } }
@@ -235,6 +235,9 @@
       </div>
     </div>
     <div class="btnrow">
+      <button id="fleetlog" title="Fleet Log" onclick="location.href='/log'">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/><path d="M9 7h7"/><path d="M9 11h5"/></svg>
+      </button>
       <button id="drive" title="Shared drive">
         <svg class="ic" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>
       </button>

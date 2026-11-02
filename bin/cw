@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# cw — report to claude-wall's Fleet Log from any agent or shell.
+#
+#   cw log todo     "Rate-limit the scraper"
+#   cw log done     "Map markers show exact coordinates"
+#   cw log wait     "Apply migration 0042 in Supabase"      (blocked on the owner)
+#   cw log decision "SQLite over Postgres: single user, local only"
+#   cw log lesson   "Cloudflare 400 on GraphQL" "Warm a cookie jar first"
+#   cw log note     "Anything else worth keeping"
+#
+# The project is taken from the current directory (its git repo).
+set -euo pipefail
+
+CW_URL="${CW_URL:-http://127.0.0.1:7685}"
+
+usage() {
+  sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' >&2
+  exit 2
+}
+
+[ $# -ge 1 ] || usage
+cmd=$1
+shift
+
+case "$cmd" in
+  log)
+    [ $# -ge 2 ] || usage
+    kind=$1 text=$2 detail=${3:-}
+    body=$(jq -n --arg kind "$kind" --arg text "$text" --arg detail "$detail" \
+      --arg cwd "$PWD" --arg pane "${TMUX_PANE:-}" \
+      '{kind: $kind, text: $text, detail: $detail, cwd: $cwd, pane: $pane, source: "agent"}')
+    if out=$(curl -sS -m 5 -H 'Content-Type: application/json' -d "$body" -w '\n%{http_code}' "$CW_URL/api/log/add" 2>&1); then
+      code=${out##*$'\n'}
+      if [ "$code" = 200 ]; then
+        echo "logged $kind: $text"
+      else
+        echo "cw: ${out%$'\n'*}" >&2
+        exit 1
+      fi
+    else
+      echo "cw: claude-wall not reachable at $CW_URL" >&2
+      exit 1
+    fi
+    ;;
+  -h | --help | help) usage ;;
+  *) usage ;;
+esac
