@@ -14,10 +14,21 @@
 <meta name="apple-mobile-web-app-title" content="Claude Wall">
 <script src="/ansi_up.min.js"></script>
 <style>
+  /* Phones have neither Menlo nor a Nerd Font: without these, prompt icons and
+     Claude Code's ⎿ ⏺ ⏵ ✻ draw as empty boxes. Split by range so only the
+     files a pane's text needs are downloaded (see static/fonts/README.md). */
+  @font-face { font-family:"CW Mono"; src:url(/fonts/cw-mono.woff2) format("woff2"); font-display:swap;
+    unicode-range:U+20-7E,U+A0-24F,U+2000-206F,U+20A0-20CF,U+2190-21FF,U+2500-25FF; }
+  @font-face { font-family:"CW Mono"; src:url(/fonts/cw-mono-icons.woff2) format("woff2"); font-display:swap;
+    unicode-range:U+E000-F8FF; }
+  @font-face { font-family:"CW Mono"; src:url(/fonts/cw-mono-material.woff2) format("woff2"); font-display:swap;
+    unicode-range:U+F0000-F1AF0; }
+  @font-face { font-family:"CW Symbols"; src:url(/fonts/cw-symbols.woff2) format("woff2"); font-display:swap;
+    unicode-range:U+250-3FF,U+2000-2BFF,U+2E00-2E7F,U+1F100-1F1FF; }
   :root { --bg:transparent; --bar:rgba(24,27,36,0.35); --fg:#f0f2f6; --muted:#9aa0b0; --accent:#6ea1f7; }
   * { box-sizing:border-box; }
   html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
-    font-family:"SFMono-Regular",Menlo,Consolas,"Liberation Mono",monospace; }
+    font-family:"SFMono-Regular",Menlo,Consolas,"Liberation Mono","CW Mono","CW Symbols",monospace; }
   body { display:flex; flex-direction:column; outline:none; position:relative; overflow:hidden; }
   #bar { flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:4px 8px;
     background:var(--bar); border-bottom:1px solid rgba(80,86,104,0.35); font-size:12px; user-select:none; -webkit-app-region:drag; }
@@ -43,7 +54,7 @@
   .mobile #back .ic, .mobile .btn .ic { width:23px; height:23px; }
   .mobile #title { font-size:14px; }
   #term { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:8px 10px; -webkit-overflow-scrolling:touch; }
-  pre { margin:0; white-space:pre-wrap; word-break:break-word; font-size:var(--fs,12.5px); line-height:1.35; }
+  pre { margin:0; font-family:inherit; white-space:pre-wrap; word-break:break-word; font-size:var(--fs,12.5px); line-height:1.35; }
   /* mobile: don't wrap wide TUI lines into 4-5 rows — keep one line, fit the
      font to the pane width, allow horizontal scroll once at the min size. */
   .mobile #term { overflow-x:auto; }
@@ -57,13 +68,15 @@
   /* on-screen key toolbar (Esc/Ctrl/Tab/arrows the soft keyboard lacks) */
   #keys { display:none; flex:0 0 auto; gap:6px; padding:6px 8px calc(6px + env(safe-area-inset-bottom));
     background:#161922; border-top:1px solid #2a2e3a; overflow-x:auto; white-space:nowrap; }
-  #keys button { flex:0 0 auto; min-width:40px; height:38px; border-radius:8px; border:1px solid #2f3340;
-    background:#20242e; color:var(--fg); font-size:14px; font-family:inherit; }
+  #keys button { flex:0 0 auto; min-width:42px; height:40px; padding:0 10px; border-radius:9px; border:1px solid #2f3340;
+    background:#20242e; color:var(--fg); font-size:15px; font-family:inherit;
+    display:inline-flex; align-items:center; justify-content:center; touch-action:manipulation; user-select:none; }
+  #keys .ic { width:21px; height:21px; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; fill:none; flex:0 0 auto; }
   #keys button:active { background:#2f3340; }
   #keys button.on { background:var(--accent); color:#0d0f14; border-color:var(--accent); }
-  #keys button#kbottom { background:var(--accent); color:#0d0f14; border-color:var(--accent); font-size:19px; font-weight:700; }
-  #keys button#krestart { font-size:17px; }
-  #keys button#kattach { min-width:46px; display:inline-flex; align-items:center; justify-content:center; gap:5px; }
+  #keys button#kbottom { background:var(--accent); color:#0d0f14; border-color:var(--accent); }
+  #keys button#kbottom .ic { stroke-width:2.5; }
+  #keys button#kattach { min-width:46px; gap:5px; }
   #keys button .spin { display:inline-block; width:14px; height:14px; border:2px solid #ffffff33;
     border-top-color:var(--accent); border-radius:50%; animation:kspin .7s linear infinite; flex:0 0 auto; }
   #keys button .pn { font-size:12px; font-weight:700; }
@@ -118,20 +131,20 @@
   <div id="term"><pre id="history"></pre><pre id="live"></pre></div>
   <textarea id="kbd" rows="1" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" inputmode="text"></textarea>
   <div id="keys">
-    <button data-k="bottom" id="kbottom" title="Jump to latest" hidden>⤓</button>
-    <button data-k="attach" id="kattach" title="Attach photo / file">📎</button>
+    <button data-k="bottom" id="kbottom" title="Jump to latest" aria-label="Jump to latest" hidden><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg></button>
+    <button data-k="attach" id="kattach" title="Attach photo / file" aria-label="Attach photo or file"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m16 6-8.41 8.59a2 2 0 0 0 2.83 2.83l8.41-8.59a4 4 0 0 0-5.66-5.66l-8.38 8.55a6 6 0 1 0 8.49 8.49l8.38-8.55"/></svg></button>
     <button data-k="paste">paste</button>
     <button data-k="esc">esc</button>
     <button data-k="ctrl" id="kctrl">ctrl</button>
     <button data-k="tab">tab</button>
-    <button data-k="up">↑</button>
-    <button data-k="down">↓</button>
-    <button data-k="left">←</button>
-    <button data-k="right">→</button>
-    <button data-k="bs">⌫</button>
-    <button data-k="cc">^C</button>
-    <button data-k="enter">⏎</button>
-    <button data-k="restart" id="krestart" title="Restart & resume">↻</button>
+    <button data-k="up" aria-label="Up"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg></button>
+    <button data-k="down" aria-label="Down"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg></button>
+    <button data-k="left" aria-label="Left"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg></button>
+    <button data-k="right" aria-label="Right"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+    <button data-k="bs" aria-label="Backspace"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5a2 2 0 0 0-1.34.52l-6.33 5.74a1 1 0 0 0 0 1.48l6.33 5.74A2 2 0 0 0 10 19h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z"/><path d="m12 9 6 6"/><path d="m18 9-6 6"/></svg></button>
+    <button data-k="cc" aria-label="Ctrl C">^C</button>
+    <button data-k="enter" aria-label="Enter"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4v7a4 4 0 0 1-4 4H4"/><path d="m9 10-5 5 5 5"/></svg></button>
+    <button data-k="restart" id="krestart" title="Restart & resume" aria-label="Restart and resume"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg></button>
   </div>
   <input type="file" id="fileInput" multiple hidden>
 
@@ -202,6 +215,48 @@
     if (natural > avail) f = Math.max(MIN_FS, BASE_FS * avail / natural);
     document.documentElement.style.setProperty('--fs', f.toFixed(1) + 'px');
   }
+  // mobile: the capture is the desktop pane's full height, so a fresh Claude
+  // Code is its banner, ~50 blank rows, then the prompt, and a shell prompt has
+  // blank rows under it. Keep one blank row of any run and drop the trailing
+  // ones. A dropped row's colour codes move to the row above, so colours stay.
+  const CSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
+  function squeezeBlank(t) {
+    const out = [];
+    let blank = 0;
+    for (const line of t.split('\n')) {
+      if (line.replace(CSI, '').trim() !== '') { blank = 0; out.push(line); continue; }
+      if (++blank === 1) { out.push(line); continue; }
+      const codes = line.match(CSI);
+      if (codes && out.length) out[out.length - 1] += codes.join('');
+    }
+    while (out.length > 1 && out[out.length - 1].replace(CSI, '').trim() === '') {
+      const codes = out.pop().match(CSI);
+      if (codes) out[out.length - 1] += codes.join('');
+    }
+    return out.join('\n');
+  }
+  // phone: a session no terminal is attached to keeps the size it was made
+  // at, often fewer rows than the phone shows. Tell the server how many rows
+  // fit (phonefit.go) once per connection, after the first frame has set the
+  // font size and the pane tabs, and again only on rotation. Never on every
+  // layout change: each resize makes Claude Code redraw.
+  let fitTimer = 0;
+  function sendFit() {
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(() => {
+      if (!MOBILE || document.hidden || document.activeElement === kbd) return; // keyboard up: too short
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const lh = parseFloat(getComputedStyle(livePre).lineHeight);
+      const rows = Math.floor((term.clientHeight - 16) / lh);   // minus #term padding
+      if (rows > 0) ws.send(JSON.stringify({ type: 'fit', data: String(rows) }));
+    }, 600);
+  }
+  let fitAsked = false; // per connection
+  window.addEventListener('orientationchange', () => { if (fitAsked) sendFit(); });
+  // Leaving the page, or the browser parking it in its back/forward cache,
+  // closes the socket so the server knows this phone stopped viewing.
+  window.addEventListener('pagehide', () => { if (ws) { ws.onclose = null; ws.close(); } });
+  window.addEventListener('pageshow', (e) => { if (e.persisted) connect(); });
   const scheduleFit = () => { if (fitPending) return; fitPending = true; requestAnimationFrame(() => { fitPending = false; fitFont(); }); };
   const sendRaw = (data) => { if (data && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data })); };
   const send = (data) => {
@@ -311,7 +366,7 @@
     setStatus('connecting');
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${proto}//${location.host}/ws/${target}`);
-    ws.onopen = () => { setStatus('idle'); reconnectDelay = 500; ws.send(JSON.stringify({type:'history-mode',data:'on'})); sendViewing(); };
+    ws.onopen = () => { setStatus('idle'); reconnectDelay = 500; ws.send(JSON.stringify({type:'history-mode',data:'on'})); sendViewing(); fitAsked = false; };
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === 'history') {
@@ -322,8 +377,9 @@
       } else if (msg.type === 'content') {
         if (msg.data === lastContent) { if (msg.status) setStatus(msg.status); return; }
         lastContent = msg.data;
-        livePre.innerHTML = renderAnsi(msg.data);
+        livePre.innerHTML = renderAnsi(MOBILE ? squeezeBlank(msg.data) : msg.data);
         scheduleFit();
+        if (!fitAsked) { fitAsked = true; sendFit(); }
         if (msg.status) setStatus(msg.status);
         if (follow) toBottom();
       } else if (msg.type === 'status-update') {
@@ -448,10 +504,18 @@
   document.getElementById('close').onclick = () => {
     try { if (ws) { ws.onclose = null; ws.close(); } } catch(_){}
     window.close();
-    if (MOBILE) setTimeout(() => { if (!window.closed) location.href = '/m.html'; }, 150);
+    if (MOBILE) setTimeout(() => { if (!window.closed) toList(); }, 150);
   };
   document.getElementById('goto').onclick = () => { fetch('/api/goto/' + encodeURIComponent(target)).catch(()=>{}); };
-  document.getElementById('back').onclick = () => { location.href = '/m.html'; };
+  // Back to the session list. Opened from the list, step back in history so
+  // the browser can show the list as it was; otherwise (a notification, a new
+  // tab) open it.
+  function toList() {
+    let fromList = false;
+    try { fromList = history.length > 1 && new URL(document.referrer).pathname === '/m.html'; } catch (_) {}
+    if (fromList) history.back(); else location.href = '/m.html';
+  }
+  document.getElementById('back').onclick = toList;
 
   // ── restart & resume confirm modal ─────────────────────────────────────────
   const rm = document.getElementById('restartModal');
@@ -481,7 +545,7 @@
   // into the pane so Claude can read them (it reads images and files by path).
   const fileInput = document.getElementById('fileInput');
   const kattach = document.getElementById('kattach');
-  const attachLabel = '📎';
+  const attachLabel = kattach.innerHTML; // the paperclip icon
   // state: false = idle, true = indeterminate spinner, number = percent
   // Build the spinner+label DOM ONCE when entering the busy state; later % ticks
   // update only the number. (Rebuilding innerHTML every tick restarted the CSS
@@ -491,7 +555,7 @@
     if (state === false) {
       attachBusy = false;
       kattach.disabled = false;
-      kattach.textContent = attachLabel;
+      kattach.innerHTML = attachLabel;
       return;
     }
     kattach.disabled = true;

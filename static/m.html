@@ -32,7 +32,7 @@
   .logo { width:28px; height:28px; border-radius:8px; flex:0 0 auto; display:block; }
   h1 { font-size:16px; font-weight:700; margin:0; letter-spacing:-.2px; white-space:nowrap; flex:0 0 auto; }
   .top .search { flex:1; min-width:0; margin-top:0; }
-  .btnrow { display:flex; align-items:center; gap:8px; margin-top:10px; justify-content:flex-end; }
+  .btnrow { display:flex; align-items:center; gap:8px; margin-top:10px; justify-content:flex-end; position:relative; }
   .counts { display:flex; gap:12px; font-size:13px; font-weight:700; margin-top:9px;
     font-variant-numeric:tabular-nums; align-items:center; flex-wrap:wrap; row-gap:6px; }
   .counts .c { display:inline-flex; align-items:center; gap:4px; }
@@ -41,10 +41,19 @@
   /* system stats (cpu/ram/disk/gpu) on the counts line */
   .sys-sep { width:1px; height:15px; background:var(--line); margin:0 2px; }
   .counts .sys { color:var(--dim); font-weight:600; }
-  #usage, #notify, #launch, #ports, #browser, #redeploy, #drive, #fleetlog { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
+  #usage, #notify, #launch, #ports, #browser, #redeploy, #drive, #fleetlog, #more { margin-left:2px; background:none; border:0; color:var(--muted); padding:6px; cursor:pointer;
     display:inline-flex; border-radius:8px; }
-  #usage:active, #notify:active, #launch:active, #ports:active, #browser:active, #redeploy:active, #drive:active, #fleetlog:active { background:var(--card); }
-  #usage svg, #notify svg, #launch svg, #ports svg, #browser svg, #redeploy svg, #drive svg, #fleetlog svg { width:19px; height:19px; }
+  #usage:active, #notify:active, #launch:active, #ports:active, #browser:active, #redeploy:active, #drive:active, #fleetlog:active, #more:active { background:var(--card); }
+  #usage svg, #notify svg, #launch svg, #ports svg, #browser svg, #redeploy svg, #drive svg, #fleetlog svg, #more svg { width:19px; height:19px; }
+  #more[aria-expanded="true"] { background:var(--card); color:var(--fg); }
+  /* less-used header actions, behind the ⋮ button */
+  #moreMenu { position:absolute; top:calc(100% + 6px); right:0; z-index:30; min-width:230px; padding:6px;
+    background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:0 12px 32px rgba(0,0,0,.45); }
+  #moreMenu button { display:flex; width:100%; margin:0; align-items:center; gap:12px; padding:11px 12px;
+    color:var(--fg); font:inherit; font-size:15px; text-align:left; border-radius:10px; user-select:none; }
+  #moreMenu button:active { background:var(--card2); }
+  #moreMenu button svg { color:var(--muted); flex:0 0 auto; }
+  #moreMenu #notify.on svg { color:var(--work); }
   #launch { color:var(--work); }
   #notify.on { color:var(--work); }
   @keyframes spin { to { transform:rotate(360deg); } }
@@ -241,25 +250,34 @@
       <button id="drive" title="Shared drive">
         <svg class="ic" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>
       </button>
-      <button id="redeploy" title="Rebuild & restart server">
-        <svg class="ic" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+      <button id="usage" title="Usage">
+        <svg class="ic" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>
       </button>
       <button id="launch" title="New session">
         <svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
       </button>
-      <button id="ports" title="Local ports" onclick="location.href='/ports'">
-        <svg class="ic" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg>
+      <button id="more" title="More" aria-haspopup="menu" aria-expanded="false">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
       </button>
-      <button id="browser" title="Remote browser" onclick="location.href='/browser'">
-        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/></svg>
-      </button>
-      <button id="notify" title="Notifications" hidden>
-        <svg class="ic bell-off" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M17 17H4s3-2 3-9a5 5 0 0 1 .3-1.7"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="m2 2 20 20"/><path d="M16.5 9.5A8.6 8.6 0 0 0 17 8a5 5 0 0 0-9.3-2.5"/></svg>
-        <svg class="ic bell-on" viewBox="0 0 24 24" hidden><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/></svg>
-      </button>
-      <button id="usage" title="Usage">
-        <svg class="ic" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>
-      </button>
+      <div id="moreMenu" role="menu" hidden>
+        <button id="notify" title="Notifications" hidden>
+          <svg class="ic bell-off" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M17 17H4s3-2 3-9a5 5 0 0 1 .3-1.7"/><path d="M22 8c0-2.3-.8-4.3-2-6"/><path d="m2 2 20 20"/><path d="M16.5 9.5A8.6 8.6 0 0 0 17 8a5 5 0 0 0-9.3-2.5"/></svg>
+          <svg class="ic bell-on" viewBox="0 0 24 24" hidden><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/></svg>
+          <span>Notifications</span>
+        </button>
+        <button id="ports" title="Local ports" onclick="location.href='/ports'">
+          <svg class="ic" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg>
+          <span>Local ports</span>
+        </button>
+        <button id="browser" title="Remote browser" onclick="location.href='/browser'">
+          <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z"/></svg>
+          <span>Remote browser</span>
+        </button>
+        <button id="redeploy" title="Rebuild & restart server">
+          <svg class="ic" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          <span>Rebuild &amp; restart server</span>
+        </button>
+      </div>
     </div>
     <div class="counts">
       <span class="c cwork" title="Working">
@@ -425,18 +443,34 @@
     codex: '<svg viewBox="0 0 24 24" fill="#10a37f" aria-hidden="true"><path d="M22.28 9.82a5.98 5.98 0 0 0-.52-4.91 6.05 6.05 0 0 0-6.51-2.9A6.07 6.07 0 0 0 4.98 4.18a5.98 5.98 0 0 0-4 2.9 6.05 6.05 0 0 0 .75 7.1 5.98 5.98 0 0 0 .51 4.9 6.05 6.05 0 0 0 6.51 2.9 5.98 5.98 0 0 0 4.51 2.02 6.06 6.06 0 0 0 5.77-4.2 5.99 5.99 0 0 0 4-2.9 6.06 6.06 0 0 0-.75-7.08ZM13.26 22.43a4.48 4.48 0 0 1-2.88-1.04l.14-.08 4.78-2.76a.79.79 0 0 0 .39-.68v-6.74l2.02 1.17a.07.07 0 0 1 .04.05v5.58a4.5 4.5 0 0 1-4.49 4.5ZM3.6 18.3a4.47 4.47 0 0 1-.53-3.01l.14.08 4.78 2.76a.77.77 0 0 0 .78 0l5.84-3.37v2.33a.08.08 0 0 1-.03.06L9.74 21.9a4.5 4.5 0 0 1-6.14-1.65ZM2.34 7.9a4.49 4.49 0 0 1 2.37-1.98v5.68a.77.77 0 0 0 .39.68l5.81 3.35-2.02 1.17a.08.08 0 0 1-.07 0l-4.83-2.79A4.5 4.5 0 0 1 2.34 7.9Zm16.6 3.85-5.84-3.39L15.12 7.2a.08.08 0 0 1 .07 0l4.83 2.79a4.49 4.49 0 0 1-.68 8.1v-5.67a.79.79 0 0 0-.4-.67Zm2.01-3.02-.14-.09-4.77-2.78a.78.78 0 0 0-.79 0L9.41 9.23V6.9a.07.07 0 0 1 .03-.06l4.83-2.79a4.5 4.5 0 0 1 6.68 4.66ZM8.3 12.86l-2.02-1.16a.08.08 0 0 1-.04-.06V6.07a4.5 4.5 0 0 1 7.38-3.45l-.14.08-4.78 2.76a.79.79 0 0 0-.39.68Zm1.1-2.37L12 8.99l2.6 1.5v3l-2.6 1.5-2.6-1.5Z"/></svg>',
   };
 
+  const COUNT_IDS = ['cWork', 'cPerm', 'cStale', 'cIdle'];
+  let counts = [0, 0, 0, 0];
+  function setCounts(c) { counts = c; COUNT_IDS.forEach((id, i) => { document.getElementById(id).textContent = c[i]; }); }
+  // Coming back from a session draws the last list straight away, at the same
+  // scroll position, instead of skeletons until the first fetch. Kept per tab.
+  const SS = { get:(k)=>{try{return sessionStorage.getItem(k)}catch(_){return null}}, set:(k,v)=>{try{sessionStorage.setItem(k,v)}catch(_){}} };
+  function saveList() { SS.set('cw-list', JSON.stringify({ panes, counts })); }
+  function restoreList() {
+    let saved = null;
+    try { saved = JSON.parse(SS.get('cw-list') || 'null'); } catch (_) {}
+    if (!saved || !Array.isArray(saved.panes) || !saved.panes.length) return;
+    panes = saved.panes;
+    if (Array.isArray(saved.counts)) setCounts(saved.counts);
+    render();
+    const y = +SS.get('cw-list-y') || 0;
+    if (y) requestAnimationFrame(() => window.scrollTo(0, y));
+  }
+  window.addEventListener('pagehide', () => SS.set('cw-list-y', String(window.scrollY)));
+
   async function load() {
     try {
       const [sumR, panesR] = await Promise.all([
         fetch('/api/summary').then(r => r.json()),
         fetch('/api/panes').then(r => r.json()).catch(() => []),
       ]);
-      document.getElementById('cWork').textContent = sumR.working || 0;
-      document.getElementById('cPerm').textContent = sumR.pending || 0;
-      document.getElementById('cStale').textContent = sumR.stale || 0;
       // idle = everything not working / waiting / stale
-      document.getElementById('cIdle').textContent =
-        Math.max(0, (sumR.total || 0) - (sumR.working || 0) - (sumR.pending || 0) - (sumR.stale || 0));
+      setCounts([sumR.working || 0, sumR.pending || 0, sumR.stale || 0,
+        Math.max(0, (sumR.total || 0) - (sumR.working || 0) - (sumR.pending || 0) - (sumR.stale || 0))]);
       setBadge((sumR.pending || 0) + (sumR.stale || 0)); // app-icon badge = needs-you count
       const info = {};
       (panesR || []).forEach(p => { info[p.target] = p; });
@@ -459,6 +493,7 @@
         };
       });
       render();
+      saveList();
     } catch (e) {
       listEl.innerHTML = '<div class="empty">Can\'t reach server.<br>Is claude-wall running?</div>';
     }
@@ -865,7 +900,16 @@
 
   // tap backdrop or Esc closes any open sheet
   [usageSheet, notifSheet, launchSheet, redeploySheet, driveSheet].forEach(sh => sh.addEventListener('click', e => { if (e.target === sh) sh.hidden = true; }));
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { usageSheet.hidden = true; notifSheet.hidden = true; launchSheet.hidden = true; redeploySheet.hidden = true; driveSheet.hidden = true; } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { usageSheet.hidden = true; notifSheet.hidden = true; launchSheet.hidden = true; redeploySheet.hidden = true; driveSheet.hidden = true; setMore(false); } });
+
+  // ⋮ menu: the header actions used less often. Each item keeps its own
+  // handler; picking one, tapping outside or Esc closes the menu.
+  const moreBtn = document.getElementById('more');
+  const moreMenu = document.getElementById('moreMenu');
+  function setMore(open) { moreMenu.hidden = !open; moreBtn.setAttribute('aria-expanded', String(open)); }
+  moreBtn.onclick = (e) => { e.stopPropagation(); setMore(moreMenu.hidden); };
+  moreMenu.addEventListener('click', (e) => { if (e.target.closest('button')) setMore(false); });
+  document.addEventListener('click', (e) => { if (!moreMenu.hidden && !moreMenu.contains(e.target)) setMore(false); });
 
   // System stats (cpu/ram/disk/gpu) on the counts line
   async function pollSys() {
@@ -878,6 +922,7 @@
   }
 
   initPush();
+  restoreList();
   load();
   pollSys();
   setInterval(load, 4000);

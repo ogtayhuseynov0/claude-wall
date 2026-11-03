@@ -769,6 +769,11 @@ func runWeb(port int) {
 		if p := r.URL.Path; p == "/" || strings.HasSuffix(p, ".html") || strings.HasSuffix(p, "sw.js") {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
+		// Fonts are large and never change in place (a new font gets a new
+		// name), so the phone downloads them once.
+		if strings.HasPrefix(r.URL.Path, "/fonts/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
 		fileSrv.ServeHTTP(w, r)
 	})
 
@@ -837,6 +842,8 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 	// Reader: browser input → tmux send-keys
 	go func() {
 		defer close(done)
+		var fit *phoneView // set once a phone has sized this pane's window
+		defer func() { fit.release() }()
 		for {
 			_, msg, err := conn.ReadMessage()
 			if err != nil {
@@ -868,6 +875,11 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 				}
 			case "viewing":
 				markViewing(target) // suppress pushes for the pane being watched
+			case "fit": // rows a phone can show, see phonefit.go
+				var r int
+				if _, err := fmt.Sscanf(input.Data, "%d", &r); err == nil {
+					fit = fitPhone(fit, target, r)
+				}
 			}
 		}
 	}()
