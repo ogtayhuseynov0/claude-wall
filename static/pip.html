@@ -193,7 +193,9 @@
 
   let ws, reconnectDelay = 500, lastContent = '';
   const atBottom = () => (term.scrollHeight - term.scrollTop - term.clientHeight) < 40;
-  const toBottom = () => { term.scrollTop = term.scrollHeight; };
+  // Only when it moves: any scroll write, even to the same spot, cancels the
+  // smooth sideways glide that follows the caret while typing.
+  const toBottom = () => { const y = term.scrollHeight - term.clientHeight; if (Math.abs(term.scrollTop - y) > 1) term.scrollTop = y; };
   // follow = auto-stick to bottom. Cleared when the user scrolls up to read,
   // re-armed when they scroll back down or tap to type. Prevents the yank-down.
   let follow = true;
@@ -208,12 +210,19 @@
   let fitPending = false;
   function fitFont() {
     if (!MOBILE) return;
+    const sl = term.scrollLeft;
+    livePre.style.minWidth = '';                        // measure the text itself
     document.documentElement.style.setProperty('--fs', BASE_FS + 'px');
     const natural = Math.max(historyPre.scrollWidth, livePre.scrollWidth, 1);
     const avail = term.clientWidth - 20; // minus padding
     let f = BASE_FS;
     if (natural > avail) f = Math.max(MIN_FS, BASE_FS * avail / natural);
     document.documentElement.style.setProperty('--fs', f.toFixed(1) + 'px');
+    // Wider than the screen: span the pane's full width (its rules are blocks,
+    // not text), so while typing the view can slide ahead of the caret instead
+    // of a column per key (followCaret).
+    if (paneCols && natural * f / BASE_FS > avail + 1) livePre.style.minWidth = paneCols + 'ch';
+    term.scrollLeft = sl;                               // the measuring above may have clamped it
   }
   // mobile: the capture is the desktop pane's full height, so a fresh Claude
   // Code is its banner, ~50 blank rows, then the prompt, and a shell prompt has
@@ -263,7 +272,89 @@
     if (!data) return;
     sendRaw(data);
     follow = true; toBottom(); updateScrollBtn(); // typing/keys means we're at the prompt
+    noteTyping();
   };
+
+  // phone typewriter: a pane wider than the screen scrolls sideways, and the
+  // caret runs off the right edge while typing. For a few seconds after each
+  // key the server sends the cursor with every frame, and the view follows it:
+  // right as the text grows, back left on delete, to the start when the input
+  // wraps to a new line. Reading is left alone: no key, no sideways scroll.
+  let typingAt = 0, typingSentAt = 0, cwFs = '', cwPx = 0, paneCols = 0;
+  function noteTyping() {
+    if (!MOBILE) return;
+    typingAt = Date.now();
+    if (typingAt - typingSentAt > 1000 && ws && ws.readyState === WebSocket.OPEN) {
+      typingSentAt = typingAt;
+      ws.send(JSON.stringify({ type: 'typing' }));
+    }
+  }
+  function charWidth() {
+    const fs = getComputedStyle(livePre).fontSize;
+    if (fs !== cwFs) {
+      const probe = document.createElement('pre');
+      probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre';
+      probe.textContent = 'M'.repeat(100);
+      term.appendChild(probe);
+      cwPx = probe.getBoundingClientRect().width / 100;
+      probe.remove();
+      cwFs = fs;
+    }
+    return cwPx;
+  }
+  // Move in steps, not a column per key: the view slides only when the caret
+  // comes within a few columns of an edge, then lands with the caret a third
+  // of the way in, so most keys don't scroll at all.
+  function followCaret(data) {
+    const [x, , shown, cols] = String(data).split(' ').map(Number);
+    if (cols > 0 && cols !== paneCols) { paneCols = cols; fitFont(); }
+    if (!MOBILE || !shown || Date.now() - typingAt > 3000) return;
+    const cw = charWidth(), pad = 10;                  // #term's left padding
+    const W = term.clientWidth, margin = 4 * cw;
+    const L = glide ? glide.to : term.scrollLeft;      // decide from where a glide is heading
+    const caret = pad + x * cw;
+    let to = L;
+    if (caret + margin <= W) to = 0;                   // fits from the start (new line, short input)
+    else if (caret > L + W - margin) to = caret - W / 3;   // near the right edge: slide right
+    else if (caret < L + margin) to = caret - W * 2 / 3;   // near the left edge (deleting): slide left
+    to = Math.max(0, Math.min(Math.round(to), term.scrollWidth - W));
+    if (Math.abs(to - L) >= 1) glideTo(to);
+  }
+  // A 180ms ease-out, set every frame. The browser's smooth scroll would be cut
+  // off by the next frame's repaint, which re-triggered a scroll on every key.
+  let glide = null;
+  function glideTo(to) {
+    const first = !glide;
+    glide = { from: term.scrollLeft, to, t0: performance.now() };
+    if (first) requestAnimationFrame(stepGlide);
+  }
+  function stepGlide(now) {
+    if (!glide) return;
+    const t = Math.min(1, (now - glide.t0) / 180);
+    term.scrollLeft = glide.from + (glide.to - glide.from) * (1 - Math.pow(1 - t, 3));
+    if (t < 1) requestAnimationFrame(stepGlide); else glide = null;
+  }
+
+  // While typing, a frame and the cursor that follows it are painted together:
+  // painting the frame first and scrolling a moment later is what flickers. The
+  // frame waits for its cursor at most 80ms.
+  let paintRaf = 0, paintWait = 0, pendingHTML = null, pendingCaret = null;
+  function paint() {
+    paintRaf = 0; clearTimeout(paintWait); paintWait = 0;
+    if (pendingHTML !== null) {
+      livePre.innerHTML = pendingHTML; pendingHTML = null;
+      fitFont();
+      if (follow) toBottom();
+    }
+    if (pendingCaret !== null) { followCaret(pendingCaret); pendingCaret = null; }
+  }
+  const schedulePaint = () => { if (!paintRaf) paintRaf = requestAnimationFrame(paint); };
+  function queueFrame(html) {
+    pendingHTML = html;
+    const typing = MOBILE && Date.now() - typingAt < 2000;   // the server sends cursors for >= 2s
+    if (!typing) return schedulePaint();
+    if (!paintWait && !paintRaf) paintWait = setTimeout(schedulePaint, 80);
+  }
 
   // Scroll-forwarding: for full-screen TUI panes (alt-screen), the terminal only
   // exposes the current screen. When the user over-scrolls past the top, send
@@ -355,6 +446,7 @@
     try { if (ws) { ws.onclose = null; ws.close(); } } catch (_) {}
     target = t;
     historyPre.innerHTML = ''; livePre.innerHTML = ''; lastContent = ''; isAlt = false;
+    pendingHTML = null; pendingCaret = null; paneCols = 0; livePre.style.minWidth = '';
     document.title = 'PiP · ' + target;
     subEl.textContent = '· ' + target;
     reconnectDelay = 500; follow = true;
@@ -377,13 +469,13 @@
       } else if (msg.type === 'content') {
         if (msg.data === lastContent) { if (msg.status) setStatus(msg.status); return; }
         lastContent = msg.data;
-        livePre.innerHTML = renderAnsi(MOBILE ? squeezeBlank(msg.data) : msg.data);
-        scheduleFit();
+        queueFrame(renderAnsi(MOBILE ? squeezeBlank(msg.data) : msg.data));
         if (!fitAsked) { fitAsked = true; sendFit(); }
         if (msg.status) setStatus(msg.status);
-        if (follow) toBottom();
       } else if (msg.type === 'status-update') {
         if (msg.status) setStatus(msg.status);
+      } else if (msg.type === 'cursor') {
+        pendingCaret = msg.data; schedulePaint();
       } else if (msg.type === 'alt') {
         isAlt = msg.data === '1';
       } else if (msg.type === 'status' && msg.data === 'disconnected') {

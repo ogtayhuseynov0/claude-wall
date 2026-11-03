@@ -838,6 +838,7 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 	var historyEnabled int32 // atomic: 0 = off, 1 = on
 	var contentChanged int32 // atomic: set to 1 when live content updates arrive
 	var historyRequest int32 // atomic: set to 1 for immediate one-time catchup
+	var cursorUntil int64    // atomic unix nanos: send the cursor with each frame until then
 
 	// Reader: browser input → tmux send-keys
 	go func() {
@@ -875,6 +876,8 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 				}
 			case "viewing":
 				markViewing(target) // suppress pushes for the pane being watched
+			case "typing": // the phone is typing: follow its caret for a moment
+				atomic.StoreInt64(&cursorUntil, time.Now().Add(3*time.Second).UnixNano())
 			case "fit": // rows a phone can show, see phonefit.go
 				var r int
 				if _, err := fmt.Sscanf(input.Data, "%d", &r); err == nil {
@@ -992,6 +995,16 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 			}
 			if conn.WriteMessage(websocket.TextMessage, update.Msg) != nil {
 				return
+			}
+			// While a phone types, each new frame carries the cursor, so a pane
+			// wider than the screen can scroll sideways to keep the caret in view.
+			if update.Full && time.Now().UnixNano() < atomic.LoadInt64(&cursorUntil) {
+				if c, e := exec.Command("tmux", "display-message", "-p", "-t", target, "#{cursor_x} #{cursor_y} #{cursor_flag} #{pane_width}").Output(); e == nil {
+					msg, _ := json.Marshal(map[string]string{"type": "cursor", "data": strings.TrimSpace(string(c))})
+					if conn.WriteMessage(websocket.TextMessage, msg) != nil {
+						return
+					}
+				}
 			}
 		}
 	}
