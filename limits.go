@@ -14,7 +14,7 @@ import (
 
 // keychainServiceFor returns the keychain service name Claude Code uses for a
 // given CLAUDE_CONFIG_DIR: the default (~/.claude) is the bare name; any other
-// config dir gets a "-<sha256(absPath)[:8]>" suffix (e.g. work / claude-ts).
+// config dir gets a "-<sha256(absPath)[:8]>" suffix (e.g. the work account's).
 func keychainServiceFor(configDir string) string {
 	base := "Claude Code-credentials"
 	home, _ := os.UserHomeDir()
@@ -148,9 +148,7 @@ func handleLimits(w http.ResponseWriter, r *http.Request) {
 	if u := limitsC.get("personal", "", "Claude Code-credentials"); u != nil {
 		out["personal"] = u
 	}
-	home, _ := os.UserHomeDir()
-	workDir := filepath.Join(home, ".claude-ts")
-	if fi, err := os.Stat(workDir); err == nil && fi.IsDir() {
+	if workDir := workConfigDir(); workDir != "" {
 		// work account: credentials file, else the config-dir-namespaced keychain item
 		if u := limitsC.get("work", workDir, keychainServiceFor(workDir)); u != nil {
 			out["work"] = u
