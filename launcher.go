@@ -124,7 +124,14 @@ func handleLaunch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sess := tmuxSessionName(filepath.Base(req.Path))
-	if err := tmuxExec("new-session", "-d", "-s", sess, "-c", req.Path); err != nil {
+	args := []string{"new-session", "-d", "-s", sess, "-c", req.Path}
+	// A detached session is 80x24 until a terminal attaches. At 80 columns
+	// Claude Code drops its mode line and the status line goes compact, so
+	// start it at the size the desktop terminal gives its windows.
+	if w, h := desktopWindowSize(); w > 0 && h > 0 {
+		args = append(args, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h))
+	}
+	if err := tmuxExec(args...); err != nil {
 		http.Error(w, "tmux failed: "+err.Error(), 500)
 		return
 	}
@@ -133,4 +140,34 @@ func handleLaunch(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"ok": true, "session": sess})
+}
+
+// desktopWindowSize is the window size an attached terminal gives, else the
+// widest existing window, else 0, 0 (tmux's default). The hub's control-mode
+// client is attached too but never sizes a window, so it is skipped.
+func desktopWindowSize() (int, int) {
+	if out, err := tmuxOutput("list-clients", "-F", "#{client_control_mode} #{window_width} #{window_height}"); err == nil {
+		for _, l := range strings.Split(out, "\n") {
+			if f := strings.Fields(l); len(f) == 3 && f[0] == "0" {
+				w, _ := strconv.Atoi(f[1])
+				h, _ := strconv.Atoi(f[2])
+				if w > 0 && h > 0 {
+					return w, h
+				}
+			}
+		}
+	}
+	bw, bh := 0, 0
+	if out, err := tmuxOutput("list-windows", "-a", "-F", "#{window_width} #{window_height}"); err == nil {
+		for _, l := range strings.Split(out, "\n") {
+			if f := strings.Fields(l); len(f) == 2 {
+				w, _ := strconv.Atoi(f[0])
+				h, _ := strconv.Atoi(f[1])
+				if w > bw || (w == bw && h > bh) {
+					bw, bh = w, h
+				}
+			}
+		}
+	}
+	return bw, bh
 }
