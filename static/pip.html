@@ -442,7 +442,14 @@
     kbd.focus({ preventScroll: true });
   });
 
-  document.getElementById('close').onclick = () => { try { ws && ws.close(); } catch(_){} window.close(); };
+  // Close: a session opened in its own tab closes that tab. The browser refuses
+  // to close a tab it has history in (the app, a tapped row), so on mobile that
+  // falls back to the session list.
+  document.getElementById('close').onclick = () => {
+    try { if (ws) { ws.onclose = null; ws.close(); } } catch(_){}
+    window.close();
+    if (MOBILE) setTimeout(() => { if (!window.closed) location.href = '/m.html'; }, 150);
+  };
   document.getElementById('goto').onclick = () => { fetch('/api/goto/' + encodeURIComponent(target)).catch(()=>{}); };
   document.getElementById('back').onclick = () => { location.href = '/m.html'; };
 
