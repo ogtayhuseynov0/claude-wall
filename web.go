@@ -706,6 +706,7 @@ func runWeb(port int) {
 	// Session launcher
 	http.HandleFunc("/api/projects", handleProjects)
 	http.HandleFunc("/api/launch", handleLaunch)
+	http.HandleFunc("/api/accounts", handleAccounts)
 
 	// Restart an agent resuming its last session (GET = default account, POST = do it)
 	http.HandleFunc("/api/restart-agent/", handleRestartAgent)

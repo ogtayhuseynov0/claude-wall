@@ -96,11 +96,10 @@ func projectsDir() string {
 	return filepath.Join(home, ".claude", "projects")
 }
 
-// workProjectsDir is the "claude-ts" (work account) transcripts root, if it exists.
+// workProjectsDir is the work account's transcripts root, if it exists.
 func workProjectsDir() string {
-	home, _ := os.UserHomeDir()
-	d := filepath.Join(home, ".claude-ts", "projects")
-	if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+	d := workOwnPath("projects")
+	if fi, err := os.Stat(d); d != "" && err == nil && fi.IsDir() {
 		return d
 	}
 	return ""
@@ -384,7 +383,7 @@ func envFloat(key string, def float64) float64 {
 }
 
 // handleUsage reports rolling usage spend for the personal (~/.claude) and, when
-// present, work (~/.claude-ts) Claude accounts, plus configurable caps so the UI
+// present, work (see workConfigDir) Claude accounts, plus configurable caps so the UI
 // can render a percentage. Caps are USD budgets for the 5h/weekly windows
 // (env: CLAUDE_WALL_{5H,WEEK}_USD and CLAUDE_WALL_WORK_{5H,WEEK}_USD).
 func handleUsage(w http.ResponseWriter, r *http.Request) {

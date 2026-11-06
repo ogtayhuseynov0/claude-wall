@@ -80,25 +80,19 @@ func configDirsByTTY() map[string]string {
 }
 
 // profileFromConfigDir turns a CLAUDE_CONFIG_DIR into a short profile label:
-// "" (personal / default ~/.claude), "work" (~/.claude-ts), else the suffix.
+// "" (personal / default ~/.claude), "work" (the work account), else the suffix.
 func profileFromConfigDir(cfg string) string {
 	if cfg == "" {
 		return ""
 	}
-	name := baseName(cfg) // ".claude-ts" → "claude-ts"
+	if isWorkConfigDir(cfg) {
+		return "work"
+	}
+	name := baseName(cfg) // ".claude-acme" → "claude-acme"
 	name = strings.TrimPrefix(name, ".")
 	name = strings.TrimPrefix(name, "claude-")
 	name = strings.TrimPrefix(name, "claude")
-	name = strings.Trim(name, ".-")
-	switch name {
-	case "", "ts", "work":
-		if name == "" {
-			return "" // plain ~/.claude → personal
-		}
-		return "work"
-	default:
-		return name
-	}
+	return strings.Trim(name, ".-") // plain ~/.claude → "" (personal)
 }
 
 // paneProfile is the profile label for a pane's tty (empty = personal Claude).
@@ -107,12 +101,12 @@ func paneProfile(tty string) string {
 }
 
 // paneAccount is the best-guess account for the confirm modal's default:
-// "codex", "claude-work" (CLAUDE_CONFIG_DIR points at ~/.claude-ts), else "claude".
+// "codex", "claude-work" (CLAUDE_CONFIG_DIR is the work account), else "claude".
 func paneAccount(p claudePane) string {
 	if p.Agent == "codex" {
 		return "codex"
 	}
-	if cfg := paneConfigDir(p.Target); strings.Contains(cfg, ".claude-ts") {
+	if isWorkConfigDir(paneConfigDir(p.Target)) {
 		return "claude-work"
 	}
 	return "claude"
@@ -131,7 +125,7 @@ func resumeCommand(account string) string {
 	case "codex":
 		return "codex resume --last"
 	case "claude-work":
-		return `CLAUDE_CONFIG_DIR="$HOME/.claude-ts" claude --continue`
+		return workClaudeCommand("--continue")
 	default:
 		return "claude --continue"
 	}
@@ -182,6 +176,10 @@ func handleRestartAgent(w http.ResponseWriter, r *http.Request) {
 		// explicit choice
 	default:
 		account = paneAccount(*pane)
+	}
+	if account == "claude-work" && workConfigDir() == "" {
+		http.Error(w, "no work account: sign in a ~/.claude-* config dir or set CLAUDE_WALL_WORK_CONFIG_DIR", 400)
+		return
 	}
 
 	// Respawn a plain interactive shell (kills the current agent), then type the

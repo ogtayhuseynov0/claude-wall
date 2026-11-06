@@ -619,6 +619,8 @@
     setAcct('claude');
     fetch('/api/restart-agent/' + encodeURIComponent(target))               // preselect the detected account
       .then(r => r.json()).then(d => setAcct(d.account || 'claude')).catch(() => {});
+    fetch('/api/accounts').then(r => r.json())                               // offer work only when there is one
+      .then(d => { rmSeg.querySelector('[data-acct="claude-work"]').hidden = !d.work; }).catch(() => {});
     rm.hidden = false;
   }
   rmSeg.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setAcct(b.dataset.acct); });

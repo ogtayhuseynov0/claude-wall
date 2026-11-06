@@ -19,23 +19,57 @@ type projectEntry struct {
 	Path string `json:"path"`
 }
 
-// projectRoots are the directories scanned for projects. Immediate subdirs that
-// contain a .git are offered. Override with CLAUDE_WALL_PROJECTS_DIRS (colon-sep).
-func projectRoots() []string {
+// listProjects offers the git repos in the folders Claude Code has been run in:
+// each recorded folder's repo, plus the other repos beside it, so a fresh clone
+// in the same projects folder shows up before Claude has been run in it. With
+// CLAUDE_WALL_PROJECTS_DIRS (colon-sep) set, it offers the repos directly inside
+// those directories instead.
+func listProjects() []projectEntry {
+	var repos []string
 	if env := os.Getenv("CLAUDE_WALL_PROJECTS_DIRS"); env != "" {
-		return strings.Split(env, ":")
+		repos = reposIn(strings.Split(env, ":"))
+	} else {
+		home, _ := os.UserHomeDir()
+		home = filepath.Clean(home)
+		parents := map[string]bool{}
+		for _, dir := range claudeProjectDirs(home) {
+			repo := repoRoot(dir, home)
+			if repo == "" {
+				continue
+			}
+			repos = append(repos, repo)
+			if parent := filepath.Dir(repo); parent != home && !parents[parent] {
+				parents[parent] = true
+				repos = append(repos, reposIn([]string{parent})...)
+			}
+		}
 	}
-	home, _ := os.UserHomeDir()
-	return []string{
-		filepath.Join(home, "Desktop", "Projects"),
-		filepath.Join(home, "Desktop", "Projects", "PERSONAL"),
+	seen := map[string]bool{}
+	byName := map[string]int{}
+	var unique []string
+	for _, p := range repos {
+		if !seen[p] {
+			seen[p] = true
+			unique = append(unique, p)
+			byName[filepath.Base(p)]++
+		}
 	}
+	out := make([]projectEntry, 0, len(unique))
+	for _, p := range unique {
+		name := filepath.Base(p)
+		if byName[name] > 1 {
+			name = filepath.Base(filepath.Dir(p)) + "/" + name // tells apart two "ios"
+		}
+		out = append(out, projectEntry{Name: name, Path: p})
+	}
+	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
+	return out
 }
 
-func listProjects() []projectEntry {
-	seen := map[string]bool{}
-	var out []projectEntry
-	for _, root := range projectRoots() {
+// reposIn returns the immediate subdirs of roots that are git repos.
+func reposIn(roots []string) []string {
+	var out []string
+	for _, root := range roots {
 		entries, err := os.ReadDir(root)
 		if err != nil {
 			continue
@@ -45,19 +79,95 @@ func listProjects() []projectEntry {
 				continue
 			}
 			p := filepath.Join(root, e.Name())
-			if seen[p] {
-				continue
+			if fi, err := os.Stat(filepath.Join(p, ".git")); err == nil && fi.IsDir() {
+				out = append(out, p)
 			}
-			// only real project dirs (have a .git)
-			if fi, err := os.Stat(filepath.Join(p, ".git")); err != nil || !fi.IsDir() {
-				continue
-			}
-			seen[p] = true
-			out = append(out, projectEntry{Name: e.Name(), Path: p})
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
 	return out
+}
+
+// claudeProjectDirs lists the folders Claude Code has been run in: the keys of
+// "projects" in each config's .claude.json (default, CLAUDE_CONFIG_DIR, and the
+// work account's).
+func claudeProjectDirs(home string) []string {
+	files := []string{filepath.Join(home, ".claude.json")}
+	for _, cfg := range []string{os.Getenv("CLAUDE_CONFIG_DIR"), workConfigDir()} {
+		if cfg != "" {
+			files = append(files, filepath.Join(cfg, ".claude.json"))
+		}
+	}
+	var out []string
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		var cfg struct {
+			Projects map[string]json.RawMessage `json:"projects"`
+		}
+		if json.Unmarshal(b, &cfg) != nil {
+			continue
+		}
+		for dir := range cfg.Projects {
+			out = append(out, dir)
+		}
+	}
+	return out
+}
+
+// repoRoot returns the repo dir sits in, mapping a linked worktree to its main
+// checkout. "" when dir is gone, not inside a repo, or the repo is not below home.
+func repoRoot(dir, home string) string {
+	dir = filepath.Clean(dir)
+	if !below(dir, home) {
+		return ""
+	}
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return ""
+	}
+	for d := dir; below(d, home); d = filepath.Dir(d) {
+		fi, err := os.Stat(filepath.Join(d, ".git"))
+		if err != nil {
+			continue
+		}
+		if fi.IsDir() {
+			return d
+		}
+		return worktreeMain(d, home)
+	}
+	return ""
+}
+
+// worktreeMain returns the main checkout of the linked worktree at d, whose .git
+// file reads "gitdir: <main>/.git/worktrees/<name>" (relative to d with
+// --relative-paths). A submodule's .git file names no worktree, so d is its own
+// repo. "" when the main checkout is gone or not below home.
+func worktreeMain(d, home string) string {
+	b, err := os.ReadFile(filepath.Join(d, ".git"))
+	if err != nil {
+		return ""
+	}
+	gitdir := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(b)), "gitdir:"))
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(d, gitdir)
+	}
+	gitdir = filepath.Clean(gitdir)
+	sep := string(filepath.Separator) + ".git" + string(filepath.Separator) + "worktrees" + string(filepath.Separator)
+	i := strings.Index(gitdir, sep)
+	if i <= 0 {
+		return d
+	}
+	main := gitdir[:i]
+	if fi, err := os.Stat(filepath.Join(main, ".git")); err != nil || !fi.IsDir() || !below(main, home) {
+		return ""
+	}
+	return main
+}
+
+// below reports whether p is strictly inside dir.
+func below(p, dir string) bool {
+	return strings.HasPrefix(p, filepath.Clean(dir)+string(filepath.Separator))
 }
 
 func handleProjects(w http.ResponseWriter, r *http.Request) {
@@ -90,12 +200,13 @@ func tmuxSessionName(base string) string {
 }
 
 // agentCommand maps a UI agent choice to the shell command run in the new pane.
+// "" for the work account when there is none.
 func agentCommand(agent string) string {
 	switch agent {
 	case "codex":
 		return "codex"
 	case "claude-work":
-		return `CLAUDE_CONFIG_DIR="$HOME/.claude-ts" claude`
+		return workClaudeCommand("")
 	default: // claude (personal)
 		return "claude"
 	}
@@ -122,6 +233,11 @@ func handleLaunch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown project", 400)
 		return
 	}
+	command := agentCommand(req.Agent)
+	if command == "" {
+		http.Error(w, "no work account: sign in a ~/.claude-* config dir or set CLAUDE_WALL_WORK_CONFIG_DIR", 400)
+		return
+	}
 
 	sess := tmuxSessionName(filepath.Base(req.Path))
 	args := []string{"new-session", "-d", "-s", sess, "-c", req.Path}
@@ -136,7 +252,7 @@ func handleLaunch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// run the agent in the new session's shell
-	tmuxExec("send-keys", "-t", sess, agentCommand(req.Agent), "Enter")
+	tmuxExec("send-keys", "-t", sess, command, "Enter")
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"ok": true, "session": sess})
