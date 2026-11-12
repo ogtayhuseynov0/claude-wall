@@ -83,3 +83,30 @@ func TestFinanceIncremental(t *testing.T) {
 		t.Fatalf("after rewrite: turns = %d", turns())
 	}
 }
+
+func TestDailyIncremental(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "d.jsonl")
+	msg := func(uuid string) string {
+		return `{"type":"assistant","uuid":"` + uuid + `","timestamp":"2026-11-12T10:00:00Z","cwd":"/p/app","message":{"model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}` + "\n"
+	}
+	os.WriteFile(path, []byte(line(tUser, "go")+msg("a")+msg("b")), 0o644)
+	st := parseTranscript(path, nil)
+
+	// Append a new message, a duplicate uuid and half a line.
+	tail := msg("d")
+	fh, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	fh.WriteString(msg("c") + msg("a") + tail[:30])
+	fh.Close()
+	st = parseTranscript(path, st)
+	fh, _ = os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	fh.WriteString(tail[30:])
+	fh.Close()
+	st = parseTranscript(path, st)
+
+	full := parseTranscript(path, nil)
+	for name, s := range map[string]*fileStats{"incremental": st, "full": full} {
+		if b := s.days["2026-11-12"]; b.Msgs != 4 || b.Input != 40 {
+			t.Errorf("%s: %+v", name, b)
+		}
+	}
+}

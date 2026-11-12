@@ -124,6 +124,12 @@ drained:
 	}
 	_ = resp
 
+	// Nothing reads %output (onOutput is unset), but tmux still sent every
+	// byte the attached panes printed, and readLoop unescaped it all.
+	if _, err := tc.sendCommand("refresh-client -f no-output"); err != nil {
+		log.Printf("[tmuxctl] refresh-client -f no-output: %v", err)
+	}
+
 	// Build initial pane map
 	tc.refreshPaneMap()
 

@@ -39,44 +39,45 @@ func paneConfigDir(target string) string {
 	return ""
 }
 
-// configDirsByTTY maps a pane tty (e.g. "ttys005") → CLAUDE_CONFIG_DIR of the
-// agent running on it, from a single `ps` env scan. Cached ~5s because
-// findClaudePanes runs often and profiles almost never change mid-session.
+// ttyConfigDir returns the CLAUDE_CONFIG_DIR of the agent on a pane tty
+// (e.g. "ttys005"), from a `ps` of that tty only. Cached a minute per tty:
+// findClaudePanes runs every few seconds, and a full `ps -A -E` dumped every
+// process environment (1.3 MB, 0.5-0.8 CPU-s) each time.
+type ttyCfg struct {
+	dir string
+	at  time.Time
+}
+
 var (
 	ttyCfgMu    sync.Mutex
-	ttyCfgCache map[string]string
-	ttyCfgAt    time.Time
+	ttyCfgCache = map[string]ttyCfg{}
 )
 
-func configDirsByTTY() map[string]string {
-	ttyCfgMu.Lock()
-	defer ttyCfgMu.Unlock()
-	if ttyCfgCache != nil && time.Since(ttyCfgAt) < 5*time.Second {
-		return ttyCfgCache
+func ttyConfigDir(tty string) string {
+	if tty == "" || tty == "??" {
+		return ""
 	}
-	m := map[string]string{}
-	if out, err := exec.Command("ps", "-Aww", "-E", "-o", "tty=,command=").Output(); err == nil {
-		for _, line := range strings.Split(string(out), "\n") {
-			if !strings.Contains(line, "CLAUDE_CONFIG_DIR=") {
-				continue
-			}
-			sp := strings.IndexByte(line, ' ')
-			if sp <= 0 {
-				continue
-			}
-			tty := line[:sp] // full name, e.g. "ttys005" (matches #{pane_tty} minus /dev/)
-			if tty == "??" {
-				continue
-			}
-			if mm := claudeConfigDirRe.FindStringSubmatch(line[sp:]); len(mm) == 2 {
-				if _, ok := m[tty]; !ok {
-					m[tty] = mm[1]
-				}
-			}
+	ttyCfgMu.Lock()
+	c, ok := ttyCfgCache[tty]
+	ttyCfgMu.Unlock()
+	if ok && time.Since(c.at) < time.Minute {
+		return c.dir
+	}
+	dir := ""
+	if out, err := exec.Command("ps", "-Eww", "-t", tty, "-o", "command=").Output(); err == nil {
+		if m := claudeConfigDirRe.FindSubmatch(out); len(m) == 2 {
+			dir = string(m[1])
 		}
 	}
-	ttyCfgCache, ttyCfgAt = m, time.Now()
-	return m
+	ttyCfgMu.Lock()
+	ttyCfgCache[tty] = ttyCfg{dir, time.Now()}
+	for t, c := range ttyCfgCache { // forget ttys of closed panes
+		if time.Since(c.at) > 10*time.Minute {
+			delete(ttyCfgCache, t)
+		}
+	}
+	ttyCfgMu.Unlock()
+	return dir
 }
 
 // profileFromConfigDir turns a CLAUDE_CONFIG_DIR into a short profile label:
@@ -103,7 +104,7 @@ func profileFromConfigDir(cfg string) string {
 
 // paneProfile is the profile label for a pane's tty (empty = personal Claude).
 func paneProfile(tty string) string {
-	return profileFromConfigDir(configDirsByTTY()[strings.TrimPrefix(tty, "/dev/")])
+	return profileFromConfigDir(ttyConfigDir(strings.TrimPrefix(tty, "/dev/")))
 }
 
 // paneAccount is the best-guess account for the confirm modal's default:

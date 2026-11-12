@@ -19,6 +19,7 @@ type captureHub struct {
 	subscribers      map[string][]chan paneUpdate // target → channels
 	latest           map[string]paneUpdate        // target → last update
 	termWorkingUntil map[string]time.Time         // target → debounce: stay "working" until this time
+	hot              sync.Map                     // target → time.Time: capture at full rate until then
 
 	// The tmux control-mode connection, when one is up. It is held here rather
 	// than as a local in run() for two reasons: shutdown has to be able to
@@ -92,7 +93,19 @@ func (h *captureHub) activitySnapshot() map[string]string {
 	return m
 }
 
+// touch keeps a pane at the full capture rate for a few seconds (a new
+// viewer, or keys typed into it), so the first frames are not delayed.
+func (h *captureHub) touch(target string) {
+	h.hot.Store(target, time.Now().Add(3*time.Second))
+}
+
+func (h *captureHub) isHot(target string, now time.Time) bool {
+	v, ok := h.hot.Load(target)
+	return ok && now.Before(v.(time.Time))
+}
+
 func (h *captureHub) subscribe(target string) chan paneUpdate {
+	h.touch(target)
 	ch := make(chan paneUpdate, 4)
 	h.mu.Lock()
 	h.subscribers[target] = append(h.subscribers[target], ch)
@@ -181,7 +194,20 @@ func (h *captureHub) run() {
 			continue
 		}
 
-		toCapture := targets
+		// Idle panes (no change for 2 s, no new viewer or keys) are captured
+		// twice a second, not 25 times: tmux spent ~25% of a core on it.
+		now := time.Now()
+		toCapture := make([]string, 0, len(targets))
+		for _, t := range targets {
+			if s, ok := seen[t]; ok && now.Sub(s.changed) > 2*time.Second &&
+				now.Sub(s.captured) < 500*time.Millisecond && !h.isHot(t, now) {
+				continue
+			}
+			toCapture = append(toCapture, t)
+		}
+		if len(toCapture) == 0 {
+			continue
+		}
 
 		// Capture pane contents over whichever transport is up right now.
 		var captures map[string]string
@@ -229,6 +255,19 @@ func (h *captureHub) run() {
 				continue
 			}
 			delete(failCounts, target)
+
+			s, ok := seen[target]
+			s.captured = time.Now()
+			if ok && s.raw == out {
+				if s.captured.Sub(s.at) < time.Second {
+					seen[target] = s
+					continue
+				}
+			} else {
+				s.raw, s.changed = out, s.captured
+			}
+			s.at = s.captured
+			seen[target] = s
 
 			// Strip trailing whitespace + truncate decorative lines
 			rawLines := strings.Split(out, "\n")

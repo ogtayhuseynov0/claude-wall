@@ -492,7 +492,14 @@ func mapEventToWebhook(event hookEvent) (string, string) {
 	// The hook handler calls this for every event; only read the transcript
 	// and git for the events below.
 	switch event.EventName {
-	case "PermissionRequest", "Notification", "PostToolUseFailure", "StopFailure", "Stop", "TaskCompleted":
+	case "PermissionRequest", "PostToolUseFailure", "StopFailure", "Stop", "TaskCompleted":
+	case "Notification":
+		var n struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(event.Notification, &n) != nil || (n.Type != "permission_prompt" && n.Type != "elicitation_dialog") {
+			return "", ""
+		}
 	default:
 		return "", ""
 	}

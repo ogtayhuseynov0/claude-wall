@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,10 +26,12 @@ type sysStats struct {
 var (
 	sysMu  sync.RWMutex
 	sysCur = sysStats{CPU: -1, Mem: -1, Disk: -1, GPU: -1}
+	// sysAsked is the unix time of the last /api/sysstats call. The sampler
+	// only runs while someone reads it (the phone header polls every 4 s).
+	sysAsked atomic.Int64
 )
 
 var (
-	reCPUidle = regexp.MustCompile(`([\d.]+)%\s+idle`)
 	reMemFree = regexp.MustCompile(`free percentage:\s*(\d+)%`)
 	reGPUutil = regexp.MustCompile(`"Device Utilization %"=(\d+)`)
 )
@@ -38,6 +41,10 @@ var (
 func startSysSampler() {
 	go func() {
 		for {
+			if time.Since(time.Unix(sysAsked.Load(), 0)) > 20*time.Second {
+				time.Sleep(time.Second)
+				continue
+			}
 			s := sampleSys()
 			sysMu.Lock()
 			sysCur = s
@@ -50,14 +57,9 @@ func startSysSampler() {
 func sampleSys() sysStats {
 	s := sysStats{CPU: -1, Mem: -1, Disk: -1, GPU: -1}
 
-	// CPU: the SECOND `top` sample is the accurate one (the first is since-boot).
-	if out, err := exec.Command("top", "-l", "2", "-n", "0").Output(); err == nil {
-		if m := reCPUidle.FindAllStringSubmatch(string(out), -1); len(m) > 0 {
-			if idle, err := strconv.ParseFloat(m[len(m)-1][1], 64); err == nil {
-				s.CPU = clampPct(100 - idle)
-			}
-		}
-	}
+	// CPU: from the iostat stream the metrics already run (metrics_darwin.go).
+	// `top -l 2` cost 1.5 CPU-s per sample.
+	s.CPU = clampPct(readCPUPercent())
 
 	// RAM: macOS "used" always looks ~full (it caches), so use memory pressure's
 	// free percentage — a meaningful signal — and report the complement.
@@ -108,6 +110,7 @@ func clampPct(f float64) int {
 }
 
 func handleSysStats(w http.ResponseWriter, r *http.Request) {
+	sysAsked.Store(time.Now().Unix())
 	sysMu.RLock()
 	s := sysCur
 	sysMu.RUnlock()

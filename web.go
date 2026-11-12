@@ -156,13 +156,6 @@ func runWeb(port int) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		// Add pane dimensions
-		for i := range current {
-			cols := tmuxDisplayTarget(current[i].Target, "#{pane_width}", "0")
-			rows := tmuxDisplayTarget(current[i].Target, "#{pane_height}", "0")
-			current[i].Cols = cols
-			current[i].Rows = rows
-		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-cache")
 		json.NewEncoder(w).Encode(current)
@@ -419,14 +412,18 @@ func runWeb(port int) {
 		hooks.processEvent(event)
 		feed.add(buildFeedEntry(event))
 
-		// Fire webhooks for matching events (in background, debounced)
-		if whEvent, whMsg := mapEventToWebhook(event); whEvent != "" {
-			go webhooks.sendWebhook(whEvent, whMsg)
-			// Structured per-session push to bridge receivers (no debounce).
-			go webhooks.sendBridge(event, whEvent)
-			// Telegram interactive: send buttons for permissions
-			go tgBot.handleHookEvent(event, whEvent, whMsg)
-		}
+		// Fire webhooks for matching events (in background, debounced). The
+		// agent waits for this response, so build the message (git, transcript
+		// tail) off the request path.
+		go func() {
+			if whEvent, whMsg := mapEventToWebhook(event); whEvent != "" {
+				go webhooks.sendWebhook(whEvent, whMsg)
+				// Structured per-session push to bridge receivers (no debounce).
+				go webhooks.sendBridge(event, whEvent)
+				// Telegram interactive: send buttons for permissions
+				go tgBot.handleHookEvent(event, whEvent, whMsg)
+			}
+		}()
 
 		// Track costs — only on Stop events (reading full transcript is expensive)
 		if (event.EventName == "Stop" || event.EventName == "StopFailure") && event.TranscriptPath != "" {
@@ -864,6 +861,7 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 			}
 			switch input.Type {
 			case "input":
+				hub.touch(target)
 				if len(input.Data) > 0 {
 					hexes := make([]string, len(input.Data))
 					for i, b := range []byte(input.Data) {

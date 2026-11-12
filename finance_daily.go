@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -81,6 +83,10 @@ type fileStats struct {
 	// per-day breakdowns for the day-detail view: day -> key -> bucket
 	dayModels   map[string]map[string]usageBucket
 	dayProjects map[string]map[string]usageBucket
+	// offset is how far the file is counted; seen holds its message uuids.
+	// While seen is kept (an active file), a change parses only new lines.
+	offset int64
+	seen   map[string]bool
 }
 
 type dailyStore struct {
@@ -130,27 +136,43 @@ func projectName(cwd string) string {
 }
 
 // parseTranscript reads one JSONL and buckets its assistant-message usage by
-// day / model / project. Dedups by message uuid within the file.
-func parseTranscript(path string) *fileStats {
+// day / model / project. Dedups by message uuid within the file. With prev
+// (same file, counted up to prev.offset), it adds only the lines after that:
+// a live transcript passes 1 GB, and a full read on each call took 2-3 CPU-s.
+func parseTranscript(path string, prev *fileStats) *fileStats {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
 
-	fsData := &fileStats{
-		days:        map[string]usageBucket{},
-		models:      map[string]usageBucket{},
-		projects:    map[string]usageBucket{},
-		hours:       map[string]usageBucket{},
-		dayModels:   map[string]map[string]usageBucket{},
-		dayProjects: map[string]map[string]usageBucket{},
+	fsData := prev
+	if fsData == nil {
+		fsData = &fileStats{
+			days:        map[string]usageBucket{},
+			models:      map[string]usageBucket{},
+			projects:    map[string]usageBucket{},
+			hours:       map[string]usageBucket{},
+			dayModels:   map[string]map[string]usageBucket{},
+			dayProjects: map[string]map[string]usageBucket{},
+			seen:        map[string]bool{},
+		}
+	} else if _, err := f.Seek(fsData.offset, io.SeekStart); err != nil {
+		return nil
 	}
-	seen := map[string]bool{}
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 1024*1024), 16*1024*1024)
+	seen := fsData.seen
+	assistant := []byte(`"type":"assistant"`)
+	rd := bufio.NewReaderSize(f, 256*1024)
 
-	for sc.Scan() {
+	for {
+		line, err := rd.ReadBytes('\n')
+		if err != nil {
+			break // EOF; a partial last line is counted on a later call
+		}
+		fsData.offset += int64(len(line))
+		if !bytes.Contains(line, assistant) {
+			continue
+		}
 		var e struct {
 			Type      string `json:"type"`
 			UUID      string `json:"uuid"`
@@ -166,7 +188,7 @@ func parseTranscript(path string) *fileStats {
 				} `json:"usage"`
 			} `json:"message"`
 		}
-		if json.Unmarshal(sc.Bytes(), &e) != nil {
+		if json.Unmarshal(line, &e) != nil {
 			continue
 		}
 		if e.Type != "assistant" || e.Message.Model == "" || e.Message.Model == "<synthetic>" {
@@ -237,7 +259,11 @@ func (d *dailyStore) scan() {
 		if cur := d.files[path]; cur != nil && cur.size == info.Size() && cur.mtime == mtime {
 			return nil // unchanged — reuse cached contribution
 		}
-		fsData := parseTranscript(path)
+		cur := d.files[path]
+		if cur == nil || cur.seen == nil || info.Size() < cur.offset {
+			cur = nil // new, cold or rewritten: count it from the start
+		}
+		fsData := parseTranscript(path, cur)
 		if fsData == nil {
 			return nil
 		}
@@ -246,9 +272,12 @@ func (d *dailyStore) scan() {
 		d.files[path] = fsData
 		return nil
 	})
-	for p := range d.files {
+	cold := time.Now().Add(-time.Hour).UnixNano()
+	for p, f := range d.files {
 		if !present[p] {
 			delete(d.files, p)
+		} else if f.mtime < cold {
+			f.seen = nil // not active: free the uuids; a later change re-reads it whole
 		}
 	}
 }

@@ -124,9 +124,7 @@ SAFE actions — execute immediately without asking:
 			}
 		}
 
-		// Get pane dimensions
-		cols := tmuxDisplayTarget(p.Target, "#{pane_width}", "?")
-		rows := tmuxDisplayTarget(p.Target, "#{pane_height}", "?")
+		cols, rows := p.Cols, p.Rows // from list-panes
 
 		sb.WriteString(fmt.Sprintf("┌─ %s (%s) ─────────────────────\n", p.Target, status))
 		sb.WriteString(fmt.Sprintf("│ Session: %s  Dir: %s  Branch: %s\n", p.Session, p.DirName, p.Branch))

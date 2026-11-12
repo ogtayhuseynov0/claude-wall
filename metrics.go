@@ -122,6 +122,14 @@ func startMetrics() {
 
 	tick() // prime net counters so the next tick has a delta
 	for range time.NewTicker(interval).C {
+		// No header socket open: skip the vm_stat/netstat forks.
+		h.mu.RLock()
+		n := len(h.subs)
+		h.mu.RUnlock()
+		if n == 0 {
+			first = true // the next tick only primes the net counters
+			continue
+		}
 		tick()
 	}
 }

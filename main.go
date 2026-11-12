@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -166,7 +168,7 @@ type claudePane struct {
 func findClaudePanes() ([]claudePane, error) {
 	out, err := tmuxOutput(
 		"list-panes", "-a", "-F",
-		"#{session_name}:#{window_index}.#{pane_index}\t#{session_name}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{pane_tty}",
+		"#{session_name}:#{window_index}.#{pane_index}\t#{session_name}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}\t#{pane_tty}\t#{pane_width}\t#{pane_height}",
 	)
 	if err != nil {
 		return nil, err
@@ -179,11 +181,12 @@ func findClaudePanes() ([]claudePane, error) {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\t", 6)
-		if len(parts) < 6 {
+		parts := strings.SplitN(line, "\t", 8)
+		if len(parts) < 8 {
 			continue
 		}
 		target, session, dir, cmd, title, tty := parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
+		cols, rows := parts[6], parts[7]
 
 		// Title check only if command is NOT a regular shell (stale titles persist after exit)
 		shells := map[string]bool{"zsh": true, "bash": true, "sh": true, "fish": true}
@@ -234,6 +237,8 @@ func findClaudePanes() ([]claudePane, error) {
 			Branch:  branch,
 			Agent:   agent,
 			Profile: profile,
+			Cols:    cols,
+			Rows:    rows,
 		})
 	}
 	return panes, nil
@@ -270,14 +275,42 @@ func tmuxDisplayTarget(target, format, fallback string) string {
 	return strings.TrimSpace(out)
 }
 
+// gitBranch is cached 30 s per directory: the pane list, the summary, the
+// feed and every hook asked git again (about 500 forks a minute).
+type branchEntry struct {
+	name string
+	at   time.Time
+}
+
+var (
+	branchMu    sync.Mutex
+	branchCache = map[string]branchEntry{}
+)
+
 func gitBranch(dir string) string {
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		return "-"
+	branchMu.Lock()
+	e, ok := branchCache[dir]
+	branchMu.Unlock()
+	if ok && time.Since(e.at) < 30*time.Second {
+		return e.name
 	}
-	return strings.TrimSpace(string(out))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = dir
+	name := "-"
+	if out, err := cmd.Output(); err == nil {
+		name = strings.TrimSpace(string(out))
+	}
+	branchMu.Lock()
+	branchCache[dir] = branchEntry{name, time.Now()}
+	for d, e := range branchCache {
+		if time.Since(e.at) > 10*time.Minute {
+			delete(branchCache, d)
+		}
+	}
+	branchMu.Unlock()
+	return name
 }
 
 // isVersionString checks if cmd looks like a semver (e.g. "2.0.76")
