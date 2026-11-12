@@ -32,6 +32,7 @@ type sessionCost struct {
 type financeStore struct {
 	mu       sync.RWMutex
 	procMu   sync.Mutex // one processTranscript at a time, so offsets stay right
+	saveMu   sync.Mutex
 	sessions map[string]*sessionCost // sessionID → cost
 	mastermindCost float64
 	mastermindCalls int
@@ -217,19 +218,22 @@ type financeData struct {
 }
 
 func (f *financeStore) save() {
+	// saveMu keeps an older snapshot from landing after a newer one.
+	f.saveMu.Lock()
+	defer f.saveMu.Unlock()
+	// Marshal under the lock: iterating the map while a Stop writes to it
+	// crashed the server ("concurrent map iteration and map write").
 	f.mu.RLock()
-	data := financeData{
+	out, err := json.MarshalIndent(financeData{
 		Sessions:        f.sessions,
 		MastermindCost:  f.mastermindCost,
 		MastermindCalls: f.mastermindCalls,
-	}
+	}, "", "  ")
 	f.mu.RUnlock()
-
-	out, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return
 	}
-	os.WriteFile(financeFile(), out, 0644)
+	writeFileAtomic(financeFile(), out, 0644)
 }
 
 func (f *financeStore) load() {

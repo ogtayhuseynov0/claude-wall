@@ -372,7 +372,10 @@ func (d *dailyStore) computeWindows() map[string]interface{} {
 	}
 }
 
-var dailyWork *dailyStore
+var (
+	dailyWork   *dailyStore
+	dailyWorkMu sync.Mutex // concurrent /api/usage calls set dailyWork
+)
 
 func envFloat(key string, def float64) float64 {
 	if v := os.Getenv(key); v != "" {
@@ -397,10 +400,13 @@ func handleUsage(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	if wd := workProjectsDir(); wd != "" {
+		dailyWorkMu.Lock()
 		if dailyWork == nil || dailyWork.dir != wd {
 			dailyWork = &dailyStore{files: map[string]*fileStats{}, dir: wd}
 		}
-		out["work"] = dailyWork.computeWindows()
+		work := dailyWork
+		dailyWorkMu.Unlock()
+		out["work"] = work.computeWindows()
 		out["workCaps"] = map[string]float64{
 			"window5h": envFloat("CLAUDE_WALL_WORK_5H_USD", envFloat("CLAUDE_WALL_5H_USD", 100)),
 			"week":     envFloat("CLAUDE_WALL_WORK_WEEK_USD", envFloat("CLAUDE_WALL_WEEK_USD", 2500)),

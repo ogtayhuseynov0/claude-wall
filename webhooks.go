@@ -281,7 +281,11 @@ func resolveAgentContext(event hookEvent) agentContext {
 		return ctx
 	}
 	hooks.mu.RLock()
-	state := hooks.sessions[event.SessionID]
+	var state *hookState
+	if s := hooks.sessions[event.SessionID]; s != nil {
+		c := *s // copy under the lock; processEvent writes the live one
+		state = &c
+	}
 	hooks.mu.RUnlock()
 
 	if state != nil {

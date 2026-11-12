@@ -117,7 +117,9 @@ func (h *captureHub) unsubscribe(target string, ch chan paneUpdate) {
 	}
 	if len(h.subscribers[target]) == 0 {
 		delete(h.subscribers, target)
-		delete(h.termWorkingUntil, target)
+		// Nobody watches it now: a kept frame would give /api/summary an old
+		// status that wins over the hooks. (termWorkingUntil belongs to run.)
+		delete(h.latest, target)
 	}
 	h.mu.Unlock()
 	close(ch)
@@ -136,6 +138,16 @@ func (h *captureHub) run() {
 	var lastBatch time.Time
 
 	failCounts := map[string]int{}
+	// The last raw capture per pane. Most panes do not change between ticks;
+	// skip the regex work for them, but re-run it each second so the status
+	// timers (5 s working debounce, 120 s hook staleness) still expire.
+	type rawSeen struct {
+		raw      string
+		at       time.Time // last full processing
+		changed  time.Time // last time the capture differed
+		captured time.Time
+	}
+	seen := map[string]rawSeen{}
 
 	for range ticker.C {
 		h.mu.RLock()
@@ -144,6 +156,26 @@ func (h *captureHub) run() {
 			targets = append(targets, t)
 		}
 		h.mu.RUnlock()
+
+		// Only this goroutine touches termWorkingUntil (resolveStatus runs
+		// without h.mu). Deleting from it in unsubscribe crashed the server
+		// with "concurrent map writes".
+		if len(h.termWorkingUntil) > len(targets) || len(seen) > len(targets) {
+			live := make(map[string]bool, len(targets))
+			for _, t := range targets {
+				live[t] = true
+			}
+			for t := range h.termWorkingUntil {
+				if !live[t] {
+					delete(h.termWorkingUntil, t)
+				}
+			}
+			for t := range seen {
+				if !live[t] {
+					delete(seen, t)
+				}
+			}
+		}
 
 		if len(targets) == 0 {
 			continue
@@ -569,6 +601,9 @@ func (h *captureHub) watchControl(tc *tmuxControl) {
 				return // we asked for this
 			}
 			log.Println("[hub] control connection lost — batch capture until it is back")
+			// A stall (timeout) marks it dead but leaves `tmux -C attach`
+			// running, and each one stayed attached for good. End it.
+			go tc.stop()
 			go h.retryControl()
 			return
 		case <-ticker.C:

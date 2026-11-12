@@ -175,7 +175,10 @@ func (s *hookStore) getStateForPane(paneTarget, paneDir string) *hookState {
 
 	for _, state := range s.sessions {
 		if state.PaneTarget == paneTarget {
-			return state
+			// A copy: callers read it after the lock is released, while
+			// processEvent keeps writing the live state.
+			c := *state
+			return &c
 		}
 	}
 	return nil

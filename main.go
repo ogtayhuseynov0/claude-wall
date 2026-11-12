@@ -216,6 +216,9 @@ func findClaudePanes() ([]claudePane, error) {
 
 		branch := gitBranch(dir)
 		dirName := baseName(dir)
+		// The hook status checks need the pane's dir; it was only recorded at
+		// startup, so panes started later fell back to terminal parsing.
+		setPaneDir(target, dir)
 
 		profile := ""
 		if agent == "claude" {

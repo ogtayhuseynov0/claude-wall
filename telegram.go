@@ -37,6 +37,19 @@ type tgChat struct {
 	ID int64 `json:"id"`
 }
 
+// tgClient has a timeout: the default client has none, and a stuck call
+// froze the approve/deny buttons in the poll loop.
+var tgClient = &http.Client{Timeout: 15 * time.Second}
+
+// tgPostDiscard posts and closes the body (http.Post with the response
+// thrown away leaked a connection every time).
+func tgPostDiscard(url, contentType string, body io.Reader) {
+	if resp, err := tgClient.Post(url, contentType, body); err == nil {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+}
+
 // ── Telegram Bot Poller ──
 
 type telegramBot struct {
@@ -323,7 +336,7 @@ func (b *telegramBot) sendAgentList(chatID int64) {
 	token := b.token
 	b.mu.RUnlock()
 
-	http.Post(fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token), "application/json", strings.NewReader(string(payload)))
+	tgPostDiscard(fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token), "application/json", strings.NewReader(string(payload)))
 }
 
 // Handle pick callback from agent list
@@ -514,7 +527,7 @@ func (b *telegramBot) sendText(chatID int64, text string) {
 		"text":       text,
 		"parse_mode": "HTML",
 	})
-	http.Post(fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token), "application/json", strings.NewReader(string(payload)))
+	tgPostDiscard(fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token), "application/json", strings.NewReader(string(payload)))
 }
 
 func (b *telegramBot) sendTextReturn(text string) int {
@@ -528,7 +541,7 @@ func (b *telegramBot) sendTextReturn(text string) int {
 		"text":       text,
 		"parse_mode": "HTML",
 	})
-	resp, err := http.Post(fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token), "application/json", strings.NewReader(string(payload)))
+	resp, err := tgClient.Post(fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token), "application/json", strings.NewReader(string(payload)))
 	if err != nil {
 		return 0
 	}
@@ -556,7 +569,7 @@ func (b *telegramBot) sendWithKeyboard(text string, keyboard [][]map[string]stri
 		"parse_mode":   "HTML",
 		"reply_markup": map[string]interface{}{"inline_keyboard": keyboard},
 	})
-	resp, err := http.Post(fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token), "application/json", strings.NewReader(string(payload)))
+	resp, err := tgClient.Post(fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token), "application/json", strings.NewReader(string(payload)))
 	if err != nil {
 		return 0
 	}
@@ -581,7 +594,7 @@ func (b *telegramBot) answerCallback(callbackID string, text string) {
 		"callback_query_id": callbackID,
 		"text":              text,
 	})
-	http.Post(fmt.Sprintf("https://api.telegram.org/bot%s/answerCallbackQuery", token), "application/json", strings.NewReader(string(payload)))
+	tgPostDiscard(fmt.Sprintf("https://api.telegram.org/bot%s/answerCallbackQuery", token), "application/json", strings.NewReader(string(payload)))
 }
 
 func (b *telegramBot) editMessage(chatID int64, messageID int, text string) {
@@ -595,5 +608,5 @@ func (b *telegramBot) editMessage(chatID int64, messageID int, text string) {
 		"text":       text,
 		"parse_mode": "HTML",
 	})
-	http.Post(fmt.Sprintf("https://api.telegram.org/bot%s/editMessageText", token), "application/json", strings.NewReader(string(payload)))
+	tgPostDiscard(fmt.Sprintf("https://api.telegram.org/bot%s/editMessageText", token), "application/json", strings.NewReader(string(payload)))
 }

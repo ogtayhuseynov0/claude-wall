@@ -92,8 +92,17 @@ func launchChromeDebug(profile string) error {
 // killChromeDebug stops the headless clone by its debug-port PID (safe: only the
 // clone listens on 9222 — your real Chrome doesn't). Used to switch profiles.
 func killChromeDebug() {
-	out, _ := exec.Command("lsof", "-ti", "tcp:"+strconv.Itoa(chromeDebugPort)).Output()
-	if pids := strings.Fields(string(out)); len(pids) > 0 {
+	// LISTEN only: plain `lsof -i tcp:9222` also lists clients of the port,
+	// and this server is one while it streams the browser, so it killed itself.
+	out, _ := exec.Command("lsof", "-ti", "tcp:"+strconv.Itoa(chromeDebugPort), "-sTCP:LISTEN").Output()
+	self := strconv.Itoa(os.Getpid())
+	var pids []string
+	for _, p := range strings.Fields(string(out)) {
+		if p != self {
+			pids = append(pids, p)
+		}
+	}
+	if len(pids) > 0 {
 		exec.Command("kill", pids...).Run()
 		time.Sleep(500 * time.Millisecond)
 	}
