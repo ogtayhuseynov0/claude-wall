@@ -193,6 +193,8 @@
 </div>
 
 <script>
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
 function fmt(n) {
   if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
   if (n >= 1000) return (n/1000).toFixed(1) + 'K';
@@ -263,9 +265,9 @@ async function refresh() {
 
     tbody.innerHTML = sessions.map(s => `
       <tr>
-        <td><span class="session-name">${s.session || s.sessionId?.slice(0,8) || '?'}</span></td>
-        <td><span class="dir-name">${s.dirName || '-'}</span></td>
-        <td><span class="branch">${s.branch || '-'}</span></td>
+        <td><span class="session-name">${esc(s.session || s.sessionId?.slice(0,8) || '?')}</span></td>
+        <td><span class="dir-name">${esc(s.dirName || '-')}</span></td>
+        <td><span class="branch">${esc(s.branch || '-')}</span></td>
         <td><span class="cost-val">${fmtCost(s.costUsd || 0)}</span></td>
         <td><span class="token-val">${fmt(s.inputTokens || 0)}</span></td>
         <td><span class="token-val">${fmt(s.outputTokens || 0)}</span></td>
@@ -327,11 +329,11 @@ function buildBars(days) {
   last.forEach(d => { if (d.cost > max) max = d.cost; });
   document.getElementById('daily-bars').innerHTML = last.map(d => {
     const h = max > 0 ? Math.max(2, Math.round(d.cost/max * 100)) : 2;
-    return `<div class="bar-col" title="${d.date} · ${fmtCost(d.cost)}"><div class="bar" style="height:${h}%"></div></div>`;
+    return `<div class="bar-col" title="${esc(d.date)} · ${fmtCost(d.cost)}"><div class="bar" style="height:${h}%"></div></div>`;
   }).join('');
   const range = document.getElementById('bars-range');
   if (last.length) {
-    range.innerHTML = `<span>${last[0].date}</span><span>${last[last.length-1].date}</span>`;
+    range.innerHTML = `<span>${esc(last[0].date)}</span><span>${esc(last[last.length-1].date)}</span>`;
   }
 }
 
@@ -342,7 +344,7 @@ function buildBreakdown(elId, list, totalCost, pretty) {
     const pct = totalCost > 0 ? (m.cost / totalCost * 100) : 0;
     const name = pretty ? prettyModel(m.name) : m.name;
     return `<div class="bd-row">
-      <div class="bd-name" title="${m.name}">${name}</div>
+      <div class="bd-name" title="${esc(m.name)}">${esc(name)}</div>
       <div class="bd-track"><div class="bd-fill" style="width:${pct.toFixed(1)}%"></div></div>
       <div class="bd-cost">${fmtCost(m.cost)}</div>
     </div>`;
@@ -360,7 +362,7 @@ async function refreshDaily() {
       `estimated API-equivalent cost · ${data.numDays || 0} active days`;
 
     document.getElementById('daily-cards').innerHTML = `
-      <div class="card"><div class="label">Today</div><div class="value cost">${fmtCost(data.todayCost || 0)}</div><div class="sub">${data.today || ''}</div></div>
+      <div class="card"><div class="label">Today</div><div class="value cost">${fmtCost(data.todayCost || 0)}</div><div class="sub">${esc(data.today || '')}</div></div>
       <div class="card"><div class="label">Last 30 Days</div><div class="value cost">${fmtCost(data.cost30d || 0)}</div><div class="sub">rolling</div></div>
       <div class="card"><div class="label">This Month</div><div class="value cost">${fmtCost(data.monthCost || 0)}</div></div>
       <div class="card"><div class="label">All-Time</div><div class="value cost">${fmtCost(totals.cost || 0)}</div><div class="sub">${fmt(totals.msgs || 0)} messages</div></div>

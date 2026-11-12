@@ -375,9 +375,18 @@ func runWeb(port int) {
 			http.Error(w, "POST only", 405)
 			return
 		}
+		// Hooks come from Claude Code on this Mac, never over the network.
+		if remoteClient(r) {
+			http.Error(w, "hooks are local only", 403)
+			return
+		}
 		var event hookEvent
 		if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
 			http.Error(w, err.Error(), 400)
+			return
+		}
+		if !cleanHookEvent(&event) {
+			http.Error(w, "bad session_id", 400)
 			return
 		}
 		event.ReceivedAt = time.Now()
@@ -1134,6 +1143,23 @@ func findFilesByName(name string) []string {
 }
 
 // resolveTmuxPane maps a tmux pane ID (%NNN) to a pane target (Session:W.P)
+// remoteFrameGap is the minimum time between frames to a remote client.
+const remoteFrameGap = 125 * time.Millisecond
+
+// remoteClient reports whether a request came over the network (tailscale
+// serve proxies from loopback but adds forwarding headers).
+func remoteClient(r *http.Request) bool {
+	if r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Tailscale-User-Login") != "" {
+		return true
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip == nil || !ip.IsLoopback()
+}
+
 func resolveTmuxPane(paneID string) string {
 	out, err := tmuxOutput("list-panes", "-a", "-F", "#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}")
 	if err != nil {

@@ -147,13 +147,14 @@
   // and stream it. Your real Chrome is never touched. First launch clones the
   // profile + boots Chrome, so it can take a few seconds.
   function setStatusHTML(html) { statusEl.hidden = false; statusEl.innerHTML = html; }
+  function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
   function boot() {
     diag('Starting Chrome…');
     fetch('/api/browser/start').then((r) => r.json()).then((j) => {
       if (j.ok) { connect(); }
       else setStatusHTML(
-        '<div style="max-width:320px">' + (j.error || 'Could not start Chrome') +
+        '<div style="max-width:320px">' + esc(j.error || 'Could not start Chrome') +
         '<br><br><button id="retry" class="prim">Try again</button></div>');
       const rt = document.getElementById('retry'); if (rt) rt.onclick = boot;
     }).catch(() => {

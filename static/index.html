@@ -1380,8 +1380,39 @@
 
 <script src="https://cdn.jsdelivr.net/npm/ansi_up@5.2.1/ansi_up.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked@15.0.4/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
 <script>
+// Escape text for innerHTML / attribute values. Pane, hook, task and webhook data
+// comes from agents and the file system, so never interpolate it raw.
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// Tile frames render once per animation frame, in three passes (read the
+// scroll positions, write the HTML, then scroll), so many tiles cost one
+// layout instead of two each. A hidden tab runs no animation frames, so it
+// renders nothing until it shows again, then only the newest frame.
+const renderQueue = new Set();
+let renderFrame = 0;
+function queueRender(r) {
+  renderQueue.add(r);
+  if (!renderFrame) renderFrame = requestAnimationFrame(flushRenders);
+}
+function flushRenders() {
+  renderFrame = 0;
+  const rs = [...renderQueue];
+  renderQueue.clear();
+  for (const r of rs) r.measure();
+  for (const r of rs) r.write();
+  for (const r of rs) r.scroll();
+}
+
+// pollVisible runs fn every ms while the page shows, and once when it shows
+// again. Hidden tabs made about 1.6 requests a second for nothing.
+function pollVisible(fn, ms) {
+  setInterval(() => { if (!document.hidden) fn(); }, ms);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) fn(); });
+}
+
 const grid = document.getElementById('grid');
 const countEl = document.getElementById('count');
 const tiles = new Map();
@@ -1698,12 +1729,12 @@ function createTile(pane) {
       <span class="status-dot connecting"></span>
       <span class="tile-num">${index + 1}</span>
       <span class="agent-badge ${pane.agent === 'codex' ? 'codex' : 'claude'}" title="${pane.agent === 'codex' ? 'Codex' : 'Claude'}">${pane.agent === 'codex' ? '◇' : '✳'}</span>
-      <span class="session">🖥 ${pane.session || '?'}</span>
+      <span class="session">🖥 ${esc(pane.session || '?')}</span>
       <span class="sep">·</span>
-      <span class="dir">📂 ${pane.dirName || '?'}</span>
+      <span class="dir">📂 ${esc(pane.dirName || '?')}</span>
       <span class="sep">·</span>
-      <span class="branch">🌿 ${pane.branch || '-'}</span>
-      <span class="pane-id">${pane.target.split('.')[1] ? ':' + pane.target.split(':')[1] : ''}</span>
+      <span class="branch">🌿 ${esc(pane.branch || '-')}</span>
+      <span class="pane-id">${pane.target.split('.')[1] ? ':' + esc(pane.target.split(':')[1]) : ''}</span>
       <span class="spacer"></span>
       <span class="pm-badge" style="display:none" title="Claude Code tasks"></span>
       <span class="sched-badge" style="display:none" title="Scheduled task active"></span>
@@ -1718,7 +1749,7 @@ function createTile(pane) {
           <div class="more-menu-item blur-toggle">◉ Blur content</div>
           <div class="more-menu-sep"></div>
           <div class="more-menu-item font-row"><span class="font-down">A−</span><span class="font-label">Font</span><span class="font-up">A+</span></div>
-          <div class="more-menu-item pane-info">${pane.cols || '?'}col · ${pane.target}</div>
+          <div class="more-menu-item pane-info">${esc(pane.cols || '?')}col · ${esc(pane.target)}</div>
         </div>
       </span>
     </div>
@@ -2530,10 +2561,10 @@ async function refreshApprovals() {
       let actionsHtml;
       if (isQuestion) {
         const optBtns = q.options.map((o, i) =>
-          `<button class="approval-btn approve opt-btn" data-idx="${i+1}" title="${o.description || ''}" style="width:100%;text-align:left">${o.label} <span style="color:var(--text-muted);font-size:9px;margin-left:4px">${o.description || ''}</span></button>`
+          `<button class="approval-btn approve opt-btn" data-idx="${i+1}" title="${esc(o.description || '')}" style="width:100%;text-align:left">${esc(o.label)} <span style="color:var(--text-muted);font-size:9px;margin-left:4px">${esc(o.description || '')}</span></button>`
         ).join('');
         actionsHtml = `
-          <div class="approval-activity">❓ ${q.question}</div>
+          <div class="approval-activity">❓ ${esc(q.question)}</div>
           <div class="approval-actions" style="flex-direction:column">
             ${optBtns}
             <div style="display:flex;gap:6px;margin-top:4px">
@@ -2546,7 +2577,7 @@ async function refreshApprovals() {
         `;
       } else {
         actionsHtml = `
-          <div class="approval-activity">${p.activity || p.toolName || 'Permission needed'}</div>
+          <div class="approval-activity">${esc(p.activity || p.toolName || 'Permission needed')}</div>
           <div class="approval-actions">
             <button class="approval-btn approve">✓ Yes</button>
             <button class="approval-btn approve-always">✓ Always</button>
@@ -2558,9 +2589,9 @@ async function refreshApprovals() {
 
       el.innerHTML = `
         <div class="approval-header">
-          <span class="approval-session">${session}</span>
-          <span style="color:var(--text-secondary);font-size:10px">📂 ${dirName}</span>
-          ${branch ? `<span style="color:#a78bfa;font-size:10px;font-family:var(--font-mono)">🌿 ${branch}</span>` : ''}
+          <span class="approval-session">${esc(session)}</span>
+          <span style="color:var(--text-secondary);font-size:10px">📂 ${esc(dirName)}</span>
+          ${branch ? `<span style="color:#a78bfa;font-size:10px;font-family:var(--font-mono)">🌿 ${esc(branch)}</span>` : ''}
         </div>
         ${actionsHtml}
       `;
@@ -2655,9 +2686,10 @@ function updateTaskTargets() {
   const current = sel.value;
   const options = ['<option value="">Select agent...</option>'];
   for (const [t, s] of tiles) {
-    options.push(`<option value="${t}" ${t === current ? 'selected' : ''}>${s.pane.session} · ${s.pane.dirName}</option>`);
+    options.push(`<option value="${esc(t)}" ${t === current ? 'selected' : ''}>${esc(s.pane.session)} · ${esc(s.pane.dirName)}</option>`);
   }
-  sel.innerHTML = options.join('');
+  const html = options.join('');
+  if (html !== sel.dataset.html) { sel.innerHTML = html; sel.dataset.html = html; } // a rebuild closed an open dropdown
 }
 
 async function refreshTasks() {
@@ -2695,25 +2727,28 @@ async function refreshTasks() {
 
       html += `<div class="task-item">
         <div class="task-header">
-          <span class="task-target">${name}</span>
-          <span class="task-status ${t.status}">${t.status}</span>
+          <span class="task-target">${esc(name)}</span>
+          <span class="task-status ${esc(t.status)}">${esc(t.status)}</span>
           <span style="margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--text-muted)">${t.attempts}/${t.maxAttempts}</span>
         </div>
-        <div class="task-command">${t.command}</div>
+        <div class="task-command">${esc(t.command)}</div>
         <div class="task-meta">
           <span>every ${t.intervalMin}m</span>
           ${t.maxEmpty > 0 ? `<span>empty: ${t.emptyCount}/${t.maxEmpty}</span>` : ""}
           ${nextIn !== null ? `<span>next: ${nextIn}m</span>` : ''}
         </div>
         <div class="task-actions">
-          ${t.status === 'running' ? `<button class="task-btn" onclick="taskAction('${t.id}','pause')">⏸ Pause</button>` : ''}
-          ${t.status === 'paused' ? `<button class="task-btn" onclick="taskAction('${t.id}','resume')">▶ Resume</button>` : ''}
-          ${t.status === 'running' || t.status === 'paused' ? `<button class="task-btn" onclick="taskAction('${t.id}','stop')">⏹ Stop</button>` : ''}
-          <button class="task-btn danger" onclick="taskAction('${t.id}','delete')">✕ Delete</button>
+          ${t.status === 'running' ? `<button class="task-btn" data-task-id="${esc(t.id)}" data-task-action="pause">⏸ Pause</button>` : ''}
+          ${t.status === 'paused' ? `<button class="task-btn" data-task-id="${esc(t.id)}" data-task-action="resume">▶ Resume</button>` : ''}
+          ${t.status === 'running' || t.status === 'paused' ? `<button class="task-btn" data-task-id="${esc(t.id)}" data-task-action="stop">⏹ Stop</button>` : ''}
+          <button class="task-btn danger" data-task-id="${esc(t.id)}" data-task-action="delete">✕ Delete</button>
         </div>
       </div>`;
     }
     listEl.innerHTML = html;
+    listEl.querySelectorAll('[data-task-action]').forEach(btn => {
+      btn.addEventListener('click', () => taskAction(btn.dataset.taskId, btn.dataset.taskAction));
+    });
   } catch(e) {}
 }
 
@@ -2799,13 +2834,13 @@ function renderPMPanel() {
     const expanded = pmExpanded.has(agent.target);
 
     html += `<div class="pm-agent-group">
-      <div class="pm-agent-header" onclick="pmToggle('${agent.target}')">
+      <div class="pm-agent-header" data-pm-target="${esc(agent.target)}">
         <span style="color:var(--text-muted)">${expanded ? '▾' : '▸'}</span>
-        <span>${name}</span>
+        <span>${esc(name)}</span>
         <div class="pm-progress-bar"><div class="pm-bar-done" style="width:${pct}%"></div><div class="pm-bar-active" style="width:${activePct}%"></div></div>
         <span class="pm-counts">${s.completed}/${s.total}</span>
         <div class="pm-agent-actions">
-          <button class="pm-task-action" onclick="event.stopPropagation();pmContinue('${agent.target}')" title="Send /continue">▶</button>
+          <button class="pm-task-action pm-continue" data-pm-target="${esc(agent.target)}" title="Send /continue">▶</button>
         </div>
       </div>`;
 
@@ -2823,8 +2858,8 @@ function renderPMPanel() {
         const canAssign = t.status === 'pending';
         html += `<div class="pm-task">
           <span class="pm-task-icon" style="color:${iconColor}">${icon}</span>
-          <span class="pm-task-subject ${cls}">${t.subject}</span>
-          ${canAssign ? `<button class="pm-task-action" onclick="pmWorkOn('${agent.target}','${t.id}',\`${t.subject.replace(/`/g,"'")}\`)" title="Assign to agent">→</button>` : ''}
+          <span class="pm-task-subject ${cls}">${esc(t.subject)}</span>
+          ${canAssign ? `<button class="pm-task-action pm-work-on" data-pm-target="${esc(agent.target)}" data-task-id="${esc(t.id)}" data-subject="${esc(t.subject)}" title="Assign to agent">→</button>` : ''}
         </div>`;
       }
       html += '</div>';
@@ -2832,6 +2867,15 @@ function renderPMPanel() {
     html += '</div>';
   }
   pmPanel.innerHTML = html;
+  pmPanel.querySelectorAll('.pm-agent-header').forEach(h => {
+    h.addEventListener('click', () => pmToggle(h.dataset.pmTarget));
+  });
+  pmPanel.querySelectorAll('.pm-continue').forEach(btn => {
+    btn.addEventListener('click', (e) => { e.stopPropagation(); pmContinue(btn.dataset.pmTarget); });
+  });
+  pmPanel.querySelectorAll('.pm-work-on').forEach(btn => {
+    btn.addEventListener('click', () => pmWorkOn(btn.dataset.pmTarget, btn.dataset.taskId, btn.dataset.subject.replace(/`/g, "'")));
+  });
 }
 
 function pmToggle(target) {
@@ -2859,7 +2903,7 @@ const webhooksPanel = document.getElementById('webhooks-panel');
 let secretNames = []; // cached from API
 
 function secretOptions(fieldId, placeholder) {
-  const opts = secretNames.map(n => `<option value="$${n}">$${n}</option>`).join('');
+  const opts = secretNames.map(n => `<option value="$${esc(n)}">$${esc(n)}</option>`).join('');
   return `<select id="${fieldId}-sel" onchange="whSecretPick('${fieldId}')" style="margin-bottom:0">
     <option value="">Type value or pick secret...</option>${opts}
   </select>
@@ -2943,8 +2987,11 @@ async function refreshWebhooks() {
         secretsList.innerHTML = '<div style="font-size:10px;color:var(--text-muted);padding:4px 0">No secrets stored</div>';
       } else {
         secretsList.innerHTML = secData.secrets.map(s =>
-          `<div class="secret-item"><span class="secret-name">$${s.name}</span><span class="secret-val">${s.value}</span><span class="secret-del" onclick="deleteSecret('${s.name}')" title="Delete">✕</span></div>`
+          `<div class="secret-item"><span class="secret-name">$${esc(s.name)}</span><span class="secret-val">${esc(s.value)}</span><span class="secret-del" data-secret-name="${esc(s.name)}" title="Delete">✕</span></div>`
         ).join('');
+        secretsList.querySelectorAll('.secret-del').forEach(del => {
+          del.addEventListener('click', () => deleteSecret(del.dataset.secretName));
+        });
       }
     }
 
@@ -2970,18 +3017,22 @@ async function refreshWebhooks() {
         : (wh.url.startsWith('$') ? wh.url : wh.url.substring(0, 40) + (wh.url.length > 40 ? '...' : ''));
       html += `<div class="webhook-item" style="${disabledCls}">
         <div class="webhook-header">
-          <span class="webhook-type ${wh.type}">${wh.type}</span>
-          <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted)">${urlDisplay}</span>
+          <span class="webhook-type ${esc(wh.type)}">${esc(wh.type)}</span>
+          <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted)">${esc(urlDisplay)}</span>
         </div>
-        <div class="webhook-events">${(wh.events || []).map(e => `<span>${e}</span>`).join('')}</div>
+        <div class="webhook-events">${(wh.events || []).map(e => `<span>${esc(e)}</span>`).join('')}</div>
         <div class="webhook-actions">
-          <button class="task-btn" onclick="testWebhook('${wh.id}')">Test</button>
-          <button class="task-btn" onclick="toggleWebhook('${wh.id}')">${wh.enabled ? 'Disable' : 'Enable'}</button>
-          <button class="task-btn danger" onclick="deleteWebhook('${wh.id}')">Delete</button>
+          <button class="task-btn" data-wh-id="${esc(wh.id)}" data-wh-action="test">Test</button>
+          <button class="task-btn" data-wh-id="${esc(wh.id)}" data-wh-action="toggle">${wh.enabled ? 'Disable' : 'Enable'}</button>
+          <button class="task-btn danger" data-wh-id="${esc(wh.id)}" data-wh-action="delete">Delete</button>
         </div>
       </div>`;
     }
     listEl.innerHTML = html;
+    const whActions = { test: testWebhook, toggle: toggleWebhook, delete: deleteWebhook };
+    listEl.querySelectorAll('[data-wh-action]').forEach(btn => {
+      btn.addEventListener('click', () => whActions[btn.dataset.whAction](btn.dataset.whId));
+    });
   } catch(e) {}
 }
 
@@ -3171,8 +3222,8 @@ function renderCommands(query) {
     el.dataset.idx = actionIdx;
     el.innerHTML = `
       <span class="cmd-icon">${item.icon || ''}</span>
-      <span class="cmd-label">${item.label}</span>
-      ${item.hint ? `<span class="cmd-hint">${item.hint}</span>` : ''}
+      <span class="cmd-label">${esc(item.label)}</span>
+      ${item.hint ? `<span class="cmd-hint">${esc(item.hint)}</span>` : ''}
       ${item.kbd ? `<span class="cmd-kbd">${item.kbd}</span>` : ''}
     `;
     el.addEventListener('click', (ev) => { execCmd(item, ev.metaKey || ev.ctrlKey); });
@@ -3369,6 +3420,12 @@ function mmAddMsg(type, text) {
   return el;
 }
 
+// Replies can quote agent output, so sanitize the rendered markdown;
+// without DOMPurify/marked (offline) show the raw text escaped instead.
+function mmRender(text) {
+  return window.DOMPurify && window.marked ? DOMPurify.sanitize(marked.parse(text)) : esc(text).replace(/\n/g, '<br>');
+}
+
 function mmConnect() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   mmWs = new WebSocket(`${proto}//${location.host}/ws/mastermind`);
@@ -3393,7 +3450,7 @@ function mmConnect() {
           mmCurrentText = '';
         }
         mmCurrentText += msg.data;
-        mmCurrentMsg.innerHTML = marked.parse(mmCurrentText);
+        mmCurrentMsg.innerHTML = mmRender(mmCurrentText);
         mmMessages.scrollTop = mmMessages.scrollHeight;
         break;
       case 'tool':
@@ -3402,7 +3459,7 @@ function mmConnect() {
       case 'done':
         // Final markdown render
         if (mmCurrentMsg && mmCurrentText) {
-          mmCurrentMsg.innerHTML = marked.parse(mmCurrentText);
+          mmCurrentMsg.innerHTML = mmRender(mmCurrentText);
         }
         mmCurrentMsg = null;
         mmCurrentText = '';

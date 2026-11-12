@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -30,6 +32,27 @@ func validTarget(t string) bool {
 	for _, c := range t {
 		if c < 0x20 || c == 0x7f || strings.ContainsRune("'\"\\;$`", c) {
 			return false
+		}
+	}
+	return true
+}
+
+var sessionIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+
+// cleanHookEvent checks the hook fields the server uses as file paths:
+// session_id is joined into ~/.claude/tasks/<id>, and transcript_path is
+// read by the cost, Fleet Log and webhook code. A bad session_id refuses the
+// event; a transcript_path outside the home folder, or not a clean .jsonl
+// path, is dropped.
+func cleanHookEvent(e *hookEvent) bool {
+	if e.SessionID != "" && !sessionIDRe.MatchString(e.SessionID) {
+		return false
+	}
+	if p := e.TranscriptPath; p != "" {
+		home, _ := os.UserHomeDir()
+		if !filepath.IsAbs(p) || filepath.Clean(p) != p || !strings.HasSuffix(p, ".jsonl") ||
+			home == "" || !strings.HasPrefix(p, home+string(filepath.Separator)) {
+			e.TranscriptPath = ""
 		}
 	}
 	return true

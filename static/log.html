@@ -199,24 +199,24 @@ const SRC = { auto: 'auto', agent: 'agent', you: 'you' };
 function item(e, opt = {}) {
   const tick = e.kind === 'todo' || e.kind === 'waiting';
   const closed = e.status === 'closed';
-  return `<div class="it k-${e.kind}${closed ? ' closed' : ''}" data-id="${e.id}">
+  return `<div class="it k-${esc(e.kind)}${closed ? ' closed' : ''}" data-id="${esc(e.id)}">
     ${tick ? `<button class="chk" data-act="toggle" data-status="${closed ? 'open' : 'closed'}" aria-label="${closed ? 'Reopen' : 'Mark done'}">${ICON_CHECK}</button>` : '<span class="dot"></span>'}
     <div class="body">
       <div class="txt">${esc(e.text)}</div>
       ${e.kind === 'lesson' && e.detail ? `<div class="fix"><b>Fix:</b> ${esc(e.detail)}</div>` : ''}
       <div class="meta">${opt.project ? `<a class="pchip" href="${projLink(e.project)}">${esc(e.project)}</a>` : ''}
-        <span class="src-${e.source}">${SRC[e.source] || e.source}</span><span>·</span><span>${ago(e.closedAt || e.at)}</span></div>
+        <span class="src-${esc(e.source)}">${esc(SRC[e.source] || e.source)}</span><span>·</span><span>${ago(e.closedAt || e.at)}</span></div>
     </div>
     <button class="del" data-act="del" title="Delete" aria-label="Delete">${ICON_X}</button>
   </div>`;
 }
 function ruleCard(e, opt = {}) {
   if (e.status === 'saved') {
-    return `<div class="rule" data-id="${e.id}"><div class="txt">${esc(e.text)}</div>
+    return `<div class="rule" data-id="${esc(e.id)}"><div class="txt">${esc(e.text)}</div>
       <div class="meta"><span class="saved">Saved to ${e.detail === 'global' ? 'all projects' : esc(e.project)}</span><span>·</span><span>${ago(e.at)}</span></div></div>`;
   }
   const g = e.detail === 'global';
-  return `<div class="rule" data-id="${e.id}">
+  return `<div class="rule" data-id="${esc(e.id)}">
     <div class="txt">${esc(e.text)}</div>
     <div class="meta">${opt.project ? `from <a class="pchip" href="${projLink(e.project)}">${esc(e.project)}</a><span>·</span>` : ''}<span>${ago(e.at)}</span></div>
     <div class="ra">

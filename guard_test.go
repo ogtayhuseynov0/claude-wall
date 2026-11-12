@@ -3,6 +3,8 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -59,6 +61,27 @@ func TestOriginGuard(t *testing.T) {
 		h.ServeHTTP(w, r)
 		if w.Code != c.want {
 			t.Errorf("%s: got %d, want %d", c.name, w.Code, c.want)
+		}
+	}
+}
+
+func TestCleanHookEvent(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	good := filepath.Join(home, ".claude", "projects", "x", "0a1b-2c.jsonl")
+	e := hookEvent{SessionID: "0a1b2c3d-4e5f-6789-abcd-ef0123456789", TranscriptPath: good}
+	if !cleanHookEvent(&e) || e.TranscriptPath != good {
+		t.Fatalf("good event changed: %+v", e)
+	}
+	for _, p := range []string{"/etc/passwd", home + "/../x.jsonl", "rel/x.jsonl", filepath.Join(home, "notes.txt")} {
+		e := hookEvent{SessionID: "abc", TranscriptPath: p}
+		if !cleanHookEvent(&e) || e.TranscriptPath != "" {
+			t.Errorf("path %q kept", p)
+		}
+	}
+	for _, id := range []string{"../../etc", "a/b", "a b"} {
+		e := hookEvent{SessionID: id}
+		if cleanHookEvent(&e) {
+			t.Errorf("session id %q accepted", id)
 		}
 	}
 }

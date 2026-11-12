@@ -609,7 +609,7 @@
       const agentLabel = p.agent === 'codex' ? 'codex' : (p.profile ? 'claude · ' + p.profile : 'claude');
       // status text; if the activity carries a trailing % (compaction), split off
       // a visual progress bar
-      let stText = (st === 'working' && p.activity) ? esc(p.activity) : (WORD[st] || st);
+      let stText = (st === 'working' && p.activity) ? esc(p.activity) : (WORD[st] || esc(st));
       let stBar = '';
       const pm = (st === 'working' && p.activity) ? p.activity.match(/^(.*?)\s*(\d{1,3})%\s*$/) : null;
       if (pm) {
@@ -627,12 +627,12 @@
           ${profChip}
           <span class="agent" title="${esc(agentLabel)}">${p.agent === 'codex' ? ICON.codex : ICON.claude}</span>
         </div>
-        <div class="status-word sw-${st}"><span class="dot ${st}"></span><span class="sw-text">${stText}</span>${stBar}</div>
+        <div class="status-word sw-${esc(st)}"><span class="dot ${esc(st)}"></span><span class="sw-text">${stText}</span>${stBar}</div>
       </a>`;
     }).join('');
   }
 
-  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   function syncChips() {
     [...chipsEl.children].forEach(ch => ch.classList.toggle('on', ch.dataset.f === filter));
@@ -910,7 +910,7 @@
     camList.forEach((p, i) => {
       const d = camDay(p.time);
       if (d !== day) { day = d; html += `<div class="cam-day">${esc(d)}</div>`; }
-      html += `<button class="cam-th" data-i="${i}"><img loading="lazy" src="${camSrc(p.name, true)}" alt=""><span>${camClock(p.time)}</span></button>`;
+      html += `<button class="cam-th" data-i="${i}"><img loading="lazy" src="${esc(camSrc(p.name, true))}" alt=""><span>${camClock(p.time)}</span></button>`;
     });
     camGrid.innerHTML = html;
   }

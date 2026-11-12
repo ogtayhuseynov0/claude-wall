@@ -54,8 +54,8 @@
   <div id="list"><div class="empty">Loading…</div></div>
 <script>
   const listEl = document.getElementById('list');
-  const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const urlFor = (port) => location.origin + '/proxy/' + port + '/';
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const urlFor = (port) => location.origin + '/proxy/' + encodeURIComponent(port) + '/';
   const openExternal = (port) => window.open(urlFor(port), '_blank', 'noopener'); // breaks out of the PWA into the browser
 
   async function load() {
@@ -64,11 +64,11 @@
       if (!ports.length) { listEl.innerHTML = '<div class="empty">No local listeners found.</div>'; return; }
       listEl.innerHTML = ports.map((p) => `
         <div class="row">
-          <span class="port">:${p.port}</span>
+          <span class="port">:${esc(p.port)}</span>
           <span class="proc">${esc(p.name)}${(p.proc && p.proc !== p.name) ? ' <span class="pdim">' + esc(p.proc) + '</span>' : ''}</span>
           ${p.all ? '<span class="tag">all</span>' : ''}
-          <button class="copy" data-port="${p.port}" title="Copy URL" aria-label="Copy URL">⧉</button>
-          <a class="open" href="${urlFor(p.port)}" target="_blank" rel="noopener" title="Open" aria-label="Open">↗</a>
+          <button class="copy" data-port="${esc(p.port)}" title="Copy URL" aria-label="Copy URL">⧉</button>
+          <a class="open" href="${esc(urlFor(p.port))}" target="_blank" rel="noopener" title="Open" aria-label="Open">↗</a>
         </div>`).join('');
     } catch (e) {
       listEl.innerHTML = '<div class="empty">Can\'t reach server.</div>';
