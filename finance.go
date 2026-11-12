@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -24,10 +26,12 @@ type sessionCost struct {
 	Turns     int       `json:"turns"`
 	Duration  int64     `json:"durationMs"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	Offset    int64     `json:"offset,omitempty"` // transcript bytes already counted
 }
 
 type financeStore struct {
 	mu       sync.RWMutex
+	procMu   sync.Mutex // one processTranscript at a time, so offsets stay right
 	sessions map[string]*sessionCost // sessionID → cost
 	mastermindCost float64
 	mastermindCalls int
@@ -53,37 +57,72 @@ func (f *financeStore) processTranscript(event hookEvent) {
 		return
 	}
 
+	f.procMu.Lock()
+	defer f.procMu.Unlock()
+
 	file, err := os.Open(event.TranscriptPath)
 	if err != nil {
 		return
 	}
 	defer file.Close()
+	st, err := file.Stat()
+	if err != nil {
+		return
+	}
+
+	// Continue from where the last Stop stopped. Transcripts only grow, and
+	// they can pass 1 GB, so a full read on every Stop is too slow.
+	var prev sessionCost
+	f.mu.RLock()
+	if sc := f.sessions[event.SessionID]; sc != nil {
+		prev = *sc
+	}
+	f.mu.RUnlock()
+	if prev.Offset == 0 || prev.Offset > st.Size() {
+		prev = sessionCost{} // no offset yet, or the file was rewritten: count from 0
+	}
+	if _, err := file.Seek(prev.Offset, io.SeekStart); err != nil {
+		return
+	}
 
 	// Sum usage across all assistant messages in the transcript
-	var inputTok, outputTok, cacheRead, cacheCreate int64
-	var turns int
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	for scanner.Scan() {
-		var entry map[string]interface{}
-		if json.Unmarshal(scanner.Bytes(), &entry) != nil {
+	inputTok, outputTok, cacheRead, cacheCreate := prev.InputTok, prev.OutputTok, prev.CacheRead, prev.CacheCreate
+	turns := prev.Turns
+	offset := prev.Offset
+	assistant := []byte(`"type":"assistant"`)
+	rd := bufio.NewReaderSize(file, 256*1024)
+	for {
+		line, err := rd.ReadBytes('\n')
+		if err != nil {
+			break // EOF; a partial last line waits for the next Stop
+		}
+		offset += int64(len(line))
+		if !bytes.Contains(line, assistant) {
 			continue
 		}
-		if entry["type"] == "assistant" {
-			turns++
-			msg, _ := entry["message"].(map[string]interface{})
-			if msg == nil {
-				continue
-			}
-			usage, _ := msg["usage"].(map[string]interface{})
-			if usage == nil {
-				continue
-			}
-			if v, ok := usage["input_tokens"].(float64); ok { inputTok += int64(v) }
-			if v, ok := usage["output_tokens"].(float64); ok { outputTok += int64(v) }
-			if v, ok := usage["cache_read_input_tokens"].(float64); ok { cacheRead += int64(v) }
-			if v, ok := usage["cache_creation_input_tokens"].(float64); ok { cacheCreate += int64(v) }
+		var entry struct {
+			Type    string `json:"type"`
+			Message *struct {
+				Usage *struct {
+					Input       int64 `json:"input_tokens"`
+					Output      int64 `json:"output_tokens"`
+					CacheRead   int64 `json:"cache_read_input_tokens"`
+					CacheCreate int64 `json:"cache_creation_input_tokens"`
+				} `json:"usage"`
+			} `json:"message"`
 		}
+		if json.Unmarshal(line, &entry) != nil || entry.Type != "assistant" {
+			continue
+		}
+		turns++
+		if entry.Message == nil || entry.Message.Usage == nil {
+			continue
+		}
+		u := entry.Message.Usage
+		inputTok += u.Input
+		outputTok += u.Output
+		cacheRead += u.CacheRead
+		cacheCreate += u.CacheCreate
 	}
 
 	if turns == 0 {
@@ -124,6 +163,7 @@ func (f *financeStore) processTranscript(event hookEvent) {
 		CacheCreate: cacheCreate,
 		Turns:       turns,
 		UpdatedAt:   time.Now(),
+		Offset:      offset,
 	}
 	f.mu.Unlock()
 	f.save()

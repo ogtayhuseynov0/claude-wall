@@ -311,12 +311,54 @@ func resolveAgentContext(event hookEvent) agentContext {
 	return ctx
 }
 
-// lastUserPrompt reads the transcript JSONL and returns the last external user message.
-func lastUserPrompt(path string) string {
-	data, err := os.ReadFile(path)
+// readTail returns the complete lines in the last max bytes of path, and
+// whether that is the whole file. Transcripts grow past 1 GB, and a full read
+// on every hook event took all the memory and CPU of the server.
+func readTail(path string, max int64) ([]byte, bool) {
+	fh, err := os.Open(path)
 	if err != nil {
-		return ""
+		return nil, true
 	}
+	defer fh.Close()
+	st, err := fh.Stat()
+	if err != nil {
+		return nil, true
+	}
+	start := st.Size() - max
+	if start < 0 {
+		start = 0
+	}
+	buf := make([]byte, st.Size()-start)
+	n, _ := fh.ReadAt(buf, start)
+	buf = buf[:n]
+	if start > 0 { // landed mid-line: drop the partial first line
+		i := bytes.IndexByte(buf, '\n')
+		if i < 0 {
+			return nil, false
+		}
+		buf = buf[i+1:]
+	}
+	return buf, start == 0
+}
+
+// lastInTail runs find on bigger and bigger tails of the transcript until it
+// returns something or the tail is the whole file.
+func lastInTail(path string, find func([]byte) string, sizes ...int64) string {
+	for _, max := range sizes {
+		data, whole := readTail(path, max)
+		if s := find(data); s != "" || whole {
+			return s
+		}
+	}
+	return ""
+}
+
+// lastUserPrompt returns the last external user message in the transcript JSONL.
+func lastUserPrompt(path string) string {
+	return lastInTail(path, lastUserPromptIn, 2<<20, 16<<20)
+}
+
+func lastUserPromptIn(data []byte) string {
 	var last string
 	for _, line := range strings.Split(string(data), "\n") {
 		if line == "" {
@@ -372,10 +414,10 @@ func lastAssistantText(path string) string {
 	if path == "" {
 		return ""
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
+	return lastInTail(path, lastAssistantTextIn, 4<<20, 16<<20)
+}
+
+func lastAssistantTextIn(data []byte) string {
 	var last string
 	for _, line := range strings.Split(string(data), "\n") {
 		if line == "" || !strings.Contains(line, `"type":"assistant"`) {
@@ -443,6 +485,13 @@ func formatAgentBlock(ctx agentContext) string {
 // Returns ("", "") if this event should not trigger a webhook.
 // Messages use HTML tags for Telegram; Slack/Discord/generic render them naturally.
 func mapEventToWebhook(event hookEvent) (string, string) {
+	// The hook handler calls this for every event; only read the transcript
+	// and git for the events below.
+	switch event.EventName {
+	case "PermissionRequest", "Notification", "PostToolUseFailure", "StopFailure", "Stop", "TaskCompleted":
+	default:
+		return "", ""
+	}
 	ctx := resolveAgentContext(event)
 	block := formatAgentBlock(ctx)
 
