@@ -29,7 +29,7 @@ import (
 var staticFiles embed.FS
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin:     func(r *http.Request) bool { return true },
+	CheckOrigin:     originAllowed, // guard.go
 	ReadBufferSize:  4096,
 	WriteBufferSize: 16384,
 }
@@ -478,9 +478,8 @@ func runWeb(port int) {
 
 	// Send text to a pane (used by Chrome extension, CLI, etc.)
 	http.HandleFunc("/api/send/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		// No CORS headers: the extension has host_permissions, and a web page
+		// must not type into terminals.
 		if r.Method == "OPTIONS" {
 			return
 		}
@@ -795,6 +794,7 @@ func runWeb(port int) {
 		fmt.Println("▸ Auth enabled (--token)")
 		handler = authMiddleware(http.DefaultServeMux)
 	}
+	handler = originGuard(handler)
 	fmt.Printf("▸ Dashboard at http://%s\n", addr)
 
 	srv := &http.Server{Handler: handler}
@@ -818,8 +818,8 @@ func runWeb(port int) {
 
 func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 	target := strings.TrimPrefix(r.URL.Path, "/ws/")
-	if target == "" {
-		http.Error(w, "missing pane target", 400)
+	if !validTarget(target) {
+		http.Error(w, "bad pane target", 400)
 		return
 	}
 

@@ -273,7 +273,14 @@ func (h *captureHub) run() {
 // Reduces subprocess count from N to 1 per tick.
 const captureSep = "@@CWSEP@@"
 
-func batchCapture(targets []string) map[string]string {
+func batchCapture(all []string) map[string]string {
+	// The targets go inside sh single quotes: drop any that could break out.
+	targets := make([]string, 0, len(all))
+	for _, t := range all {
+		if validTarget(t) {
+			targets = append(targets, t)
+		}
+	}
 	if len(targets) == 0 {
 		return nil
 	}

@@ -51,7 +51,6 @@ func (b *uiBroadcast) send(cmd uiCommand) {
 // handleUIAction handles POST/GET /api/ui/:action/:target
 // Target can be full (Agent:1.2) or partial (Agent, Zangy) — we resolve it
 func handleUIAction(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	path := strings.TrimPrefix(r.URL.Path, "/api/ui/")
 	parts := strings.SplitN(path, "/", 2)
 	if len(parts) < 2 {
@@ -106,7 +105,6 @@ func handleUIEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	ch := uiBcast.subscribe()
 	defer uiBcast.unsubscribe(ch)

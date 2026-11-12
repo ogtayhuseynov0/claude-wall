@@ -390,6 +390,9 @@ func (tc *tmuxControl) refreshPaneMap() {
 
 // capturePaneByTarget sends capture-pane for a target via control mode (no subprocess).
 func (tc *tmuxControl) capturePaneByTarget(target string) (string, error) {
+	if !validTarget(target) {
+		return "", fmt.Errorf("bad pane target %q", target)
+	}
 	return tc.sendCommand(fmt.Sprintf("capture-pane -t '%s' -e -p", target))
 }
 

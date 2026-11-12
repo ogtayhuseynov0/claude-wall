@@ -153,6 +153,24 @@ func (b *telegramBot) poll() {
 }
 
 func (b *telegramBot) handleUpdate(update tgUpdate) {
+	// Bot names are public: act only on the configured chat, or anyone who
+	// finds the bot could list the agents and type into them.
+	b.mu.RLock()
+	want := b.chatID
+	b.mu.RUnlock()
+	var from int64
+	switch {
+	case update.CallbackQuery != nil && update.CallbackQuery.Message != nil:
+		from = update.CallbackQuery.Message.Chat.ID
+	case update.Message != nil:
+		from = update.Message.Chat.ID
+	default:
+		return
+	}
+	if want == "" || fmt.Sprintf("%d", from) != want {
+		log.Printf("[telegram] ignored an update from chat %d", from)
+		return
+	}
 	if update.CallbackQuery != nil {
 		b.handleCallback(update.CallbackQuery)
 		return
