@@ -1930,8 +1930,9 @@ function createTile(pane) {
     document.querySelectorAll('.more-menu').forEach(m => m.style.display = 'none');
     moreMenu.style.display = open ? 'block' : 'none';
   });
-  // Close menu on click outside
-  document.addEventListener('click', () => { moreMenu.style.display = 'none'; });
+  // Close menu on click outside (removed again by destroy)
+  const tileAbort = new AbortController();
+  document.addEventListener('click', () => { moreMenu.style.display = 'none'; }, { signal: tileAbort.signal });
   moreMenu.addEventListener('click', (e) => e.stopPropagation());
 
   const fontUp = tile.querySelector('.font-up');
@@ -2004,6 +2005,8 @@ function createTile(pane) {
 
   let ws = null;
   let reconnectDelay = 500;
+  let reconnectTimer = null;
+  let closed = false; // set by destroy: never reconnect a removed tile
   let wasAtBottom = true;
   let lastContentData = '';
   let pendingRender = false;
@@ -2060,10 +2063,16 @@ function createTile(pane) {
   }
 
   function connect() {
+    if (closed) return;
     statusDot.className = 'status-dot connecting';
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${proto}//${location.host}/ws/${pane.target}`);
-    ws.onopen = () => { setStatus('idle'); reconnectDelay = 500; };
+    ws.onopen = () => {
+      // setStatus skips an unchanged status, so the dot stayed on "connecting".
+      statusDot.className = `status-dot ${tile.dataset.status || 'idle'}`;
+      setStatus('idle');
+      reconnectDelay = 500;
+    };
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data);
       if (msg.type === 'history') {
@@ -2114,8 +2123,11 @@ function createTile(pane) {
       }
     };
     ws.onclose = () => {
+      if (closed) return;
       statusDot.className = 'status-dot disconnected';
-      setTimeout(() => { reconnectDelay = Math.min(reconnectDelay * 1.5, 10000); connect(); }, reconnectDelay);
+      // Jitter, so all tiles do not reconnect at the same moment after a restart.
+      const wait = reconnectDelay * (0.7 + Math.random() * 0.6);
+      reconnectTimer = setTimeout(() => { reconnectDelay = Math.min(reconnectDelay * 1.5, 10000); connect(); }, wait);
     };
     ws.onerror = () => ws.close();
   }
@@ -2175,7 +2187,10 @@ function createTile(pane) {
   }
 
   const state = { tile, connect, pane, sendInput, sendHistoryMode, destroy: () => {
-    if (ws) ws.close();
+    closed = true;
+    clearTimeout(reconnectTimer);
+    tileAbort.abort();
+    if (ws) { ws.onclose = null; ws.close(); }
     tile.classList.add('removing');
     setTimeout(() => tile.remove(), 300);
   }};
