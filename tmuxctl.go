@@ -394,6 +394,22 @@ func (tc *tmuxControl) refreshPaneMap() {
 	log.Printf("[tmuxctl] pane map: %d panes", len(tc.paneMap))
 }
 
+// paneFormat reads one tmux format (e.g. "#{alternate_on}") for a pane over
+// control mode, or with a subprocess when control mode is down.
+func paneFormat(target, format string) string {
+	if hub != nil && validTarget(target) && !strings.ContainsAny(format, "'\n") {
+		if tc := hub.control(); tc != nil {
+			if out, err := tc.sendCommand(fmt.Sprintf("display-message -p -t '%s' '%s'", target, format)); err == nil {
+				return strings.TrimSpace(out)
+			}
+		}
+	}
+	if o, err := exec.Command("tmux", "display-message", "-t", target, "-p", format).Output(); err == nil {
+		return strings.TrimSpace(string(o))
+	}
+	return ""
+}
+
 // capturePaneByTarget sends capture-pane for a target via control mode (no subprocess).
 func (tc *tmuxControl) capturePaneByTarget(target string) (string, error) {
 	if !validTarget(target) {

@@ -568,12 +568,19 @@
           stoppedAt: p.stoppedAt || 0,                  // unix secs it went idle (0 = never worked)
         };
       });
+      // Rebuilding ~100 rows every 4 s cost CPU and could cancel a tap in
+      // progress: skip it when nothing changed.
+      const sig = JSON.stringify(panes);
+      if (sig === lastListSig) return;
+      lastListSig = sig;
       render();
       saveList();
     } catch (e) {
+      lastListSig = '';
       listEl.innerHTML = '<div class="empty">Can\'t reach server.<br>Is claude-wall running?</div>';
     }
   }
+  let lastListSig = '';
 
   function render() {
     let rows = panes.slice();
@@ -1131,9 +1138,16 @@
   restoreList();
   load();
   pollSys();
-  setInterval(load, 4000);
-  setInterval(pollSys, 4000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { load(); pollSys(); } });
+  // Poll only while the page shows, one request at a time.
+  let loadBusy = false;
+  async function loadVisible() {
+    if (document.hidden || loadBusy) return;
+    loadBusy = true;
+    try { await load(); } finally { loadBusy = false; }
+  }
+  setInterval(loadVisible, 4000);
+  setInterval(() => { if (!document.hidden) pollSys(); }, 4000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadVisible(); pollSys(); } });
 </script>
 </body>
 </html>

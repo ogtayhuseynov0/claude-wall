@@ -29,9 +29,12 @@ import (
 var staticFiles embed.FS
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin:     originAllowed, // guard.go
-	ReadBufferSize:  4096,
-	WriteBufferSize: 16384,
+	CheckOrigin: originAllowed, // guard.go
+	// Deflate for the phone over Tailscale (terminal frames shrink 5-10x);
+	// handlePaneWS turns it off again for local clients.
+	EnableCompression: true,
+	ReadBufferSize:    4096,
+	WriteBufferSize:   16384,
 }
 
 var hub *captureHub
@@ -828,12 +831,22 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad pane target", 400)
 		return
 	}
+	remote := remoteClient(r)
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 	defer conn.Close()
+	if !remote {
+		conn.EnableWriteCompression(false) // loopback: CPU for nothing
+	}
+	// A deadline on each write: a phone that left the network without
+	// closing kept this writer (and the hub capture) blocked for minutes.
+	write := func(msg []byte) error {
+		conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		return conn.WriteMessage(websocket.TextMessage, msg)
+	}
 
 	// Set reasonable deadlines
 	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -906,11 +919,11 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 		// tmux scrollback holds the SHELL behind them, not the agent transcript.
 		// Showing that stale shell above the live screen is misleading and causes
 		// a gap during streaming — skip it (and clear any stale block on the client).
-		if alt, e := exec.Command("tmux", "display-message", "-t", target, "-p", "#{alternate_on}").Output(); e == nil && strings.TrimSpace(string(alt)) == "1" {
+		if paneFormat(target, "#{alternate_on}") == "1" {
 			if lastHistory != "" {
 				lastHistory = ""
 				msg, _ := json.Marshal(map[string]string{"type": "history", "data": ""})
-				conn.WriteMessage(websocket.TextMessage, msg)
+				write(msg)
 			}
 			return
 		}
@@ -931,7 +944,7 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 			"type": "history",
 			"data": strings.Join(rawLines, "\n"),
 		})
-		conn.WriteMessage(websocket.TextMessage, msg)
+		write(msg)
 	}
 	captureHistory()
 
@@ -950,26 +963,45 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 		joined := strings.Join(lines, "\n")
 		st, _ := parseTerminalStatus(joined)
 		msg, _ := json.Marshal(map[string]string{"type": "content", "data": joined, "status": st})
-		conn.WriteMessage(websocket.TextMessage, msg)
+		write(msg)
 	}
 
 	// Tell the client whether this pane is a full-screen (alternate-screen) TUI,
 	// so it only forwards scroll gestures to the app for those (never a plain shell).
-	getAlt := func() string {
-		if o, e := exec.Command("tmux", "display-message", "-t", target, "-p", "#{alternate_on}").Output(); e == nil {
-			return strings.TrimSpace(string(o))
-		}
-		return ""
-	}
+	getAlt := func() string { return paneFormat(target, "#{alternate_on}") } // no fork in control mode
 	lastAlt := getAlt()
 	sendAlt := func() {
 		msg, _ := json.Marshal(map[string]string{"type": "alt", "data": lastAlt})
-		conn.WriteMessage(websocket.TextMessage, msg)
+		write(msg)
 	}
 	sendAlt()
 
 	pingTicker := time.NewTicker(30 * time.Second)
 	defer pingTicker.Stop()
+
+	// A remote client (the phone) gets at most one frame per remoteFrameGap;
+	// a working pane changes more often, and the newest frame wins. While the
+	// phone types, frames go out at once.
+	var pendingFull, pendingStatus []byte
+	var lastFull time.Time
+	flush := time.NewTimer(time.Hour)
+	flush.Stop()
+	defer flush.Stop()
+	sendFull := func(msg []byte) error {
+		lastFull = time.Now()
+		if err := write(msg); err != nil {
+			return err
+		}
+		// While a phone types, each new frame carries the cursor, so a pane
+		// wider than the screen can scroll sideways to keep the caret in view.
+		if time.Now().UnixNano() < atomic.LoadInt64(&cursorUntil) {
+			if c := paneFormat(target, "#{cursor_x} #{cursor_y} #{cursor_flag} #{pane_width}"); c != "" {
+				msg, _ := json.Marshal(map[string]string{"type": "cursor", "data": c})
+				return write(msg)
+			}
+		}
+		return nil
+	}
 
 	// Periodically refresh scrollback history to fill the gap between
 	// the initial snapshot and the live visible area
@@ -998,6 +1030,20 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 				sendAlt()
 			}
 
+		case <-flush.C:
+			if m := pendingFull; m != nil {
+				pendingFull = nil
+				if sendFull(m) != nil {
+					return
+				}
+			}
+			if m := pendingStatus; m != nil {
+				pendingStatus = nil
+				if write(m) != nil {
+					return
+				}
+			}
+
 		case update, ok := <-updates:
 			if !ok {
 				return
@@ -1005,18 +1051,28 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 			if update.Full {
 				atomic.StoreInt32(&contentChanged, 1)
 			}
-			if conn.WriteMessage(websocket.TextMessage, update.Msg) != nil {
-				return
-			}
-			// While a phone types, each new frame carries the cursor, so a pane
-			// wider than the screen can scroll sideways to keep the caret in view.
-			if update.Full && time.Now().UnixNano() < atomic.LoadInt64(&cursorUntil) {
-				if c, e := exec.Command("tmux", "display-message", "-p", "-t", target, "#{cursor_x} #{cursor_y} #{cursor_flag} #{pane_width}").Output(); e == nil {
-					msg, _ := json.Marshal(map[string]string{"type": "cursor", "data": strings.TrimSpace(string(c))})
-					if conn.WriteMessage(websocket.TextMessage, msg) != nil {
-						return
+			typing := time.Now().UnixNano() < atomic.LoadInt64(&cursorUntil)
+			if remote && !typing {
+				if update.Full {
+					if wait := remoteFrameGap - time.Since(lastFull); wait > 0 || pendingFull != nil {
+						if pendingFull == nil {
+							flush.Reset(wait)
+						}
+						pendingFull, pendingStatus = update.Msg, nil // the newest frame wins
+						continue
 					}
+				} else if pendingFull != nil {
+					pendingStatus = update.Msg // goes out after the pending frame
+					continue
 				}
+			}
+			pendingFull, pendingStatus = nil, nil
+			if update.Full {
+				if sendFull(update.Msg) != nil {
+					return
+				}
+			} else if write(update.Msg) != nil {
+				return
 			}
 		}
 	}

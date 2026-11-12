@@ -1513,9 +1513,11 @@ function updateStatusSummary() {
   if (working) parts.push(`<span class="s-working">${working} working</span>`);
   if (perm) parts.push(`<span class="s-perm">${perm} perm</span>`);
   if (idle) parts.push(`<span class="s-idle">${idle} idle</span>`);
-  document.getElementById('status-summary').innerHTML = parts.join(' <span style="color:var(--text-muted)">│</span> ') || '<span class="s-idle">no agents</span>';
+  const html = parts.join(' <span style="color:var(--text-muted)">│</span> ') || '<span class="s-idle">no agents</span>';
+  if (html !== lastSummaryHTML) document.getElementById('status-summary').innerHTML = lastSummaryHTML = html;
 }
-setInterval(updateStatusSummary, 1000);
+let lastSummaryHTML = '';
+pollVisible(updateStatusSummary, 1000);
 
 function getProjectGroup(dir) {
   const parts = (dir || '').split('/').filter(Boolean);
@@ -2039,6 +2041,11 @@ function createTile(pane) {
   let reconnectTimer = null;
   let closed = false; // set by destroy: never reconnect a removed tile
   let wasAtBottom = true;
+  const liveRenderer = {
+    measure() { wasAtBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 30; },
+    write() { livePre.innerHTML = renderAnsi(lastContentData); },
+    scroll() { if (wasAtBottom) body.scrollTop = body.scrollHeight; },
+  };
   let lastContentData = '';
   let pendingRender = false;
   let prevStatus = '';
@@ -2130,9 +2137,7 @@ function createTile(pane) {
           pendingRender = true;
           return;
         }
-        wasAtBottom = (body.scrollHeight - body.scrollTop - body.clientHeight) < 30;
-        livePre.innerHTML = renderAnsi(msg.data);
-        if (wasAtBottom) body.scrollTop = body.scrollHeight;
+        queueRender(liveRenderer); // renders lastContentData in the next frame
         // Show scheduled task badge — only update DOM when changed
         if (msg.scheduled && msg.scheduled.length > 0) {
           const t = msg.scheduled[0];
@@ -2219,6 +2224,7 @@ function createTile(pane) {
 
   const state = { tile, connect, pane, sendInput, sendHistoryMode, destroy: () => {
     closed = true;
+    renderQueue.delete(liveRenderer);
     clearTimeout(reconnectTimer);
     tileAbort.abort();
     if (ws) { ws.onclose = null; ws.close(); }
@@ -2279,7 +2285,7 @@ async function init() {
     }
   });
 
-  setInterval(refreshPaneList, 5000);
+  pollVisible(refreshPaneList, 5000);
 }
 
 const searchInput = document.getElementById('search');
@@ -2525,10 +2531,16 @@ panelToggle.addEventListener('click', () => {
 const approvalsPanel = document.getElementById('approvals-panel');
 const approvalCountBadge = document.getElementById('approval-count');
 
+let lastApprovalsText = null;
 async function refreshApprovals() {
   try {
     const res = await fetch('/api/approvals');
-    const pending = await res.json();
+    // A rebuild cleared the "Other..." answer while you typed it: only
+    // rebuild when the approvals changed.
+    const text = await res.text();
+    if (text === lastApprovalsText) return;
+    lastApprovalsText = text;
+    const pending = JSON.parse(text);
     if (!pending || !pending.length) {
       approvalsPanel.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:12px;">No pending approvals</div>';
       approvalCountBadge.style.display = 'none';
@@ -2651,7 +2663,7 @@ async function refreshApprovals() {
   } catch(e) {}
 }
 
-setInterval(refreshApprovals, 2000);
+pollVisible(refreshApprovals, 2000);
 
 
 // ── Scheduled Tasks Panel ──
@@ -2775,7 +2787,7 @@ async function taskAction(id, action) {
   refreshTasks();
 }
 
-setInterval(refreshTasks, 3000);
+pollVisible(refreshTasks, 3000);
 refreshTasks();
 
 // ── PM Panel (Claude Code Tasks) ──
@@ -2895,7 +2907,7 @@ async function pmWorkOn(target, taskId, subject) {
   });
 }
 
-setInterval(refreshPM, 5000);
+pollVisible(refreshPM, 5000);
 refreshPM();
 
 // ── Webhooks Panel ──
@@ -3091,7 +3103,7 @@ async function deleteSecret(name) {
 }
 
 initWebhookForm();
-setInterval(refreshWebhooks, 5000);
+pollVisible(refreshWebhooks, 5000);
 refreshWebhooks();
 
 // ── Command Palette ──

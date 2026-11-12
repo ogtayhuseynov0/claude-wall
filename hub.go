@@ -104,6 +104,23 @@ func (h *captureHub) isHot(target string, now time.Time) bool {
 	return ok && now.Before(v.(time.Time))
 }
 
+// offer queues u for a subscriber. When its buffer is full (a slow phone
+// link), it drops the OLDEST update, not the new one: dropping the new one
+// left the phone on an old screen once the pane went quiet.
+func offer(ch chan paneUpdate, u paneUpdate) {
+	for i := 0; i < 2; i++ {
+		select {
+		case ch <- u:
+			return
+		default:
+		}
+		select {
+		case <-ch:
+		default:
+		}
+	}
+}
+
 func (h *captureHub) subscribe(target string) chan paneUpdate {
 	h.touch(target)
 	ch := make(chan paneUpdate, 4)
@@ -245,10 +262,7 @@ func (h *captureHub) run() {
 					msg, _ := json.Marshal(map[string]string{"type": "status", "data": "disconnected"})
 					update := paneUpdate{Status: "disconnected", Full: false, Msg: msg}
 					for _, ch := range h.subscribers[target] {
-						select {
-						case ch <- update:
-						default:
-						}
+						offer(ch, update)
 					}
 					h.mu.Unlock()
 				}
@@ -310,10 +324,7 @@ func (h *captureHub) run() {
 				update := paneUpdate{Status: status, Activity: activity, Full: true, Msg: msg, Msg_content: content}
 				h.latest[target] = update
 				for _, ch := range h.subscribers[target] {
-					select {
-					case ch <- update:
-					default:
-					}
+					offer(ch, update)
 				}
 			} else if status != prev.Status {
 				statusMsg := map[string]interface{}{
@@ -328,10 +339,7 @@ func (h *captureHub) run() {
 				update := paneUpdate{Status: status, Activity: activity, Full: false, Msg: msg, Msg_content: prev.Msg_content}
 				h.latest[target] = update
 				for _, ch := range h.subscribers[target] {
-					select {
-					case ch <- update:
-					default:
-					}
+					offer(ch, update)
 				}
 			}
 			h.mu.Unlock()
@@ -570,10 +578,7 @@ func (h *captureHub) pushHookStatus(hs *hookStore) {
 			}
 			h.latest[target] = update
 			for _, ch := range h.subscribers[target] {
-				select {
-				case ch <- update:
-				default:
-				}
+				offer(ch, update)
 			}
 		}
 	}

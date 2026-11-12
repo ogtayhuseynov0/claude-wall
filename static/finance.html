@@ -418,9 +418,10 @@ document.getElementById('day-modal').addEventListener('click', e => {
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDayModal(); });
 
 refresh();
-setInterval(refresh, 5000);
+setInterval(() => { if (!document.hidden) refresh(); }, 5000);
 refreshDaily();
-setInterval(refreshDaily, 60000);
+setInterval(() => { if (!document.hidden) refreshDaily(); }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { refresh(); refreshDaily(); } });
 </script>
 </body>
 </html>

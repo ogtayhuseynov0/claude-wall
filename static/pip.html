@@ -828,7 +828,8 @@
   document.addEventListener('visibilitychange', () => { if (!document.hidden) acquireWake(); });
   acquireWake();
 
-  if (!target) { livePre.textContent = 'no ?target= given'; } else { connect(); loadPanes(); setInterval(loadPanes, 10000); }
+  if (!target) { livePre.textContent = 'no ?target= given'; } else { connect(); loadPanes(); setInterval(() => { if (!document.hidden) loadPanes(); }, 10000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) loadPanes(); }); }
 </script>
 </body>
 </html>
