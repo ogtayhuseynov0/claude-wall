@@ -39,6 +39,7 @@ type WebhookConfig struct {
 // webhookStore manages webhook configurations and sending
 type webhookStore struct {
 	mu       sync.RWMutex
+	saveMu   sync.Mutex
 	webhooks map[string]*WebhookConfig
 
 	// Debounce: track last send time per event type
@@ -71,17 +72,25 @@ func (ws *webhookStore) load() {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
 	var configs map[string]*WebhookConfig
-	if json.Unmarshal(data, &configs) == nil && configs != nil {
+	if err := json.Unmarshal(data, &configs); err != nil {
+		moveAside(webhooksFile(), err)
+	} else if configs != nil {
 		ws.webhooks = configs
 	}
 }
 
 // save writes webhook configs to disk. Caller must NOT hold ws.mu.
+// It holds webhook URLs and bot tokens: 0600, serialized, atomic.
 func (ws *webhookStore) save() {
+	ws.saveMu.Lock()
+	defer ws.saveMu.Unlock()
 	ws.mu.RLock()
-	data, _ := json.MarshalIndent(ws.webhooks, "", "  ")
+	data, err := json.MarshalIndent(ws.webhooks, "", "  ")
 	ws.mu.RUnlock()
-	os.WriteFile(webhooksFile(), data, 0644)
+	if err != nil {
+		return
+	}
+	writeFileAtomic(webhooksFile(), data, 0600)
 }
 
 // list returns all configured webhooks

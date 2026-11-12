@@ -27,9 +27,10 @@ type scheduledTask struct {
 }
 
 type scheduler struct {
-	mu    sync.RWMutex
-	tasks map[string]*scheduledTask
-	stop  chan struct{}
+	mu     sync.RWMutex
+	saveMu sync.Mutex // one save at a time, so an older snapshot never lands last
+	tasks  map[string]*scheduledTask
+	stop   chan struct{}
 }
 
 var sched = &scheduler{
@@ -43,11 +44,18 @@ func schedulerFile() string {
 }
 
 // save writes tasks to disk. Caller must NOT hold s.mu.
+// A stopped task once came back after a restart: tick's older "running"
+// snapshot was written after the stop. Saves are now serialized and atomic.
 func (s *scheduler) save() {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 	s.mu.RLock()
-	data, _ := json.MarshalIndent(s.tasks, "", "  ")
+	data, err := json.MarshalIndent(s.tasks, "", "  ")
 	s.mu.RUnlock()
-	os.WriteFile(schedulerFile(), data, 0644)
+	if err != nil {
+		return
+	}
+	writeFileAtomic(schedulerFile(), data, 0600)
 }
 
 func (s *scheduler) load() {
@@ -58,7 +66,9 @@ func (s *scheduler) load() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var tasks map[string]*scheduledTask
-	if json.Unmarshal(data, &tasks) == nil && tasks != nil {
+	if err := json.Unmarshal(data, &tasks); err != nil {
+		moveAside(schedulerFile(), err)
+	} else if tasks != nil {
 		s.tasks = tasks
 		// Resume running tasks
 		for _, t := range s.tasks {

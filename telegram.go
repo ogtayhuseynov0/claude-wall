@@ -58,6 +58,10 @@ type telegramBot struct {
 	chatID    string
 	offset    int
 	running   bool
+	// gen grows on each start/stop. A poller exits when it is not current:
+	// an old one could still be inside a 30 s getUpdates when the webhook
+	// was turned off and on, and then two pollers handled each update.
+	gen int
 
 	// Track which Telegram message ID maps to which pane target
 	msgToPaneMu sync.RWMutex
@@ -91,6 +95,7 @@ func (b *telegramBot) start() {
 		if b.running {
 			log.Println("[telegram] no credentials, stopping poller")
 			b.running = false
+			b.gen++
 		}
 		return
 	}
@@ -101,12 +106,10 @@ func (b *telegramBot) start() {
 
 	b.token = token
 	b.chatID = chatID
-
-	if !b.running {
-		b.running = true
-		go b.poll()
-		log.Println("[telegram] bot poller started")
-	}
+	b.running = true
+	b.gen++
+	go b.poll(b.gen)
+	log.Println("[telegram] bot poller started")
 }
 
 func findTelegramCredentials() (string, string) {
@@ -127,19 +130,19 @@ func findTelegramCredentials() (string, string) {
 	return "", ""
 }
 
-func (b *telegramBot) poll() {
+func (b *telegramBot) poll(gen int) {
 	client := &http.Client{Timeout: 35 * time.Second}
 
 	for {
 		b.mu.RLock()
-		if !b.running {
+		if !b.running || b.gen != gen {
 			b.mu.RUnlock()
 			return
 		}
-		token := b.token
+		token, offset := b.token, b.offset
 		b.mu.RUnlock()
 
-		url := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates?offset=%d&timeout=30", token, b.offset)
+		url := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates?offset=%d&timeout=30", token, offset)
 		resp, err := client.Get(url)
 		if err != nil {
 			time.Sleep(5 * time.Second)
@@ -159,7 +162,15 @@ func (b *telegramBot) poll() {
 		}
 
 		for _, update := range result.Result {
-			b.offset = update.UpdateID + 1
+			b.mu.Lock()
+			current := b.running && b.gen == gen
+			if current {
+				b.offset = update.UpdateID + 1
+			}
+			b.mu.Unlock()
+			if !current {
+				return // a newer poller owns the offset now
+			}
 			b.handleUpdate(update)
 		}
 	}

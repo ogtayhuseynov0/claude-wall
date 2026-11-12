@@ -123,7 +123,7 @@ func (p *pushStore) load() {
 
 func (p *pushStore) saveSubs() {
 	b, _ := json.MarshalIndent(p.subs, "", "  ")
-	os.WriteFile(filepath.Join(pushDir(), "push-subs.json"), b, 0600)
+	writeFileAtomic(filepath.Join(pushDir(), "push-subs.json"), b, 0600)
 }
 
 func (p *pushStore) add(s webpush.Subscription) {

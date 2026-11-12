@@ -13,6 +13,7 @@ import (
 // Values are never returned in full to the frontend — only masked versions.
 type secretStore struct {
 	mu      sync.RWMutex
+	saveMu  sync.Mutex
 	secrets map[string]string // name → value
 }
 
@@ -36,10 +37,15 @@ func (s *secretStore) load() {
 }
 
 func (s *secretStore) save() {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
 	s.mu.RLock()
-	data, _ := json.MarshalIndent(s.secrets, "", "  ")
+	data, err := json.MarshalIndent(s.secrets, "", "  ")
 	s.mu.RUnlock()
-	os.WriteFile(secretsFile(), data, 0600)
+	if err != nil {
+		return
+	}
+	writeFileAtomic(secretsFile(), data, 0600)
 }
 
 // resolve dereferences a value: if it starts with $, look up the secret by name.
