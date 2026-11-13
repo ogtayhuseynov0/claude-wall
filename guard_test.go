@@ -9,7 +9,7 @@ import (
 )
 
 func TestValidTarget(t *testing.T) {
-	for _, ok := range []string{"Agent:1.2", "wedding-prep:1.1", "%12", "my session:0.0"} {
+	for _, ok := range []string{"Agent:1.2", "web-app:1.1", "%12", "my session:0.0"} {
 		if !validTarget(ok) {
 			t.Errorf("validTarget(%q) = false", ok)
 		}
