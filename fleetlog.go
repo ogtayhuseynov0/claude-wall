@@ -912,8 +912,8 @@ func handleLogRule(w http.ResponseWriter, r *http.Request) {
 	case "global":
 		home := os.Getenv("HOME")
 		files = []string{filepath.Join(home, ".claude", "CLAUDE.md")}
-		if _, err := os.Stat(filepath.Join(home, ".claude-ts", "CLAUDE.md")); err == nil {
-			files = append(files, filepath.Join(home, ".claude-ts", "CLAUDE.md"))
+		if p := workOwnPath("CLAUDE.md"); p != "" {
+			files = append(files, p)
 		}
 	default:
 		http.Error(w, "action must be project, global or dismiss", http.StatusBadRequest)
@@ -1004,7 +1004,11 @@ func handleLogBackfill(w http.ResponseWriter, r *http.Request) {
 		mod  time.Time
 	}
 	var cands []cand
-	for _, root := range []string{filepath.Join(home, ".claude", "projects"), filepath.Join(home, ".claude-ts", "projects")} {
+	roots := []string{filepath.Join(home, ".claude", "projects")}
+	if p := workOwnPath("projects"); p != "" {
+		roots = append(roots, p)
+	}
+	for _, root := range roots {
 		files, _ := filepath.Glob(filepath.Join(root, "*", "*.jsonl"))
 		for _, p := range files {
 			if st, err := os.Stat(p); err == nil && st.ModTime().After(cutoff) {
