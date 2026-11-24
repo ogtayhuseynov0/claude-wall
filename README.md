@@ -8,33 +8,36 @@
 
 ## Features
 
-- **Web Dashboard** — Real-time grid of all Claude Code instances in tmux
+- **Web Dashboard** — Agent list on the left, a wall of live terminal tiles in the middle, an inbox on the right. Both sidebars collapse.
+- **Free-form Wall** — Pick which agents go on the wall. Drag a tile edge to resize, drag a header to reorder, double-click an edge for an even grid
 - **Live Terminal Capture** — 25fps streaming via tmux control mode (zero subprocess, ~2% CPU)
-- **Status Indicators** — Idle (gray), working (green), permission needed (pulsing amber), error (red)
+- **Agent States** — Working (green), waiting for you (red), recent (orange, stopped in the last 30 minutes), idle (gray). The same states show in the web dashboard, the phone view, the macOS menu bar app and push alerts
+- **Status Rack** — One light per agent in the top bar, so you see the whole fleet at a glance
+- **Scroll Back** — Wheel past the top of a tile to scroll Claude Code's own transcript (full-screen agents keep no tmux scrollback); one click jumps back to the latest output
+- **Active / Recent / All** — One click puts the busy agents, the recently stopped agents, or every agent on the wall
 - **Permission Mode Badge** — Shows current mode: default, plan, acceptEdits, bypassPermissions
-- **Activity Feed** — Chronological timeline of tool calls across all agents
-- **Approval Queue** — One-click approve/deny pending permissions, with AskUserQuestion option buttons
+- **Approval Queue** — One-click approve/deny pending permissions in the inbox and in the tile itself, with AskUserQuestion option buttons
 - **Telegram Bot** — Approve permissions, answer questions, and send messages to agents from Telegram
-- **PM View** — Project manager tab: see all agents' Claude Code tasks, progress bars, assign work
+- **Tasks View** — See all agents' Claude Code tasks and progress, continue an agent, assign work
 - **Scheduled Tasks** — Send recurring commands to agents on a timer with progress tracking
 - **Webhooks** — Slack, Discord, Telegram, or generic HTTP webhooks for permission, error, and completion events
 - **Secrets Management** — Secure storage for bot tokens and API keys (chmod 600, masked in UI)
 - **Voice Input** — Real-time speech-to-text per tile via Web Speech API (auto-stops on silence)
 - **Mastermind AI** — Orchestrator chat that reads, instructs, and coordinates all agents
-- **Cost Tracking** — Per-session token usage and estimated cost breakdown (`/finance.html`)
+- **Usage and Cost** — Plan limits in the top bar, per-session token usage and estimated cost (`/finance.html`)
 - **Chrome Extension** — Send selected text or full page content to any agent
-- **Drag & Drop Files** — Drop files onto tiles to send file paths to agents
+- **Files and Images** — Drop or paste files and screenshots onto a tile; they upload and the agent gets the path
 - **Hooks Integration** — Native HTTP hooks (Claude Code 2.1+) with command fallback, 12 events
-- **Keyboard Shortcuts** — `Ctrl+1-9` focus tiles, `Cmd+K` command palette, `Ctrl+Tab` cycle
-- **Group Filter** — Filter tiles by project group or search by name
+- **Keyboard First** — `Cmd+K` command palette, `1-9` and `h j k l` to move, `Enter` to type, `?` for all shortcuts
+- **Search and Filters** — Search agents, filter by project and by state
 - **Daemon Mode** — Runs in background with `start`/`stop`/`restart`/`status`/`logs`
 - **Remote Access** — `--public` flag binds to `0.0.0.0`, `--token` for authentication
-- **Per-Pane Font Size** — Increase/decrease font size per tile via dropdown (A-/A+)
-- **Blur Mode** — Hide sensitive content via tile dropdown menu
-- **Drag to Reorder** — Rearrange tiles, order persists across reloads
+- **Per-Pane Font Size** — Change the font size per tile from its menu
+- **Blur Mode** — Hide sensitive content per tile
 - **Auto-detect** — New/removed Claude instances appear automatically
-- **Sound Notifications** — Browser alerts for permission requests and task completion
-- **Mobile Responsive** — Usable from phone via Tailscale
+- **Notifications** — Browser alerts and sounds for permission requests and finished work
+- **Phone View** — A separate mobile page (`/m.html`), usable from your phone via Tailscale, with push alerts
+- **Classic Dashboard** — The previous grid layout stays at `/classic.html`
 - **macOS Code Signing** — Signed and notarized binaries, no Gatekeeper warnings
 
 ## Install
@@ -116,7 +119,7 @@ Control your agents from your phone via Telegram. Approve permissions, answer qu
 **Setup:**
 1. Create a bot via [@BotFather](https://t.me/BotFather) and get the bot token
 2. Message your bot to get your chat ID (open `https://api.telegram.org/bot<TOKEN>/getUpdates`)
-3. In the dashboard: Webhooks tab → Secrets section → add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
+3. In the dashboard: Tools → Webhooks and secrets → add the secrets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`
 4. Create a Telegram webhook using `$TELEGRAM_BOT_TOKEN` and `$TELEGRAM_CHAT_ID`
 
 **What you can do:**
@@ -128,12 +131,12 @@ Control your agents from your phone via Telegram. Approve permissions, answer qu
 
 The bot auto-starts when a Telegram webhook with valid credentials exists. Rich notifications include session name, folder, branch, and last user prompt.
 
-## PM View (Project Manager)
+## Tasks View (Project Manager)
 
-See what each Claude Code agent is working on. The PM tab reads Claude Code's internal task system (`~/.claude/tasks/`) and shows:
+See what each Claude Code agent is working on. The Tasks tab in the inbox reads Claude Code's internal task system (`~/.claude/tasks/`) and shows:
 
 - **Per-tile progress badge** — `3/7` in the tile header (completed/total)
-- **PM tab** in side panel — all agents grouped with progress bars
+- **Tasks tab** in the inbox — all agents grouped with progress bars
 - **Task list** — expand any agent to see individual tasks (pending, in progress, completed)
 - **Continue button** — send `/continue` to any agent
 - **Assign work** — tap a pending task to send it to the agent
@@ -142,7 +145,7 @@ See what each Claude Code agent is working on. The PM tab reads Claude Code's in
 
 Send recurring commands to agents on a timer — review loops, test runs, periodic checks.
 
-**From the dashboard:** Side panel → Sched tab → fill in agent, command, interval, max runs → Create.
+**From the dashboard:** Inbox → Schedules tab → fill in agent, command, interval, max runs → Create.
 
 **From the API:**
 ```bash
@@ -164,7 +167,7 @@ Tasks wait for the agent to go idle before sending the next cycle. Progress show
 
 Get notified in Slack, Discord, Telegram, or any HTTP endpoint when agents need attention.
 
-**From the dashboard:** Side panel → Webhooks tab → add URL, select type, choose events → Create.
+**From the dashboard:** Tools → Webhooks and secrets → add URL, select type, choose events → Create.
 
 **Supported types:**
 - **Telegram** — rich HTML notifications with inline action buttons (requires bot token + chat ID stored in Secrets)
@@ -185,7 +188,7 @@ Store sensitive values (bot tokens, API keys) securely on disk.
 - Stored at `~/.claude/claude-wall-secrets.json` with `chmod 600`
 - Values **never returned to the browser** — UI shows masked versions (e.g. `85****Cg`)
 - Reference in webhook fields as `$SECRET_NAME` — resolved server-side at send time
-- Add/delete from the Webhooks tab → Secrets section
+- Add/delete from Tools → Webhooks and secrets
 
 ## Voice Input
 
@@ -199,24 +202,32 @@ Click the mic button on any tile to dictate text using your browser's speech rec
 
 ## Dashboard Shortcuts
 
+Press `?` in the dashboard for the full list.
+
 | Shortcut | Action |
 |---|---|
-| `Cmd+K` | Command palette |
+| `Cmd+K` | Search agents or run a command |
 | `Cmd+M` | Toggle Mastermind chat |
-| `Ctrl+1-9` | Focus tile by number |
-| `Ctrl+Tab` / `Shift+Tab` | Cycle between tiles |
-| `Ctrl+F` | Filter/search tiles |
-| Double-click header | Expand tile fullscreen |
-| `Escape` | Exit expanded view |
+| `Ctrl+1-9` | Focus agent by number (also while typing in a tile) |
+| `1-9`, `h j k l` | Select an agent (when not typing) |
+| `Enter` | Start typing in the selected agent |
+| `Shift+Esc` | Leave the tile, so plain keys work again |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Cycle between tiles |
+| `Alt+Z` | Expand or collapse the selected tile |
+| `Alt+M` | Take the selected tile off the wall, or put it back |
+| `p` / `n` / `t` | Wall on/off, new session, open in terminal |
+| `[` / `]` | Show or hide the agent list / the inbox |
+| `Ctrl+F` | Search agents |
+| Double-click header | Expand tile |
 
 ## Mastermind AI
 
-The brain button (or `Cmd+M`) opens an orchestrator chat that can:
+The Mastermind button in the top bar (or `Cmd+M`) opens an orchestrator chat that can:
 
 - Summarize what all agents are doing
 - Send instructions to any agent
 - Approve/deny permissions
-- Control dashboard UI (focus, zoom, minimize tiles)
+- Control dashboard UI (focus, expand, take tiles off the wall, jump to the latest output)
 - Coordinate multi-agent workflows
 
 Model selector: Haiku (fast/cheap), Sonnet, or Opus per message. Uses `claude -p` — no separate API key needed.
