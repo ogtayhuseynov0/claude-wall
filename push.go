@@ -385,12 +385,12 @@ func startNotifyWatcher(port int) {
 			if derr != nil {
 				continue
 			}
-			// attention = panes that want the user: waiting for permission or stopped/idle-stale
+			// attention = panes that want the user: waiting for permission, or just stopped (recent)
 			attn := 0
 			cur := make(map[string]string, len(s.Panes))
 			for _, p := range s.Panes {
 				cur[p.Target] = p.Status
-				if p.Status == "permission" || p.Status == "stale" {
+				if p.Status == "permission" || p.Status == "recent" {
 					attn++
 				}
 			}
@@ -410,7 +410,7 @@ func startNotifyWatcher(port int) {
 						Title: "Permission needed", Body: name + " is waiting for you",
 						Tag: "perm:" + p.Target, Status: "permission", URL: link, Target: p.Target, Attn: attn,
 					})
-				case (p.Status == "idle" || p.Status == "stale") && old == "working":
+				case (p.Status == "idle" || p.Status == "recent") && old == "working":
 					push.sendEvent("stop", pushPayload{
 						Title: "Claude stopped", Body: name + " finished / is idle",
 						Tag: "stop:" + p.Target, Status: p.Status, URL: link, Target: p.Target, Attn: attn,

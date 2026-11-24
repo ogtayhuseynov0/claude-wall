@@ -68,7 +68,7 @@ struct Summary: Decodable {
     let total: Int
     let working: Int
     let pending: Int
-    let stale: Int?
+    let recent: Int?   // stopped working less than 30 min ago
     let panes: [SummaryPane]
 }
 
@@ -125,8 +125,8 @@ func statusColor(_ s: String) -> NSColor {
     switch s {
     case "working":    return NSColor(calibratedRed: 0.28, green: 0.74, blue: 0.44, alpha: 1)
     case "permission": return NSColor(calibratedRed: 0.92, green: 0.30, blue: 0.34, alpha: 1)
-    case "stale":      return NSColor(calibratedRed: 0.96, green: 0.74, blue: 0.18, alpha: 1) // idle >30m
-    case "error":      return NSColor(calibratedRed: 0.95, green: 0.60, blue: 0.20, alpha: 1)
+    case "recent":     return NSColor(calibratedRed: 0.96, green: 0.65, blue: 0.26, alpha: 1) // orange #f5a742: stopped < 30 min ago
+    case "error":      return NSColor(calibratedRed: 0.92, green: 0.30, blue: 0.34, alpha: 1) // red, like waiting (orange now means recent)
     default:           return NSColor(calibratedWhite: 0.55, alpha: 1) // idle
     }
 }
@@ -138,12 +138,12 @@ final class ButtonView: NSView {
     private var startInWindow: NSPoint = .zero
     private var moved = false
 
-    var idle = 0, working = 0, pending = 0, stale = 0
+    var idle = 0, working = 0, pending = 0, recent = 0
     private lazy var logo: NSImage = wallLogo(48)
 
-    func setStatus(idle: Int, working: Int, pending: Int, stale: Int) {
-        if self.idle == idle && self.working == working && self.pending == pending && self.stale == stale { return }
-        self.idle = idle; self.working = working; self.pending = pending; self.stale = stale
+    func setStatus(idle: Int, working: Int, pending: Int, recent: Int) {
+        if self.idle == idle && self.working == working && self.pending == pending && self.recent == recent { return }
+        self.idle = idle; self.working = working; self.pending = pending; self.recent = recent
         needsDisplay = true
     }
 
@@ -168,11 +168,11 @@ final class ButtonView: NSView {
         logo.draw(in: bounds.insetBy(dx: 3, dy: 3), from: .zero, operation: .sourceOver, fraction: 1)
 
         let d: CGFloat = 19, pad: CGFloat = 1
-        // idle → top-left, working → top-right, permission → bottom-right, stale(>30m) → bottom-left
+        // idle → top-left, working → top-right, permission → bottom-right, recent (stopped < 30 min) → bottom-left
         badge(idle,    at: NSPoint(x: pad, y: bounds.maxY - d - pad), color: statusColor("idle"))
         badge(working, at: NSPoint(x: bounds.maxX - d - pad, y: bounds.maxY - d - pad), color: statusColor("working"))
         badge(pending, at: NSPoint(x: bounds.maxX - d - pad, y: pad), color: statusColor("permission"))
-        badge(stale,   at: NSPoint(x: pad, y: pad), color: statusColor("stale"))
+        badge(recent,  at: NSPoint(x: pad, y: pad), color: statusColor("recent"))
     }
     // register clicks even when the app/window isn't focused (no double-click needed)
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -227,7 +227,7 @@ final class PickerController: NSObject, NSTableViewDataSource, NSTableViewDelega
     let panel: PickerPanel
     let search = NSTextField()
     let table = NSTableView()
-    let filterSeg = NSSegmentedControl(labels: ["All", "Working", "Perm", "30m+", "Idle"],
+    let filterSeg = NSSegmentedControl(labels: ["All", "Working", "Perm", "Recent", "Idle"],
                                        trackingMode: .selectOne, target: nil, action: nil)
     let sortSeg = NSSegmentedControl(labels: ["Sort: Status", "Name"],
                                      trackingMode: .selectOne, target: nil, action: nil)
@@ -241,7 +241,7 @@ final class PickerController: NSObject, NSTableViewDataSource, NSTableViewDelega
         switch filterSeg.selectedSegment {
         case 1: return "working"
         case 2: return "permission"
-        case 3: return "stale"
+        case 3: return "recent"
         case 4: return "idle"
         default: return nil
         }
@@ -357,7 +357,7 @@ final class PickerController: NSObject, NSTableViewDataSource, NSTableViewDelega
     private func rank(_ s: String) -> Int {
         switch s {
         case "permission": return 0
-        case "stale": return 1        // idle >30m — surface for attention
+        case "recent": return 1       // stopped < 30 min ago — surface for attention
         case "working": return 2
         case "error": return 3
         default: return 4             // idle
@@ -550,7 +550,7 @@ final class StatusPanel: NSViewController {
 
     private let workLabel = StatusPanel.countLabel()
     private let permLabel = StatusPanel.countLabel()
-    private let staleLabel = StatusPanel.countLabel()
+    private let recentLabel = StatusPanel.countLabel()
     private let idleLabel = StatusPanel.countLabel()
     private let totalLabel = NSTextField(labelWithString: "0 panes")
     private let slider = NSSlider()
@@ -621,7 +621,7 @@ final class StatusPanel: NSViewController {
         let counts = NSStackView(views: [
             countGroup(statusColor("working"), workLabel, "working"),
             countGroup(statusColor("permission"), permLabel, "perm"),
-            countGroup(statusColor("stale"), staleLabel, "idle 30m+"),
+            countGroup(statusColor("recent"), recentLabel, "recent"),
             countGroup(statusColor("idle"), idleLabel, "idle"),
         ])
         counts.distribution = .fillEqually; counts.alignment = .top
@@ -696,10 +696,10 @@ final class StatusPanel: NSViewController {
     @objc private func tapClose() { onCloseAll?() }
     @objc private func tapQuit() { onQuit?() }
 
-    func setCounts(working: Int, pending: Int, stale: Int, idle: Int, total: Int) {
+    func setCounts(working: Int, pending: Int, recent: Int, idle: Int, total: Int) {
         workLabel.stringValue = "\(working)"
         permLabel.stringValue = "\(pending)"
-        staleLabel.stringValue = "\(stale)"
+        recentLabel.stringValue = "\(recent)"
         idleLabel.stringValue = "\(idle)"
         totalLabel.stringValue = "\(total) panes"
     }
@@ -1083,16 +1083,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func refreshPopoverCounts() {
-        var idle = 0, working = 0, pending = 0, stale = 0
+        var idle = 0, working = 0, pending = 0, recent = 0
         for (_, s) in statusByTarget {
             switch s {
             case "working": working += 1
             case "permission": pending += 1
-            case "stale": stale += 1
+            case "recent": recent += 1
             default: idle += 1
             }
         }
-        statusPanel.setCounts(working: working, pending: pending, stale: stale, idle: idle, total: statusByTarget.count)
+        statusPanel.setCounts(working: working, pending: pending, recent: recent, idle: idle, total: statusByTarget.count)
     }
 
     func setPipAlpha(_ v: CGFloat) {
@@ -1117,26 +1117,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             return
         }
         healthMisses = 0
-        var idle = 0, working = 0, pending = 0, stale = 0
+        var idle = 0, working = 0, pending = 0, recent = 0
         var map: [String: String] = [:]
         for p in s.panes {
             map[p.target] = p.status
             switch p.status {
             case "working":    working += 1
             case "permission": pending += 1
-            case "stale":      stale += 1
+            case "recent":     recent += 1
             default:           idle += 1
             }
         }
         statusByTarget = map
 
         // menubar: icon only; counts live in the tooltip + floating button badges
-        statusItem.button?.toolTip = "\(s.total) panes · \(working) working · \(pending) permission · \(stale) idle 30m+ · \(idle) idle"
+        statusItem.button?.toolTip = "\(s.total) panes · \(working) working · \(pending) permission · \(recent) recent · \(idle) idle"
 
-        buttonWindow.buttonView.setStatus(idle: idle, working: working, pending: pending, stale: stale)
+        buttonWindow.buttonView.setStatus(idle: idle, working: working, pending: pending, recent: recent)
         picker.refreshStatuses(map)
         if popover.isShown {
-            statusPanel.setCounts(working: working, pending: pending, stale: stale, idle: idle, total: s.panes.count)
+            statusPanel.setCounts(working: working, pending: pending, recent: recent, idle: idle, total: s.panes.count)
             fetchStats()
         }
     }
@@ -1148,14 +1148,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     @objc func quit() { NSApp.terminate(nil) }
 
-    // Open every working / waiting-for-answer (permission or idle-30m) pane at once,
+    // Open every working / waiting (permission) / recently stopped pane at once,
     // then tile them side-by-side (no overlap), like the claude-wall web grid.
     @objc func openActive() {
         guard let url = URL(string: "\(WALL)/api/panes") else { return }
         URLSession.shared.dataTask(with: url) { data, _, _ in
             let panes = (data.flatMap { try? JSONDecoder().decode([Pane].self, from: $0) }) ?? []
             DispatchQueue.main.async {
-                let wanted: Set<String> = ["working", "permission", "stale"]
+                let wanted: Set<String> = ["working", "permission", "recent"]
                 let active = panes.filter { wanted.contains(self.statusByTarget[$0.target] ?? "idle") }
                 for p in active {
                     self.openPip(target: p.target, title: p.dirName.isEmpty ? p.session : p.dirName, tile: false)

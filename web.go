@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,10 +42,91 @@ var hub *captureHub
 var hooks *hookStore
 var feed *feedStore
 
-// idle-duration tracking for the "stale" (idle >= 30m) status in /api/summary
+// idle-duration tracking for the "recent" status in /api/summary: an agent that
+// worked and stopped less than recentWindow ago. Every client (web, mobile, the
+// Mac app's button, menu bar and panel, push badges) reads this one rule.
+const recentWindow = 30 * time.Minute
+
+// summaryStatus is the status /api/summary reports for a pane: an idle agent that
+// worked and stopped less than recentWindow ago is "recent"; after that it is idle.
+func summaryStatus(status string, worked bool, idleSince, now time.Time) string {
+	if status == "idle" && worked && !idleSince.IsZero() && now.Sub(idleSince) < recentWindow {
+		return "recent"
+	}
+	return status
+}
+
 var idleMu sync.Mutex
 var idleSince = map[string]time.Time{}
 var everWorked = map[string]bool{}
+
+// The trackers are saved to disk, so a server restart (every rebuild) does not
+// turn the agents that stopped a few minutes ago into plain idle ones.
+type stopState struct {
+	Worked    []string         `json:"worked"`
+	IdleSince map[string]int64 `json:"idleSince"`
+}
+
+var stopStateOnce sync.Once
+var stopSaveMu sync.Mutex
+var lastStopSave string
+
+func stopStatePath() string { return filepath.Join(fleetLogDir(), "stop-state.json") }
+
+func loadStopState() {
+	b, err := os.ReadFile(stopStatePath())
+	if err != nil {
+		return
+	}
+	var st stopState
+	if err := json.Unmarshal(b, &st); err != nil {
+		moveAside(stopStatePath(), err)
+		return
+	}
+	idleMu.Lock()
+	for _, t := range st.Worked {
+		everWorked[t] = true
+	}
+	for t, sec := range st.IdleSince {
+		idleSince[t] = time.Unix(sec, 0)
+	}
+	idleMu.Unlock()
+	lastStopSave = string(b)
+}
+
+// snapshotStopState copies the trackers. Call it with idleMu held.
+func snapshotStopState() stopState {
+	st := stopState{IdleSince: make(map[string]int64, len(idleSince))}
+	for t := range everWorked {
+		st.Worked = append(st.Worked, t)
+	}
+	sort.Strings(st.Worked)
+	for t, since := range idleSince {
+		st.IdleSince[t] = since.Unix()
+	}
+	return st
+}
+
+// saveStopState writes the snapshot when it changed. Call it without idleMu held.
+func saveStopState(st stopState) {
+	b, err := json.Marshal(st)
+	if err != nil {
+		return
+	}
+	stopSaveMu.Lock()
+	defer stopSaveMu.Unlock()
+	if string(b) == lastStopSave {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(stopStatePath()), 0o700); err != nil {
+		return
+	}
+	if err := writeFileAtomic(stopStatePath(), b, 0o600); err != nil {
+		log.Printf("[summary] save stop state: %v", err)
+		return
+	}
+	lastStopSave = string(b)
+}
 
 var publicMode bool
 
@@ -181,7 +263,7 @@ func runWeb(port int) {
 			Total   int          `json:"total"`
 			Working int          `json:"working"`
 			Pending int          `json:"pending"`
-			Stale   int          `json:"stale"`
+			Recent  int          `json:"recent"` // stopped working less than 30 min ago
 			Panes   []paneStatus `json:"panes"`
 		}{Panes: []paneStatus{}}
 		var snap map[string]string
@@ -244,6 +326,7 @@ func runWeb(port int) {
 			}
 		}
 		now := time.Now()
+		stopStateOnce.Do(loadStopState)
 		idleMu.Lock()
 		present := make(map[string]bool, len(panes))
 		for _, p := range panes {
@@ -255,7 +338,7 @@ func runWeb(port int) {
 
 			// Track idle duration by observing status over time (works for every
 			// pane, hook or not). Only panes seen working (or with a hook working
-			// timestamp) can go "stale", so never-active idle panes don't flag.
+			// timestamp) can be "recent", so never-active idle panes don't flag.
 			switch status {
 			case "working":
 				everWorked[p.Target] = true
@@ -273,24 +356,18 @@ func runWeb(port int) {
 				}
 			}
 
-			// promote to "stale" when idle >= 30 min and it had worked before
-			if status == "idle" && everWorked[p.Target] {
-				since := idleSince[p.Target]
-				if !since.IsZero() && now.Sub(since) >= 30*time.Minute {
-					status = "stale"
-				}
-			}
+			status = summaryStatus(status, everWorked[p.Target], idleSince[p.Target], now)
 
 			switch status {
 			case "working":
 				out.Working++
-			case "stale":
-				out.Stale++
+			case "recent":
+				out.Recent++
 			}
 			// surface when an agent that had been working went idle, so the UI
 			// can sort the most-recently-stopped panes to the top of the rest
 			var stoppedAt int64
-			if everWorked[p.Target] && (status == "idle" || status == "stale") {
+			if everWorked[p.Target] && (status == "idle" || status == "recent") {
 				if s := idleSince[p.Target]; !s.IsZero() {
 					stoppedAt = s.Unix()
 				}
@@ -301,18 +378,23 @@ func runWeb(port int) {
 			}
 			out.Panes = append(out.Panes, paneStatus{Target: p.Target, DirName: p.DirName, Status: status, Activity: activity, StoppedAt: stoppedAt})
 		}
-		// prune trackers for panes that no longer exist
-		for t := range idleSince {
-			if !present[t] {
-				delete(idleSince, t)
+		// prune trackers for panes that no longer exist (not on an empty list:
+		// a failed tmux query must not wipe the saved state)
+		if len(panes) > 0 {
+			for t := range idleSince {
+				if !present[t] {
+					delete(idleSince, t)
+				}
+			}
+			for t := range everWorked {
+				if !present[t] {
+					delete(everWorked, t)
+				}
 			}
 		}
-		for t := range everWorked {
-			if !present[t] {
-				delete(everWorked, t)
-			}
-		}
+		stopSnap := snapshotStopState()
 		idleMu.Unlock()
+		saveStopState(stopSnap)
 		out.Total = len(panes)
 		if feed != nil {
 			out.Pending = len(feed.getPending())
