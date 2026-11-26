@@ -1,6 +1,6 @@
 # Binaries
-claude-wall
-claude-wall-pane
+/claude-wall
+/claude-wall-pane
 *.exe
 dist/
 
