@@ -32,10 +32,10 @@ Mobile-only features (`m.html`, `pip.html`) are in section 11. v2 brings them to
 
 | Feature | How it works (v1) | v2 place |
 |---|---|---|
-| One tile per agent pane | Each tmux pane with Claude Code or Codex gets a tile and its own `/ws/<target>` websocket (jittered reconnect, 0.5 s → 10 s). | Same, for agents on the wall. Agents off the wall stay in the roster (websocket kept for status). |
+| One tile per agent pane | Each tmux pane with Claude Code, Codex, OpenCode or Pi gets a tile and its own `/ws/<target>` websocket (jittered reconnect, 0.5 s → 10 s). | Same, for agents on the wall. Agents off the wall stay in the roster (websocket kept for status). |
 | Free-form layout | Tiles are rectangles in 0..1 units. Default: near-square grid; the last tile fills its row. Drag any edge or corner: only the tiles that share that edge move (min 160×90 px). Double-click an edge: even grid again. Saved per tile count (`cw-rects-<n>`). | Same. |
 | Reorder | Drag a tile header (SortableJS). Order saved in `cw-tile-order`. | Same. |
-| Tile header | Status dot, number, agent mark (Claude ✳ / Codex ◇), session, folder, branch, pane ID, task progress (done/total), schedule badge (⏱ runs/max, tooltip with the command and interval), permission mode (bypass / plan / edits / default), status label. | Same data, one clean line, no emoji. Live activity text is shown (v1 had the element but never filled it). |
+| Tile header | Status dot, number, agent mark (Claude ✳ / Codex ◇ / OpenCode ▣ / Pi π), session, folder, branch, pane ID, task progress (done/total), schedule badge (⏱ runs/max, tooltip with the command and interval), permission mode (bypass / plan / edits / default), status label. | Same data, one clean line, no emoji. Live activity text is shown (v1 had the element but never filled it). |
 | Header buttons | Open in terminal ↗ (`/api/goto/<target>`), minimize ▁, more ⋯. | Same + restart. |
 | More menu | Expand, Blur content (blurs the body and the header text), font A−/A+ (6–24 px, not saved), pane info (columns · target). | Same, font size saved per pane, plus the pane and session actions below. |
 | Expand | Double-click the header, ⌥Z, or the menu. The tile fills the window. Esc (typed in the tile) or ⌥Z collapses. ⌥arrows carry the expanded state to the next tile. | Same; the tile fills the wall area, so the top bar and roster stay visible. |
@@ -112,7 +112,7 @@ Drawer (400 px). Model: Haiku, Sonnet or Opus per message. `/ws/mastermind`: str
 | Attention sort | Working → waiting → recently stopped → never worked. | Roster: waiting → working → recent → idle (newest stop first). |
 | Compaction progress | A trailing `NN%` in the activity text draws a bar. | Roster row and tile header. |
 | Account chip | `claude · work` profile. | Roster row. |
-| New session | Agent: Claude / Claude · work / Codex. Project search (`/api/projects`), start (`/api/launch`). | Top bar button + `n`. |
+| New session | Agent: Claude / Claude · work / Codex / OpenCode / Pi. Project search (`/api/projects`), start (`/api/launch`). | Top bar button + `n`. |
 | Usage limits | `/api/limits`: 5-hour and weekly windows per account, reset times, refresh. | Top bar Usage popover. |
 | Push notifications | Service worker + VAPID (`/api/push/*`): on/off, per event (permission, stopped, errors), quiet hours, muted sessions with unmute, test. | Settings → Push notifications. Tile menu → Mute 1 h. |
 | Fleet Log | `/log`. | Tools menu. |
@@ -121,7 +121,7 @@ Drawer (400 px). Model: Haiku, Sonnet or Opus per message. `/ws/mastermind`: str
 | Local ports / Remote browser | `/ports`, `/browser`. | Tools menu. |
 | Rebuild & restart server | `/api/redeploy`, then waits for `/api/health` and reloads. | Tools menu. |
 | Lock this Mac | `/api/lock`. | Tools menu. |
-| Restart & resume agent | Pick account (Claude / Claude · work / Codex), preselected from `/api/restart-agent/<t>`. | Tile header button + menu. |
+| Restart & resume agent | Pick agent (Claude / Claude · work / Codex / OpenCode / Pi), preselected from `/api/restart-agent/<t>`. | Tile header button + menu. |
 | Sibling panes | Panes in the same tmux window (`/api/panes/<t>`), new pane (`/api/pane/new`), remove pane (`/api/pane/kill`, second click). | Tile menu. |
 | Attach file / photo | Hash lookup (`/api/upload/lookup`), image downscale, upload with progress, types the paths. | Tile Attach button. |
 | Version self-heal | `/api/version`; reload once when the front end changed. | Same. |

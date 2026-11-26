@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// Session launcher: list projects and start a fresh claude/codex tmux session
+// Session launcher: list projects and start a fresh claude/codex/opencode/pi tmux session
 // in one, so new work can be spun up from the UI (incl. the phone) without tmux.
 
 type projectEntry struct {
@@ -92,8 +92,8 @@ func tmuxSessionName(base string) string {
 // agentCommand maps a UI agent choice to the shell command run in the new pane.
 func agentCommand(agent string) string {
 	switch agent {
-	case "codex":
-		return "codex"
+	case agentCodex, agentOpenCode, agentPi:
+		return agent
 	case "claude-work":
 		return `CLAUDE_CONFIG_DIR="$HOME/.claude-ts" claude`
 	default: // claude (personal)

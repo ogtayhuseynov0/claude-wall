@@ -220,6 +220,9 @@ func runInit() {
 		fmt.Println("  Claude Wall hooks installed. Restart Claude Code sessions to activate.")
 		fmt.Println("  To remove: claude-wall uninstall")
 	}
+
+	// 3. OpenCode and Pi status plugins, for the agents installed here.
+	installAgentPlugins()
 }
 
 func runUninstall() {
@@ -227,6 +230,9 @@ func runUninstall() {
 	if err != nil {
 		fatal("cannot find home directory: %v", err)
 	}
+
+	// 0. OpenCode and Pi status plugins
+	uninstallAgentPlugins()
 
 	// 1. Remove hook script
 	hookPath := filepath.Join(homeDir, ".claude", "hooks", hookScriptName)

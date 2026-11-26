@@ -92,7 +92,7 @@
   @media (min-width:560px) { .rm-card { border-radius:16px; } }
   .rm-title { font-size:16px; font-weight:700; }
   .rm-desc { font-size:12.5px; color:var(--muted); margin:5px 0 14px; line-height:1.4; }
-  .rm-seg { display:flex; gap:7px; margin-bottom:16px; }
+  .rm-seg { display:flex; flex-wrap:wrap; gap:7px; margin-bottom:16px; }
   .rm-seg button { flex:1; padding:11px 6px; border-radius:10px; border:1px solid #2f3340;
     background:#20242e; color:var(--fg); font-size:13px; font-family:inherit; font-weight:600; }
   .rm-seg button.on { background:var(--accent); color:#0d0f14; border-color:var(--accent); }
@@ -156,6 +156,8 @@
         <button data-acct="claude">Claude</button>
         <button data-acct="claude-work">Claude · work</button>
         <button data-acct="codex">Codex</button>
+        <button data-acct="opencode">OpenCode</button>
+        <button data-acct="pi">Pi</button>
       </div>
       <div class="rm-actions">
         <button id="rmCancel" class="rm-btn">Cancel</button>
@@ -436,8 +438,9 @@
     try { list = await (await fetch('/api/panes/' + encodeURIComponent(t))).json(); } catch (_) {}
     const remain = (Array.isArray(list) ? list : []).filter((p) => p.target !== t);
     if (remain.length) {
-      // Prefer the agent pane (claude, then codex), else the active/first one.
-      const pick = remain.find((p) => p.label === 'claude') || remain.find((p) => p.label === 'codex')
+      // Prefer an agent pane (Claude first), else the active/first one.
+      const AGENTS = ['claude', 'codex', 'opencode', 'pi'];
+      const pick = AGENTS.map((a) => remain.find((p) => p.label === a)).find(Boolean)
         || remain.find((p) => p.active) || remain[0];
       switchTo(pick.target);
     } else { panebar.hidden = true; const bk = document.getElementById('back'); if (bk) bk.click(); }

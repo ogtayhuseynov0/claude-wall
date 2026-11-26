@@ -401,8 +401,8 @@ func (h *captureHub) resolveStatus(target, content string) (string, string, stri
 		if dir != "" {
 			hs := hooks.getStateForPane(target, dir)
 			if hs != nil {
-				// Stale working/error: if no hook event in 120s, fall through to terminal
-				if (hs.Status == "working" || hs.Status == "error") && time.Since(hs.UpdatedAt) > 120*time.Second {
+				// Stale working/error: no hook event in a while, so the terminal decides.
+				if !hs.current() {
 					// fall through to terminal parsing
 				} else {
 					// Hooks are authoritative for status; terminal is authoritative for permission mode
@@ -411,9 +411,10 @@ func (h *captureHub) resolveStatus(target, content string) (string, string, stri
 						mode = hs.PermissionMode
 					}
 					activity := hs.Activity
-					// While working, prefer the live spinner label ("Compacting… 1m 12s")
-					// — it carries the elapsed timer the hook activity lacks.
-					if hs.Status == "working" {
+					// While working, prefer Claude's live spinner label ("Compacting… 1m 12s")
+					// — it carries the elapsed timer the hook activity lacks. Pi's loader
+					// says only "Working", less than its plugin's activity.
+					if hs.Status == "working" && !agentReportsInOrder(hs.Agent) {
 						if _, spin := parseTerminalStatus(content); spin != "" {
 							activity = spin
 						}
@@ -463,6 +464,13 @@ var spinnerRe = regexp.MustCompile(
 // it so a bare "47%" in prose doesn't match. Group 1 = the percentage.
 var progressRe = regexp.MustCompile(`[\x{25b0}\x{25b1}][\x{25b0}\x{25b1}\s]*(\d{1,3})%`)
 
+// piLoaderRe matches Pi's busy line, a loader set in its separator rule:
+//   "── ⠼ Working ────────"
+// The rule on both sides keeps it from matching a braille spinner that a
+// command printed into a transcript. Group 1 = the loader text.
+var piLoaderRe = regexp.MustCompile(
+	`^[\x{2500}-\x{257f}]+\s+[\x{2801}-\x{28ff}]\s+(\p{Lu}[^\x{2500}-\x{257f}]{0,60}?)\s+[\x{2500}-\x{257f}]+$`)
+
 // spinnerActivity builds a short card label from the spinner verb + the leading
 // part of the parenthetical (the elapsed timer, before the first " · ").
 // e.g. verb="Compacting", paren="1m 12s · ↓ 3.1k tokens" → "Compacting… 1m 12s".
@@ -511,6 +519,9 @@ func parseTerminalStatus(content string) (string, string) {
 			}
 			return "working", spinnerActivity(m[1], m[2])
 		}
+		if m := piLoaderRe.FindStringSubmatch(plain); m != nil {
+			return "working", strings.TrimRight(m[1], ".\u2026") + "\u2026"
+		}
 		// Tool actively running (e.g. "Bash Running\u2026")
 		if strings.HasSuffix(plain, "Running\u2026") || strings.HasSuffix(plain, "Running...") {
 			return "working", strings.TrimLeft(plain, "\u00b7\u2722\u2733\u2736\u273b\u273d\u2217\u23fa ")
@@ -554,8 +565,8 @@ func (h *captureHub) pushHookStatus(hs *hookStore) {
 			continue
 		}
 		hookState := hs.getStateForPane(target, dir)
-		if hookState == nil {
-			continue
+		if !hookState.current() {
+			continue // stale: the capture loop reads the terminal for this pane
 		}
 
 		prev := h.latest[target]

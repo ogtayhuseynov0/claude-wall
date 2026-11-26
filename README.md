@@ -28,6 +28,7 @@
 - **Chrome Extension** — Send selected text or full page content to any agent
 - **Files and Images** — Drop or paste files and screenshots onto a tile; they upload and the agent gets the path
 - **Hooks Integration** — Native HTTP hooks (Claude Code 2.1+) with command fallback, 12 events
+- **More Agents** — Codex, OpenCode and Pi panes show on the wall too; OpenCode and Pi report their state through a small plugin that `claude-wall init` installs
 - **Keyboard First** — `Cmd+K` command palette, `1-9` and `h j k l` to move, `Enter` to type, `?` for all shortcuts
 - **Search and Filters** — Search agents, filter by project and by state
 - **Daemon Mode** — Runs in background with `start`/`stop`/`restart`/`status`/`logs`
@@ -237,7 +238,7 @@ Model selector: Haiku (fast/cheap), Sonnet, or Opus per message. Uses `claude -p
 ```
 Browser <--WebSocket--> Go Server <--tmux -C--> tmux server
                           |
-                     Hook Server <-- Claude Code HTTP hooks
+                     Hook Server <-- Claude Code HTTP hooks, OpenCode and Pi plugins
                           |
                      Telegram Bot <--> Telegram API (long poll)
                           |
@@ -284,10 +285,26 @@ Visit `/finance.html` (or click the cost button in the header) for:
 - `claude-wall init --dry-run` to preview changes
 - `claude-wall uninstall` removes only claude-wall hooks
 
+### OpenCode and Pi
+
+OpenCode and Pi have no Claude Code hooks, so `claude-wall init` installs a small plugin for each agent it finds on the machine:
+
+| Agent | Plugin | What it sends |
+|---|---|---|
+| [Pi](https://github.com/earendil-works/pi) | `~/.pi/agent/extensions/claude-wall.ts` | Run start and end, each tool call, extension dialogs |
+| [OpenCode](https://opencode.ai) (V2) | `~/.config/opencode/plugins/claude-wall/` | Run start and end, each tool call, permission requests and questions for the session the terminal shows |
+
+- Each plugin posts events in the Claude Code hook format to `/api/hooks/event`, with the pane from `TMUX_PANE`. Outside tmux it does nothing.
+- Set `CLAUDE_WALL_PORT` when the dashboard does not use port 7685.
+- Restart the agent after `claude-wall init`. `claude-wall uninstall` removes the plugins.
+- Without the plugin, a Pi pane still shows as working from its `Working` loader line.
+- Restart and resume uses `opencode --continue` and `pi --continue`.
+- Telegram sends a plain alert for OpenCode and Pi permission requests: their dialogs take other keys than Claude Code's menu.
+
 ## Requirements
 
 - **tmux 3.3+**
-- **Claude Code** running in tmux sessions
+- **Claude Code** (or Codex, OpenCode, Pi) running in tmux sessions
 - **Go 1.21+** (only for building from source)
 
 ## License

@@ -284,7 +284,7 @@ func runWeb(port int) {
 				status = snap[p.Target] // live status (matches dashboard) when pane is being captured
 			}
 			if status == "" && hooks != nil {
-				if hs := hooks.getStateForPane(p.Target, p.Dir); hs != nil && hs.Status != "" {
+				if hs := hooks.getStateForPane(p.Target, p.Dir); hs.current() && hs.Status != "" {
 					status = hs.Status
 					if activities[p.Target] == "" && hs.Activity != "" {
 						activities[p.Target] = hs.Activity // tool label; spinner label added below
@@ -454,7 +454,7 @@ func runWeb(port int) {
 		}
 	}()
 
-	// Hook events from Claude Code instances
+	// Hook events from Claude Code instances (and the OpenCode / Pi plugins)
 	http.HandleFunc("/api/hooks/event", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			http.Error(w, "POST only", 405)
@@ -504,6 +504,12 @@ func runWeb(port int) {
 		}
 
 		hooks.processEvent(event)
+		// A plugin heartbeat only keeps a long step from going stale: no feed
+		// entry, no webhook, no status push.
+		if event.EventName == "Heartbeat" {
+			w.Write([]byte(`{"status":"ok"}`))
+			return
+		}
 		feed.add(buildFeedEntry(event))
 
 		// Fire webhooks for matching events (in background, debounced). The
@@ -997,7 +1003,7 @@ func handlePaneWS(w http.ResponseWriter, r *http.Request) {
 	// Send scrollback history on connect (limited to last 2000 lines to prevent memory bloat)
 	lastHistory := ""
 	captureHistory := func() {
-		// Full-screen TUI agents (Claude/Codex) run on the alternate screen, so
+		// Full-screen TUI agents (Claude, Codex, OpenCode, Pi) run on the alternate screen, so
 		// tmux scrollback holds the SHELL behind them, not the agent transcript.
 		// Showing that stale shell above the live screen is misleading and causes
 		// a gap during streaming — skip it (and clear any stale block on the client).

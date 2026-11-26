@@ -8,13 +8,14 @@ import (
 )
 
 // buildVer is a hash of the shipped front-end files, computed at startup. The
-// PWA polls /api/version and reloads once when it changes, so a deploy doesn't
-// leave the phone on a stale cached page (iOS/PWA caches are sticky).
+// pages poll /api/version and reload when it changes, so a deploy doesn't
+// leave the phone on a stale cached page (iOS/PWA caches are sticky) or an
+// open desktop tab on the old dashboard.
 var buildVer string
 
 func computeBuildVer() {
 	h := sha1.New()
-	for _, f := range []string{"static/m.html", "static/pip.html", "static/sw.js"} {
+	for _, f := range []string{"static/index.html", "static/classic.html", "static/m.html", "static/pip.html", "static/sw.js"} {
 		if b, err := staticFiles.ReadFile(f); err == nil {
 			h.Write(b)
 		}

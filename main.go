@@ -71,7 +71,7 @@ func main() {
 			fatal("failed to detect panes: %v", err)
 		}
 		if len(panes) == 0 {
-			fatal("no Claude Code or Codex panes found")
+			fatal("no agent panes found (Claude Code, Codex, OpenCode or Pi)")
 		}
 		fmt.Println()
 		fmt.Printf("  %-22s %-20s %s\n", "TARGET", "DIRECTORY", "BRANCH")
@@ -159,7 +159,7 @@ type claudePane struct {
 	Dir     string `json:"dir"`     // full path
 	DirName string `json:"dirName"` // basename
 	Branch  string `json:"branch"`
-	Agent   string `json:"agent"`             // "claude" | "codex"
+	Agent   string `json:"agent"`             // "claude" | "codex" | "opencode" | "pi"
 	Profile string `json:"profile,omitempty"` // claude account: "" personal, "work", …
 	Cols    string `json:"cols,omitempty"`    // pane width
 	Rows    string `json:"rows,omitempty"`    // pane height
@@ -188,21 +188,9 @@ func findClaudePanes() ([]claudePane, error) {
 		target, session, dir, cmd, title, tty := parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
 		cols, rows := parts[6], parts[7]
 
-		// Title check only if command is NOT a regular shell (stale titles persist after exit)
-		shells := map[string]bool{"zsh": true, "bash": true, "sh": true, "fish": true}
-		// Match "claude" command OR Claude Code version (e.g. "2.0.76")
-		isClaude := cmd == "claude" ||
-			isVersionString(cmd) ||
-			(strings.Contains(title, "Claude Code") && !shells[cmd])
-		// Match OpenAI Codex CLI
-		isCodex := cmd == "codex" ||
-			(!shells[cmd] && (strings.Contains(title, "Codex") || strings.Contains(title, "codex")))
-		if !isClaude && !isCodex {
+		agent := detectAgent(cmd, title)
+		if agent == "" {
 			continue
-		}
-		agent := "claude"
-		if isCodex && !isClaude {
-			agent = "codex"
 		}
 
 		dotIdx := strings.LastIndex(target, ".")
@@ -211,7 +199,7 @@ func findClaudePanes() ([]claudePane, error) {
 		}
 		sessWin := target[:dotIdx]
 		// Dedup by pane (target), not window — a window may hold multiple
-		// agents (e.g. Claude + Codex side by side), each is its own tile.
+		// agents (e.g. Claude + OpenCode side by side), each is its own tile.
 		if seen[target] {
 			continue
 		}
@@ -224,7 +212,7 @@ func findClaudePanes() ([]claudePane, error) {
 		setPaneDir(target, dir)
 
 		profile := ""
-		if agent == "claude" {
+		if agent == agentClaude {
 			profile = paneProfile(tty) // "" personal, "work", …
 		}
 

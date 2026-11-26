@@ -108,10 +108,11 @@ func paneProfile(tty string) string {
 }
 
 // paneAccount is the best-guess account for the confirm modal's default:
-// "codex", "claude-work" (CLAUDE_CONFIG_DIR points at ~/.claude-ts), else "claude".
+// the agent for Codex, OpenCode and Pi, "claude-work" (CLAUDE_CONFIG_DIR points
+// at ~/.claude-ts), else "claude".
 func paneAccount(p claudePane) string {
-	if p.Agent == "codex" {
-		return "codex"
+	if p.Agent != agentClaude {
+		return p.Agent
 	}
 	if cfg := paneConfigDir(p.Target); strings.Contains(cfg, ".claude-ts") {
 		return "claude-work"
@@ -129,8 +130,12 @@ func paneAccount(p claudePane) string {
 // shell also remains when the agent exits, so the pane doesn't close.
 func resumeCommand(account string) string {
 	switch account {
-	case "codex":
+	case agentCodex:
 		return "codex resume --last"
+	case agentOpenCode:
+		return "opencode --continue"
+	case agentPi:
+		return "pi --continue"
 	case "claude-work":
 		return `CLAUDE_CONFIG_DIR="$HOME/.claude-ts" claude --continue`
 	default:
@@ -179,7 +184,7 @@ func handleRestartAgent(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&req)
 	account := req.Account
 	switch account {
-	case "claude", "claude-work", "codex":
+	case "claude", "claude-work", agentCodex, agentOpenCode, agentPi:
 		// explicit choice
 	default:
 		account = paneAccount(*pane)

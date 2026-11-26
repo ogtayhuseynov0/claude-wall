@@ -682,6 +682,14 @@
     color: #10a37f; background: rgba(16,163,127,0.12);
     border: 1px solid rgba(16,163,127,0.25);
   }
+  .tile-header .agent-badge.opencode {
+    color: #d6d3cf; background: rgba(214,211,207,0.10);
+    border: 1px solid rgba(214,211,207,0.25);
+  }
+  .tile-header .agent-badge.pi {
+    color: #7fcfe0; background: rgba(127,207,224,0.12);
+    border: 1px solid rgba(127,207,224,0.25);
+  }
   .tile-header .session {
     color: var(--accent);
     font-weight: 600;
@@ -1718,6 +1726,8 @@ function updateGrid() {
   applyGroupFilter();
 }
 
+// agent → [name, glyph] for the tile badge
+const AGENT_BADGE = { claude: ['Claude', '✳'], codex: ['Codex', '◇'], opencode: ['OpenCode', '▣'], pi: ['Pi', 'π'] };
 let tileCounter = 0;
 function createTile(pane) {
   const index = tileCounter++;
@@ -1730,7 +1740,7 @@ function createTile(pane) {
     <div class="tile-header">
       <span class="status-dot connecting"></span>
       <span class="tile-num">${index + 1}</span>
-      <span class="agent-badge ${pane.agent === 'codex' ? 'codex' : 'claude'}" title="${pane.agent === 'codex' ? 'Codex' : 'Claude'}">${pane.agent === 'codex' ? '◇' : '✳'}</span>
+      <span class="agent-badge ${AGENT_BADGE[pane.agent] ? pane.agent : 'claude'}" title="${(AGENT_BADGE[pane.agent] || AGENT_BADGE.claude)[0]}">${(AGENT_BADGE[pane.agent] || AGENT_BADGE.claude)[1]}</span>
       <span class="session">🖥 ${esc(pane.session || '?')}</span>
       <span class="sep">·</span>
       <span class="dir">📂 ${esc(pane.dirName || '?')}</span>

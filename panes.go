@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Sibling-pane switching: a session/window typically holds a Claude pane plus an
+// Sibling-pane switching: a session/window typically holds an agent pane plus an
 // editor (nvim) and a shell for commands. handlePanes lists every pane in the
 // window that contains the given pane so the phone can flip between them (the
 // pane view already streams + types into whatever target it points at).
@@ -111,15 +111,13 @@ func handlePaneKill(w http.ResponseWriter, r *http.Request) {
 
 // paneLabel gives a short, friendly name for a pane from its command/title.
 func paneLabel(cmd, title string) string {
-	shells := map[string]bool{"zsh": true, "bash": true, "sh": true, "fish": true}
+	if agent := detectAgent(cmd, title); agent != "" {
+		return agent
+	}
 	switch {
-	case cmd == "claude" || isVersionString(cmd) || (strings.Contains(title, "Claude Code") && !shells[cmd]):
-		return "claude"
-	case cmd == "codex" || (!shells[cmd] && strings.Contains(strings.ToLower(title), "codex")):
-		return "codex"
 	case cmd == "nvim" || cmd == "vim":
 		return "nvim"
-	case shells[cmd]:
+	case shellCmds[cmd]:
 		return "shell"
 	default:
 		return cmd

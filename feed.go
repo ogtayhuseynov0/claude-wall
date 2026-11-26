@@ -181,7 +181,7 @@ func buildFeedEntry(event hookEvent) feedEntry {
 
 	status := ""
 	switch event.EventName {
-	case "PreToolUse":
+	case "PreToolUse", "UserPromptSubmit", "PreCompact":
 		status = "working"
 	case "PostToolUse":
 		status = "working"
@@ -195,7 +195,7 @@ func buildFeedEntry(event hookEvent) feedEntry {
 		status = "idle"
 	case "StopFailure":
 		status = "idle"
-	case "Stop":
+	case "Stop", "Idle":
 		status = "idle"
 	case "PermissionRequest":
 		status = "permission"

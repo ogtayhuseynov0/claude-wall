@@ -393,6 +393,12 @@ func (b *telegramBot) handleHookEvent(event hookEvent, whEvent string, whMsg str
 		if event.EventName == "Notification" {
 			return
 		}
+		// The Yes/Always/No buttons type Claude Code's menu keys. OpenCode and
+		// Pi dialogs take other keys, so they get a plain notification.
+		if event.Agent != "" {
+			b.sendNotification(whMsg, target)
+			return
+		}
 
 		// Check if this is a question with options (AskUserQuestion or similar)
 		q := parseAskUserQuestion(event.ToolInput)
